@@ -1,0 +1,15 @@
+# Local development dependencies
+# Cloud (Modal) runtime dependencies are pinned in aicomp_grounding/config.py
+
+# Core
+pillow>=9.0
+
+# Data preparation (scripts/prepare_rgbdt.py)
+opencv-python-headless>=4.5
+numpy>=1.21
+
+# Cloud execution
+modal>=0.62
+
+# Testing (stdlib unittest is used; pytest optional)
+# pytest>=7.0

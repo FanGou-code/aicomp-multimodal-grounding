@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Conda
+.conda/
+environment.yml.bak
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Data files & Datasets (prevent accidental large file commits)
+data/
+dataset/
+Train/
+Train_Processed/
+preview_check/
+*.json
+!package.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Modal
+.modal/
+*.modal
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs & outputs
+*.log
+wandb/
+outputs/
+checkpoints/
+runs/
