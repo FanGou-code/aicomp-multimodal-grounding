@@ -35,7 +35,7 @@ flowchart LR
 | 基座模型 | `Qwen/Qwen3-VL-8B-Instruct` |
 | 模型 revision | `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` |
 | 输入 | RGB、Infrared、Depth 三张图像及英文 Query |
-| 图像预算 | 每个模态 `2560 * 28 * 28` pixels (近原图极高分辨率，约 97% 原图像素) |
+| 图像预算 | 每个模态 `1920 * 28 * 28` pixels |
 | 量化 | 无（原生 16-bit BF16 训练与推理） |
 | 计算精度 | BF16 |
 | 微调方法 | LoRA，rank 16，alpha 32，dropout 0.05 |
