@@ -1,4 +1,4 @@
-"""Generate per-frame queries from red-box RGB through the SiliconFlow API."""
+"""Generate per-frame queries from red-box RGB through the annotation API."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ from aicomp_grounding.sequence import (
     source_fingerprint,
 )
 from aicomp_grounding.sharding import group_keys_by_scene
-from aicomp_grounding.siliconflow import SiliconFlowClient, SlidingWindowRateLimiter
+from aicomp_grounding.api_client import OpenAIProtocolClient, SlidingWindowRateLimiter
 
 FRAME_QUERY_PROMPT = """Write a natural English visual-grounding query for the physical object enclosed by the red rectangle.
 
@@ -85,7 +85,7 @@ PROMPT_HASH = hashlib.sha256(FRAME_QUERY_PROMPT.encode("utf-8")).hexdigest()
 GENERATION_CONFIG = {
     "query_max_tokens": 4096,
     "temperature": ANNOTATION_TEMPERATURE,
-    # Zhipu's GLM-4.6V does not accept SiliconFlow's enable_thinking param and
+    # GLM-4.6V does not accept enable_thinking param and
     # may 400 on response_format json_object; the prompt already requests JSON
     # and parse_frame_query_candidates handles fenced/raw JSON via QC + retry.
     "enable_thinking": None,
@@ -335,7 +335,7 @@ def _load_marked_frame(data_root: Path, item: dict) -> Image.Image:
 
 
 def _annotate_frame(
-    client: SiliconFlowClient,
+    client: OpenAIProtocolClient,
     marked_rgb: Image.Image,
     *,
     previous: dict | None,
@@ -450,7 +450,7 @@ def annotate_shard(
     if not todo:
         return {"metadata": expected_metadata, "results": results}
 
-    client = SiliconFlowClient(
+    client = OpenAIProtocolClient(
         api_key=api_key,
         model=metadata["model_name"],
         base_url=metadata["api_base_url"],
@@ -718,10 +718,10 @@ def run_annotation(
         flush=True,
     )
 
-    api_key = os.environ.get("ZHIPU_API_KEY", "").strip()
+    api_key = os.environ.get("API_KEY", "").strip()
     if plan["pending_shard_ids"] and not api_key:
         raise RuntimeError(
-            "ZHIPU_API_KEY is not set. Set it in the current environment; "
+            "API_KEY is not set. Set it in the current environment; "
             "never store it in the repository."
         )
     limiter = SlidingWindowRateLimiter(
@@ -786,7 +786,7 @@ def run_annotation(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate per-frame visual-grounding queries from red-box RGB via SiliconFlow."
+        description="Generate per-frame visual-grounding queries from red-box RGB via annotation API."
     )
     parser.add_argument("--split", choices=sorted(ANNOTATION_SPLITS), default="train")
     parser.add_argument("--data-root", type=Path, default=Path("data"))

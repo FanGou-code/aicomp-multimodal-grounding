@@ -48,7 +48,7 @@ def _plan(data: dict, *, limit=None, shards=2) -> dict:
     return build_annotation_plan(
         data,
         split="train",
-        provider="siliconflow",
+        provider="zhipu",
         api_base_url="https://api.siliconflow.cn/v1",
         model_name="open-model",
         model_revision="revision",
@@ -128,7 +128,7 @@ class PlanTests(unittest.TestCase):
         changed_preparation = build_annotation_plan(
             data,
             split="train",
-            provider="siliconflow",
+            provider="zhipu",
             api_base_url="https://api.siliconflow.cn/v1",
             model_name="open-model",
             model_revision="revision",
@@ -147,7 +147,7 @@ class PlanTests(unittest.TestCase):
         changed_images = build_annotation_plan(
             data,
             split="train",
-            provider="siliconflow",
+            provider="zhipu",
             api_base_url="https://api.siliconflow.cn/v1",
             model_name="open-model",
             model_revision="revision",
@@ -274,7 +274,7 @@ class ApprovalTests(unittest.TestCase):
         self.assertIs(validated, artifact)
         provenance = artifact["metadata"]["provenance"]
         self.assertEqual(provenance["source_type"], "hosted_open_weights")
-        self.assertEqual(provenance["provider"], "siliconflow")
+        self.assertEqual(provenance["provider"], "zhipu")
         self.assertEqual(provenance["model_license"], "Apache-2.0")
         for item in artifact["data"].values():
             self.assertNotIn("internal", item)
@@ -328,8 +328,8 @@ class ApprovalTests(unittest.TestCase):
                 "prompt_hash": "prompt",
                 "provenance": {
                     "source_type": "hosted_open_weights",
-                    "provider": "siliconflow",
-                    "api_base_url": "https://api.siliconflow.cn/v1",
+                    "provider": "zhipu",
+                    "api_base_url": "https://api.zhipu.cn/v1",
                     "annotator_model": "open-model",
                     "annotator_revision": "revision",
                     "model_weights_url": "https://example.com/open-model",

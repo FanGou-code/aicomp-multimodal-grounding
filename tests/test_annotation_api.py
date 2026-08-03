@@ -1,4 +1,4 @@
-"""Offline tests for marked generation views and SiliconFlow request handling."""
+"""Offline tests for marked generation views and API request handling."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ from aicomp_grounding.annotation_state import (
     build_marked_annotation_view,
     jpeg_data_url,
 )
-from aicomp_grounding.siliconflow import (
-    SiliconFlowClient,
-    SiliconFlowResponse,
+from aicomp_grounding.api_client import (
+    OpenAIProtocolClient,
+    APIResponse,
     SlidingWindowRateLimiter,
 )
 
@@ -80,7 +80,7 @@ class SiliconFlowClientTests(unittest.TestCase):
                 }
             )
 
-        client = SiliconFlowClient(
+        client = OpenAIProtocolClient(
             api_key="secret-test-key",
             model="Qwen/Qwen3.5-27B",
             base_url="https://api.siliconflow.cn/v1",
@@ -137,7 +137,7 @@ class FrameGenerationTests(unittest.TestCase):
                 "finish_reason": "stop",
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             }
-            return SiliconFlowResponse(self.responses.pop(0), record)
+            return APIResponse(self.responses.pop(0), record)
 
     @staticmethod
     def _marked():

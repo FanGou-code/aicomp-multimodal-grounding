@@ -92,7 +92,7 @@ def _artifact(split: str, scene: str, run_id: str = "annot_round1") -> dict:
             "prompt_hash": "annotation-prompt",
             "provenance": {
                 "source_type": "hosted_open_weights",
-                "provider": "siliconflow",
+                "provider": "zhipu",
                 "api_base_url": "https://api.siliconflow.cn/v1",
                 "annotator_model": "open-model",
                 "annotator_revision": "revision",

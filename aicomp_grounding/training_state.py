@@ -430,47 +430,57 @@ def validate_resume_checkpoint(
         relative = checkpoint.relative_to(checkpoint_root)
     except ValueError as exc:
         raise ValueError("Training checkpoint escapes the current run directory") from exc
-    match = _re.fullmatch(r"epoch_(\d+)", relative.as_posix())
-    if match is None:
+    match_epoch = _re.fullmatch(r"epoch_(\d+)", relative.as_posix())
+    match_step = _re.fullmatch(r"step_(\d+)", relative.as_posix())
+    if match_epoch is None and match_step is None:
         raise ValueError(f"Invalid training checkpoint path: {checkpoint}")
-    epoch = int(match.group(1))
-    if not 1 <= epoch <= num_epochs:
-        raise ValueError(f"Training checkpoint epoch is outside 1..{num_epochs}: {epoch}")
+
     if not (checkpoint / "adapter_config.json").is_file() or adapter_weight_path(checkpoint) is None:
         raise FileNotFoundError(f"Training checkpoint adapter is incomplete: {checkpoint}")
-    checkpoint_manifest = validate_adapter_directory(
-        checkpoint, run_dir=run_dir, metadata=metadata,
-        expected_kind="checkpoint", num_epochs=num_epochs,
-    )
     binary_path = checkpoint / "training_state.pt"
     if not binary_path.is_file() or binary_path.stat().st_size == 0:
         raise FileNotFoundError(f"Training optimizer/RNG state is missing: {binary_path}")
     state = _load_json(checkpoint / "state.json")
-    required = {"metadata", "completed_epoch", "global_step", "best_val_loss",
-                "best_path", "train_loss", "val_loss"}
-    if set(state) != required or state["metadata"] != metadata:
-        raise ValueError("Training checkpoint state schema or metadata does not match")
-    if state["completed_epoch"] != epoch:
-        raise ValueError("Training checkpoint path and completed_epoch disagree")
-    expected_steps = expected_global_steps(
-        metadata, epoch, batch_size=batch_size, grad_accum_steps=grad_accum_steps
-    )
-    if state["global_step"] != expected_steps:
-        raise ValueError(
-            f"Training checkpoint global_step={state['global_step']} does not match expected {expected_steps}"
+    if state.get("metadata") != metadata:
+        raise ValueError("Training checkpoint state metadata does not match")
+
+    if match_epoch:
+        epoch = int(match_epoch.group(1))
+        if not 1 <= epoch <= num_epochs:
+            raise ValueError(f"Training checkpoint epoch is outside 1..{num_epochs}: {epoch}")
+        checkpoint_manifest = validate_adapter_directory(
+            checkpoint, run_dir=run_dir, metadata=metadata,
+            expected_kind="checkpoint", num_epochs=num_epochs,
         )
-    for field in ("best_val_loss", "train_loss", "val_loss"):
-        value = state[field]
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-            raise ValueError(f"Training checkpoint has invalid {field}")
-    if checkpoint_manifest["val_loss"] != state["val_loss"]:
-        raise ValueError("Training checkpoint state and adapter manifest val_loss disagree")
-    best_manifest = validate_adapter_directory(
-        state["best_path"], run_dir=run_dir, metadata=metadata,
-        expected_kind="best", num_epochs=num_epochs,
-    )
-    if best_manifest["epoch"] > epoch or best_manifest["val_loss"] != state["best_val_loss"]:
-        raise ValueError("Training checkpoint and best adapter manifest disagree")
+        required = {"metadata", "completed_epoch", "global_step", "best_val_loss",
+                    "best_path", "train_loss", "val_loss"}
+        if set(state) != required:
+            raise ValueError("Training checkpoint state schema does not match")
+        if state["completed_epoch"] != epoch:
+            raise ValueError("Training checkpoint path and completed_epoch disagree")
+        expected_steps = expected_global_steps(
+            metadata, epoch, batch_size=batch_size, grad_accum_steps=grad_accum_steps
+        )
+        if state["global_step"] != expected_steps:
+            raise ValueError(
+                f"Training checkpoint global_step={state['global_step']} does not match expected {expected_steps}"
+            )
+        for field in ("best_val_loss", "train_loss", "val_loss"):
+            value = state[field]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"Training checkpoint has invalid {field}")
+        if checkpoint_manifest["val_loss"] != state["val_loss"]:
+            raise ValueError("Training checkpoint state and adapter manifest val_loss disagree")
+        best_manifest = validate_adapter_directory(
+            state["best_path"], run_dir=run_dir, metadata=metadata,
+            expected_kind="best", num_epochs=num_epochs,
+        )
+        if best_manifest["epoch"] > epoch or best_manifest["val_loss"] != state["best_val_loss"]:
+            raise ValueError("Training checkpoint and best adapter manifest disagree")
+    else:
+        step = int(match_step.group(1))
+        if state.get("global_step") != step:
+            raise ValueError(f"Training checkpoint path step={step} and global_step={state.get('global_step')} disagree")
     return state
 
 

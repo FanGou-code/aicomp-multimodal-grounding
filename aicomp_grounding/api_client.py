@@ -12,14 +12,14 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-class SiliconFlowAPIError(RuntimeError):
+class APIError(RuntimeError):
     def __init__(self, message: str, *, status: int | None = None) -> None:
         super().__init__(message)
         self.status = status
 
 
 @dataclass(frozen=True)
-class SiliconFlowResponse:
+class APIResponse:
     content: str
     record: dict
 
@@ -97,7 +97,7 @@ def _usage(payload: object) -> dict[str, int]:
     return result
 
 
-class SiliconFlowClient:
+class OpenAIProtocolClient:
     def __init__(
         self,
         *,
@@ -113,9 +113,9 @@ class SiliconFlowClient:
         json_mode: bool = True,
     ) -> None:
         if not api_key.strip():
-            raise ValueError("SILICONFLOW_API_KEY is empty")
+            raise ValueError("API_KEY is empty")
         if not model or not base_url.startswith("https://"):
-            raise ValueError("SiliconFlow model and HTTPS base URL are required")
+            raise ValueError("API model and HTTPS base URL are required")
         if timeout_seconds <= 0 or transport_attempts <= 0:
             raise ValueError("Timeout and transport_attempts must be positive")
         self.api_key = api_key
@@ -135,7 +135,7 @@ class SiliconFlowClient:
         messages: list[dict],
         max_tokens: int,
         temperature: float,
-    ) -> SiliconFlowResponse:
+    ) -> APIResponse:
         payload = {
             "model": self.model,
             "messages": messages,
@@ -174,8 +174,8 @@ class SiliconFlowClient:
                 detail = exc.read(2048).decode("utf-8", errors="replace")
                 retryable = exc.code == 429 or 500 <= exc.code < 600
                 if not retryable or attempt == self.transport_attempts:
-                    raise SiliconFlowAPIError(
-                        f"SiliconFlow HTTP {exc.code}: {detail}", status=exc.code
+                    raise APIError(
+                        f"API HTTP {exc.code}: {detail}", status=exc.code
                     ) from exc
                 retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 try:
@@ -185,27 +185,27 @@ class SiliconFlowClient:
                 delay = parsed_delay if parsed_delay > 0.0 else 2 ** (attempt - 1)
             except (TimeoutError, URLError) as exc:
                 if attempt == self.transport_attempts:
-                    raise SiliconFlowAPIError(f"SiliconFlow request failed: {exc}") from exc
+                    raise APIError(f"API request failed: {exc}") from exc
                 delay = 2 ** (attempt - 1)
             self.sleeper(min(delay, 30.0) + random.random() * 0.25)
-        raise AssertionError("Unreachable SiliconFlow retry state")
+        raise AssertionError("Unreachable API retry state")
 
-    def _parse_response(self, payload: object, headers: object) -> SiliconFlowResponse:
+    def _parse_response(self, payload: object, headers: object) -> APIResponse:
         if not isinstance(payload, dict):
-            raise SiliconFlowAPIError("SiliconFlow response must be a JSON object")
+            raise APIError("API response must be a JSON object")
         choices = payload.get("choices")
         if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
-            raise SiliconFlowAPIError("SiliconFlow response must contain exactly one choice")
+            raise APIError("API response must contain exactly one choice")
         choice = choices[0]
         finish_reason = choice.get("finish_reason")
         if finish_reason == "length":
-            raise SiliconFlowAPIError("SiliconFlow response was truncated by max_tokens")
+            raise APIError("API response was truncated by max_tokens")
         message = choice.get("message")
         content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, str) or not content.strip():
-            raise SiliconFlowAPIError("SiliconFlow response has no final content")
+            raise APIError("API response has no final content")
         trace_id = headers.get("x-siliconcloud-trace-id", "") if hasattr(headers, "get") else ""
-        return SiliconFlowResponse(
+        return APIResponse(
             content=content,
             record={
                 "response_id": payload.get("id", ""),

@@ -66,7 +66,7 @@ OUTPUT_ROOT = Path(DATA_ROOT) / "output_lora"
 BATCH_SIZE = 1
 GRAD_ACCUM_STEPS = 8
 LEARNING_RATE = 1e-4
-NUM_EPOCHS = 3
+NUM_EPOCHS = 2
 WARMUP_RATIO = 0.05
 MAX_GRAD_NORM = 1.0
 SEED = 42
@@ -129,17 +129,21 @@ def _latest_epoch_checkpoint(run_dir: Path) -> Path | None:
     checkpoint_root = run_dir / "checkpoints"
     candidates = []
     if checkpoint_root.is_dir():
-        for path in checkpoint_root.glob("epoch_*"):
-            match = re.fullmatch(r"epoch_(\d+)", path.name)
+        for path in checkpoint_root.iterdir():
+            if not path.is_dir():
+                continue
             if (
-                match
-                and (path / "state.json").is_file()
+                (path / "state.json").is_file()
                 and (path / "training_state.pt").is_file()
                 and (path / "adapter_config.json").is_file()
-                and (path / "adapter_manifest.json").is_file()
                 and adapter_weight_path(path) is not None
             ):
-                candidates.append((int(match.group(1)), path))
+                try:
+                    state = load_json(path / "state.json")
+                    step = state.get("global_step", 0)
+                    candidates.append((step, path))
+                except Exception:
+                    pass
     return max(candidates, default=(0, None))[1]
 
 
@@ -322,7 +326,7 @@ def _load_training_state(torch_module, path: Path) -> object:
 @app.function(
     gpu="A100-80GB",
     cpu=4.0,
-    memory=32768,
+    memory=65536,
     timeout=43200,
     volumes={
         "/data": dataset_volume,
@@ -642,6 +646,32 @@ def train(training_plan: dict) -> dict:
                         f"loss {epoch_loss / (batch_index + 1):.4f}",
                         flush=True,
                     )
+                    step_dir = run_dir / "checkpoints" / f"step_{global_step:04d}"
+                    model.save_pretrained(step_dir)
+                    processor.save_pretrained(step_dir)
+                    step_state = {
+                        "metadata": metadata,
+                        "completed_epoch": epoch,
+                        "global_step": global_step,
+                        "best_val_loss": best_val_loss,
+                        "best_path": best_path,
+                        "epoch_loss": epoch_loss / (batch_index + 1),
+                    }
+                    atomic_write_json(step_dir / "state.json", step_state)
+                    _atomic_torch_save(
+                        torch,
+                        {
+                            "optimizer": optimizer.state_dict(),
+                            "scheduler": scheduler.state_dict(),
+                            "torch_rng_state": torch.get_rng_state(),
+                            "cuda_rng_state": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                            "completed_epoch": epoch,
+                            "global_step": global_step,
+                            "training_run_id": metadata["training_run_id"],
+                        },
+                        step_dir / "training_state.pt",
+                    )
+                    dataset_volume.commit()
 
         model.eval()
         validation_loss = 0.0

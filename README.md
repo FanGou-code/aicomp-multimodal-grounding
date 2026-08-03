@@ -40,9 +40,9 @@ flowchart LR
 | 计算精度 | BF16 |
 | 微调方法 | LoRA，rank 16，alpha 32，dropout 0.05 |
 | LoRA 模块 | `q/k/v/o_proj`、`gate/up/down_proj` |
-| 训练 | 3 epochs，batch size 1，gradient accumulation 8 |
+| 训练 | 2 epochs，batch size 1，gradient accumulation 8 |
 | 优化器参数 | learning rate `1e-4`，weight decay `0.01`，warmup `0.05` |
-| 训练设备 | Modal A100-80GB |
+| 训练设备 | Modal A100-80GB (64GB RAM) |
 | 推理设备 | Modal L40S，最多 10 个并行分片 |
 
 ### 教师模型 (Teacher Model)
@@ -95,10 +95,10 @@ GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原�
 | 阶段 | Run ID / 产物 |
 | --- | --- |
 | Query 标注 (GLM-4.6V 校准) | `annot_f9682e93205f2f0a` |
-| LoRA 训练 | 待执行 |
-| Best adapter | 待执行 |
-| 全局优化步数 | 待执行 |
-| Best validation loss | 待执行 |
+| LoRA 训练 | `train_de9fad6e5016316c` |
+| Best adapter | `outputs/best_adapter/` (epoch 2, val_loss 0.3714) |
+| 全局优化步数 | 782 |
+| Best validation loss | 0.3714 |
 | Base Val | `infer_val_base_151feaea455ac9f6` |
 | LoRA Val | 待执行 |
 | Test 首次推理 | `infer_test_base_f5688220e4d59da6` |
@@ -121,7 +121,7 @@ aicomp_grounding/
   query.py              Query 与训练样本结构校验
   sequence.py           Query 生成响应与文本 QC
   sharding.py           场景级均衡分片
-  siliconflow.py        Zhipu AI 客户端、限流与退避
+  api_client.py         通用 OpenAI 协议客户端、限流与退避
   test_data.py          官方 Test 模板与索引合同
   training_state.py     训练身份、调度与 checkpoint 校验
 
@@ -259,7 +259,7 @@ excluded_invalid_bbox=97
 在 bash 中设置 API Key：
 
 ```bash
-export ZHIPU_API_KEY="<your Zhipu AI API key>"
+export API_KEY="<your API key>"
 ```
 
 建议先选取少量场景验证 Prompt、API 和 QC：
