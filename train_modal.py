@@ -132,6 +132,13 @@ def _latest_epoch_checkpoint(run_dir: Path) -> Path | None:
         for path in checkpoint_root.iterdir():
             if not path.is_dir():
                 continue
+            # Only epoch-boundary checkpoints are safe resume sources. Step-level
+            # checkpoints intentionally do not participate: resuming from a
+            # step_* checkpoint would replay the current epoch's already-updated
+            # batches, double-training that epoch and breaking global_step
+            # accounting against validate_completed_training_state.
+            if not path.name.startswith("epoch_"):
+                continue
             if (
                 (path / "state.json").is_file()
                 and (path / "training_state.pt").is_file()

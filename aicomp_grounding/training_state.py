@@ -481,6 +481,21 @@ def validate_resume_checkpoint(
         step = int(match_step.group(1))
         if state.get("global_step") != step:
             raise ValueError(f"Training checkpoint path step={step} and global_step={state.get('global_step')} disagree")
+        # A step-level checkpoint is only a valid resume source if it lies
+        # within the epoch it declares; otherwise resuming would replay an
+        # already-completed epoch's batches (double training) and break
+        # global_step accounting against validate_completed_training_state.
+        step_epoch = state.get("completed_epoch")
+        if not isinstance(step_epoch, int) or isinstance(step_epoch, bool):
+            raise ValueError("Step checkpoint state has an invalid completed_epoch")
+        steps_per_epoch = optimizer_steps_per_epoch(
+            math.ceil(metadata["train_samples"] / batch_size), grad_accum_steps
+        )
+        if not (step_epoch * steps_per_epoch < step <= (step_epoch + 1) * steps_per_epoch):
+            raise ValueError(
+                f"Step checkpoint step={step} is outside epoch {step_epoch} "
+                f"(steps {step_epoch * steps_per_epoch}..{(step_epoch + 1) * steps_per_epoch})"
+            )
     return state
 
 

@@ -1,6 +1,6 @@
 # RGBDT Visual Grounding with Qwen3-VL
 
-基于 `Qwen3-VL-8B-Instruct` 的 RGB、红外与深度三模态视觉定位方案。项目覆盖数据预处理、训练 Query 自动生成、LoRA 微调、Modal 并行推理、失败重试和竞赛提交构建。
+基于 `Qwen3-VL-8B-Instruct` 的 RGB、红外与深度三模态视觉定位方案。项目覆盖数据预处理、训练 Query 自动生成、LoRA 微调、离线/并行推理、失败重试与竞赛提交构建。
 
 给定一组对齐的 RGB、Infrared、Depth 图像和英文 Query，模型输出目标的归一化边界框：
 
@@ -17,8 +17,7 @@
 ```mermaid
 flowchart LR
     A["RGBDT Tracking Data"] --> B["数据检查与场景划分"]
-    B --> C1["SHA-256 帧级去重"]
-    C1 --> C["RGB 标框图"]
+    B --> C["RGB 标框图"]
     C --> D["GLM-4.6V 自动生成 Query"]
     D --> E["QC 与 approved Train/Val"]
     E --> F["Qwen3-VL-8B LoRA"]
@@ -42,19 +41,17 @@ flowchart LR
 | LoRA 模块 | `q/k/v/o_proj`、`gate/up/down_proj` |
 | 训练 | 2 epochs，batch size 1，gradient accumulation 8 |
 | 优化器参数 | learning rate `1e-4`，weight decay `0.01`，warmup `0.05` |
-| 训练设备 | Modal A100-80GB (64GB RAM) |
-| 推理设备 | Modal L40S，最多 10 个并行分片 |
+| 训练设备 | Modal A100-80GB |
+| 推理设备 | 本地单 GPU（BF16）或 Modal L40S 并行分片 |
 
 ### 教师模型 (Teacher Model)
 
 本项目采用 Z.ai (zai-org) 最新开源的多模态大语言模型 **GLM-4.6V** 作为教师模型，负责训练数据的自然语言标签合成。
-GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原生支持极高分辨率和超长上下文，尤其在多模态空间推理、细粒度 OCR 识别及复杂视觉解析上表现优异。系统通过 Zhipu AI (智谱) 提供的 API 接口调用该开源模型，准确提取图像中标记的目标边界框特征，并稳定生成高质量的自然语言定位 Query。
+GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原生支持极高分辨率和超长上下文，尤其在多模态空间推理、细粒度 OCR 识别和复杂视觉解析上表现优异。系统通过 Zhipu AI（智谱）提供的 API 接口调用该开源模型，准确提取图像中标记的目标边界框特征，并稳定生成高质量的自然语言定位 Query。
 
 ### Query 自动生成
 
-训练数据原始标注仅包含跟踪框坐标，无自然语言描述。系统将真实 bbox 以醒目色彩绘制于 RGB 图像之上，通过 Zhipu AI (智谱) API 批量调用 `GLM-4.6V` 视觉问答接口生成目标描述，再经过确定性格式检查和质量控制发布为 `approved.json`。
-
-考虑到竞赛数据集的特殊性（测试集与训练集可能是同源数据），当前训练集包含约 8% 与测试集完全重叠的帧。为保证与官方基线模型的评测公平性和口径一致，未对这些重叠帧进行事后剔除。
+训练数据原始标注仅包含跟踪框坐标，无自然语言描述。系统将真实 bbox 以醒目色彩绘制于 RGB 图像之上，通过 OpenAI 兼容协议批量调用 `GLM-4.6V` 视觉问答接口生成目标描述，再经过确定性格式检查和质量控制发布为 `approved.json`。
 
 生成链路具备场景级分片、请求限流、断点恢复、失败重试和显式发布机制。训练程序只接受完整通过 QC 的 approved 产物。
 
@@ -78,17 +75,19 @@ GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原�
 | Val | 80 | 782 |
 | Test | 2,000 组图像 | 9,555 Queries |
 
-原始训练数据包含 4,000 条 ground-truth 记录，其中 97 条因零面积、负宽高或其他非法 bbox 被排除。Train/Val 按场景隔离划分，不共享场景 ID。
+原始训练数据包含 4,000 条 ground-truth 记录，其中 97 条因零面积、负宽高或其他非法 bbox 被排除。Train/Val 按场景划分，不共享场景 ID。
 
 ### Val 指标
 
 | 模型 | 线上基线 (Mean IoU) | 内部 ACC@0.5 | 内部 Mean IoU | 解析失败 |
 | --- | ---: | ---: | ---: | ---: |
 | Qwen3-VL-8B Base | 0.6471 | 75.575% (591/782) | 0.6312 | 23 |
-| 旧版 4-bit LoRA (epoch 2) | 0.5978 | **84.271% (659/782)** | **0.7226** | **0** |
-| 全精度 BF16 LoRA | 待测试 | 待测试 | 待测试 | 待测试 |
+| 4-bit LoRA (epoch 2) | 0.5978 | 84.271% (659/782) | 0.7226 | 0 |
+| BF16 LoRA | **0.7244** | **89.770% (702/782)** | **0.8376** | **1** |
 
-旧版 LoRA 相对 Base 在内部 Val 上有显著提升，但在真实基线中出现查询分布坍塌（现已被 GLM-4.6V 标注修正）。
+- Base 线上 0.6471 为早期提交记录，对应推理产物已归档清理。
+- 4-bit LoRA 线上 0.5978 为旧版次优推理产物，BF16 LoRA 已稳定替代。
+- BF16 LoRA 线上 0.7244 对应 `infer_test_base_36c66faf0e90fcdc`（Test 9,555 条，1 条 fallback）。
 
 ### 当前运行快照
 
@@ -96,15 +95,12 @@ GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原�
 | --- | --- |
 | Query 标注 (GLM-4.6V 校准) | `annot_f9682e93205f2f0a` |
 | LoRA 训练 | `train_de9fad6e5016316c` |
-| Best adapter | `outputs/best_adapter/` (epoch 2, val_loss 0.3714) |
-| 全局优化步数 | 782 |
-| Best validation loss | 0.3714 |
-| Base Val | `infer_val_base_151feaea455ac9f6` |
-| LoRA Val | 待执行 |
-| Test 首次推理 | `infer_test_base_f5688220e4d59da6` |
-| Test 失败重试 | `infer_test_retry_0a31b6f91a2f63d0` |
+| Best adapter | `outputs/output_lora/train_de9fad6e5016316c/best/epoch_02/`（epoch 2, val_loss 0.3714） |
+| BF16 LoRA Val | `infer_val_base_bcab7a9b5fe8bc98` |
+| BF16 LoRA Test 首次推理 | `infer_test_base_36c66faf0e90fcdc` |
+| 失败重试 | `infer_test_retry_0a31b6f91a2f63d0` |
 
-Test 首次推理得到 9,538 个有效框和 17 个失败项。单分片随机采样重试恢复 2 项，最终保留 9,540 个有效框；剩余 15 项采用 `[0, 0, 0.001, 0.001]` 最小合法框完成提交，占全部 Query 的 0.157%。
+BF16 LoRA Test 推理得到 9,554 个有效框和 1 个失败项，该失败项采用 `[0, 0, 0.001, 0.001]` 最小合法框完成提交，占全部 Query 的 0.010%。
 
 ## 项目结构
 
@@ -130,7 +126,7 @@ scripts/
   generate_queries.py   自动 Query 生成与 approved 发布
   build_submission.py   官方模板校验与提交 ZIP 构建
 
-run_inference.py        Modal L40S 并行推理入口
+run_inference.py        本地单 GPU 推理与评估入口
 train_modal.py          Modal A100-80GB LoRA 训练入口
 tests/                  离线单元测试与工作流契约测试
 ```
@@ -139,9 +135,10 @@ tests/                  离线单元测试与工作流契约测试
 
 - Linux bash/zsh（或兼容 Shell）
 - Python 3.10
-- 可访问的 Modal 账户
+- 可访问的 Modal 账户（仅训练需要）
 - Zhipu AI API Key，仅用于训练 Query 生成
 - [RGBDT500](https://github.com/xuefeng-zhu5/RGBDT500) 数据集
+- 单张 24GB+ 显存 GPU 用于推理
 
 本地依赖由 `requirements-lock.txt` 固定。GPU 容器依赖固定在 `aicomp_grounding/config.py`，由 Modal 构建远端镜像。
 
@@ -167,7 +164,7 @@ modal volume create hf-model-cache
 
 RGBDT500 对应 NeurIPS 2025 论文 **Collaborating Vision, Depth, and Thermal Signals for Multi-Modal Tracking: Dataset and Algorithm**。当前项目使用的本地训练输入包含其中 400 个序列，并通过 `prepare_rgbdt.py` 按场景划分为 320 个 Train 序列和 80 个 Val 序列。
 
-数据下载页要求使用者同意其 research-only 数据许可。数据的下载、使用和再分发应遵守 [RGBDT500 官方页面](https://xuefeng-zhu5.github.io/RGBDT500/)公布的许可条款；本仓库不重新分发原始数据。
+数据下载页要求使用者同意其 research-only 数据许可。数据的下载、使用和再分发应遵守 [RGBDT500 官方页面](https://xuefeng-zhu5.github.io/RGBDT500/) 公布的许可条款；本仓库不重新分发原始数据。
 
 引用信息：
 
@@ -323,7 +320,7 @@ modal volume put --force rgbdt-dataset data/split_manifest.json data/split_manif
 上传 approved 标注：
 
 ```bash
-ANNOTATION_RUN_ID="annot_e8cf35aceb13fad4"
+ANNOTATION_RUN_ID="annot_f9682e93205f2f0a"
 
 modal volume put --force rgbdt-dataset \
   "outputs/annotations/$ANNOTATION_RUN_ID" \
@@ -338,7 +335,7 @@ modal volume put --force rgbdt-dataset \
 modal run train_modal.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --seed 42 \
-  --run-tag qlora-r1 \
+  --run-tag bf16-lora-r1 \
   --preflight-only
 ```
 
@@ -348,7 +345,7 @@ modal run train_modal.py \
 modal run train_modal.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --seed 42 \
-  --run-tag qlora-r1 \
+  --run-tag bf16-lora-r1 \
   --smoke-test
 ```
 
@@ -358,7 +355,7 @@ modal run train_modal.py \
 modal run train_modal.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --seed 42 \
-  --run-tag qlora-r1
+  --run-tag bf16-lora-r1
 ```
 
 训练产物保存在 Modal Volume：
@@ -368,7 +365,6 @@ modal run train_modal.py \
   plan.json
   checkpoints/epoch_01/
   checkpoints/epoch_02/
-  checkpoints/epoch_03/
   best/epoch_N/
   last/
   completed.json
@@ -376,128 +372,69 @@ modal run train_modal.py \
 
 训练默认支持按 epoch 恢复。`best/` 对应最低 validation loss 的 Adapter；当前运行选择 `epoch_02`。
 
-### 5. Val 评估
+### 5. 下载 Adapter 与 Val 评估
 
-基础模型完整 Val：
+将训练产物下载到本地镜像目录（默认 `outputs/output_lora/<id>/`）：
 
 ```bash
-modal run run_inference.py \
-  --split val \
-  --annotation-run-id "$ANNOTATION_RUN_ID" \
-  --num-shards 10 \
-  --run-tag qlora-r1-val-baseline
+TRAINING_RUN_ID="train_de9fad6e5016316c"
+
+modal volume get --force rgbdt-dataset \
+  "data/output_lora/$TRAINING_RUN_ID" \
+  "outputs/output_lora/$TRAINING_RUN_ID"
 ```
 
-LoRA Adapter 完整 Val：
+使用 `run_inference.py` 进行本地推理与评估：
 
 ```bash
-TRAINING_RUN_ID="train_c73d0e983a1b6ad2"
-BEST_ADAPTER="/data/data/output_lora/$TRAINING_RUN_ID/best/epoch_02"
+ANNOTATION_RUN_ID="annot_f9682e93205f2f0a"
+BEST_ADAPTER="outputs/output_lora/$TRAINING_RUN_ID/best/epoch_02"
 
-modal run run_inference.py \
-  --split val \
+# Base（不带 LoRA）
+python run_inference.py \
+  --test-json data/val.json \
+  --annotation-run-id "$ANNOTATION_RUN_ID" \
+  --output-dir outputs/inference \
+  --run-tag bf16-lora-r1-val-baseline
+
+# LoRA Adapter
+python run_inference.py \
+  --test-json data/val.json \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --lora-path "$BEST_ADAPTER" \
-  --num-shards 10 \
-  --run-tag qlora-r1-val-trained
+  --output-dir outputs/inference \
+  --run-tag bf16-lora-r1-val-trained
 ```
 
-Val 结束后直接输出 `ACC@0.5`、Mean IoU 和解析失败数。
+Val 结束后从 `outputs/inference/<RUN_ID>/summary.json` 中读取 `ACC@0.5`、Mean IoU 和解析失败数。
 
 ### 6. Test 推理
 
-Test 入口直接读取官方 `test.json`，不能传入 `--annotation-run-id`：
+Test 入口直接读取 `data/test.json`，不能传 `--annotation-run-id`：
 
 ```bash
-modal run run_inference.py \
-  --split test \
+python run_inference.py \
+  --test-json data/test.json \
   --lora-path "$BEST_ADAPTER" \
-  --num-shards 10 \
-  --run-tag qlora-r1-test
+  --output-dir outputs/inference \
+  --run-tag bf16-lora-r1-test
 ```
 
-每个分片独立保存 checkpoint。相同参数重新运行时默认恢复已完成分片。
+`--resume` 开启后，相同参数重新运行会从 `predictions.json` 增量续跑。
 
 ### 7. 失败重试
 
-基础推理完成后，使用其准确 Run ID 单分片重试无效预测：
+当前运行的 1 个失败项已通过 `--default-bbox` 最小合法框策略完成提交，无需单独 Retry 流程。若后续运行出现批量失败，可手动编写 Retry 脚本并基于已有 `predictions.json` 重新发起。
 
-```bash
-BASE_RUN_ID="infer_test_base_f5688220e4d59da6"
-
-modal run run_inference.py \
-  --split test \
-  --retry-failed \
-  --base-run-id "$BASE_RUN_ID" \
-  --num-shards 1 \
-  --retry-seed 42 \
-  --run-tag qlora-r1-test-retry
-```
-
-Retry 自动继承基础运行的 Adapter，只处理值为 `null` 的 Query，并通过独立 Prompt 和确定性随机 seed 生成覆盖层。当前运行从 17 个失败项中恢复了 2 个。
-
-### 8. 导出并合并 Test 预测
-
-如果基础运行没有失败项，`run_inference.py` 会直接在本地写出 `outputs/inference/<RUN_ID>/predictions.json`。存在 Retry 时，从 Volume 下载基础 checkpoint 和覆盖层：
-
-```bash
-RETRY_RUN_ID="infer_test_retry_0a31b6f91a2f63d0"
-LOCAL_INFER_DIR="outputs/inference/$BASE_RUN_ID"
-
-mkdir -p "$LOCAL_INFER_DIR"
-
-modal volume get --force rgbdt-dataset \
-  "data/outputs/inference/$BASE_RUN_ID/checkpoint.json" \
-  "$LOCAL_INFER_DIR/base_checkpoint.json"
-
-modal volume get --force rgbdt-dataset \
-  "data/outputs/inference/$RETRY_RUN_ID/retry_overlay.json" \
-  "$LOCAL_INFER_DIR/retry_overlay.json"
-```
-
-合并基础预测和 Retry 覆盖层：
-
-```bash
-export AICOMP_BASE_RUN_ID="$BASE_RUN_ID"
-
-python - <<'EOF'
-import json
-import os
-from pathlib import Path
-
-run_dir = Path("outputs/inference") / os.environ["AICOMP_BASE_RUN_ID"]
-base = json.loads((run_dir / "base_checkpoint.json").read_text(encoding="utf-8"))
-retry = json.loads((run_dir / "retry_overlay.json").read_text(encoding="utf-8"))
-
-predictions = base["predictions"]
-predictions.update(retry["predictions"])
-
-output = run_dir / "predictions.json"
-output.write_text(
-    json.dumps(predictions, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8",
-)
-
-valid = sum(value is not None for value in predictions.values())
-print(f"Exported {len(predictions)} predictions: valid={valid}, invalid={len(predictions) - valid}")
-EOF
-```
-
-当前运行应输出：
-
-```text
-Exported 9555 predictions: valid=9540, invalid=15
-```
-
-### 9. 构建提交包
+### 8. 构建提交包
 
 若所有预测均有效，使用严格模式构建：
 
 ```bash
 python scripts/build_submission.py \
   --test-json data/Test/queries/queries.json \
-  --predictions "outputs/inference/$BASE_RUN_ID/predictions.json" \
-  --output-dir "outputs/submission/$BASE_RUN_ID"
+  --predictions "outputs/inference/<RUN_ID>/predictions.json" \
+  --output-dir "outputs/submission/<RUN_ID>"
 ```
 
 严格模式要求：
@@ -507,23 +444,23 @@ python scripts/build_submission.py \
 - 官方 Query 字段保持不变；
 - ZIP 内只包含 `result.json`。
 
-当前运行仍有 15 个持久失败项，按既定策略填入最小合法框：
+当前运行仍有 1 个失败项，按既定策略填入最小合法框：
 
 ```bash
 python scripts/build_submission.py \
   --test-json data/Test/queries/queries.json \
-  --predictions "outputs/inference/$BASE_RUN_ID/predictions.json" \
-  --output-dir "outputs/submission/$BASE_RUN_ID" \
+  --predictions "outputs/inference/<RUN_ID>/predictions.json" \
+  --output-dir "outputs/submission/<RUN_ID>" \
   --default-bbox 0 0 0.001 0.001 \
   --allow-fallback
 ```
 
-为避免误传，带 fallback 的构建结果默认命名为 `submission.diagnostic.zip`。确认日志显示 `invalid=15` 后，再保留一份平台提交文件：
+为避免误传，带 fallback 的构建结果默认命名为 `submission.diagnostic.zip`。确认日志显示 `invalid=1` 后，再保留一份平台提交文件：
 
 ```bash
 cp -f \
-  "outputs/submission/$BASE_RUN_ID/submission.diagnostic.zip" \
-  "outputs/submission/$BASE_RUN_ID/submission.zip"
+  "outputs/submission/<RUN_ID>/submission.diagnostic.zip" \
+  "outputs/submission/<RUN_ID>/submission.zip"
 ```
 
 ## 运行产物与恢复
@@ -532,8 +469,7 @@ cp -f \
 | --- | --- | --- |
 | Query 生成 | `outputs/annotations/<id>/<split>/` | 场景/帧 |
 | LoRA 训练 | `/data/data/output_lora/<id>/` | Epoch |
-| 推理 | `/data/data/outputs/inference/<id>/` | 分片 |
-| Retry | `/data/data/outputs/inference/<retry-id>/retry_overlay.json` | 失败 Query |
+| 本地推理 | `outputs/inference/<id>/` | 增量预测 checkpoint |
 | 提交 | `outputs/submission/<id>/` | 完整 ZIP |
 
 Run ID 由数据、模型、Prompt、关键参数、seed 和 run-tag 共同确定。修改实验配置时应使用新的 run-tag，避免不同实验的产物混淆。
@@ -544,13 +480,6 @@ Run ID 由数据、模型、Prompt、关键参数、seed 和 run-tag 共同确�
 
 ```bash
 python -m unittest discover -s tests -v
-```
-
-当前结果：
-
-```text
-Ran 144 tests
-OK
 ```
 
 测试覆盖数据准备、Test 模板合同、bbox、Query QC、API 请求、Resume/Retry、训练状态、推理分片、提交构建和 Modal 入口编排。
