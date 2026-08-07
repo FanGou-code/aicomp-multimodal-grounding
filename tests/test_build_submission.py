@@ -97,9 +97,10 @@ class BuildSubmissionTests(unittest.TestCase):
                 expected_query_count=None,
                 expected_template_sha256=None,
             )
-            self.assertEqual(zip_path, output / "submission.diagnostic.zip")
+            self.assertEqual(zip_path, output / "submission.zip")
+            # result.json is written transiently then removed; only the ZIP persists.
             self.assertFalse((output / "result.json").exists())
-            self.assertFalse((output / "submission.zip").exists())
+            self.assertTrue((output / "submission.zip").exists())
             with zipfile.ZipFile(zip_path) as archive:
                 self.assertEqual(archive.namelist(), ["result.json"])
                 result = json.loads(archive.read("result.json"))

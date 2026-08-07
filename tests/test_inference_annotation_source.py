@@ -7,7 +7,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import run_inference
+try:
+    import torch  # noqa: F401
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
+
+if _HAS_TORCH:
+    import run_inference
+else:
+    run_inference = None  # type: ignore[assignment]
 from aicomp_grounding.annotation_state import (
     ANNOTATION_MODE,
     ASSIGNMENT_POLICY,
@@ -93,6 +102,7 @@ def _write_approved(
     return path
 
 
+@unittest.skipUnless(_HAS_TORCH, "requires torch (run_inference imports torch at module level)")
 class ApprovedInferenceSourceTests(unittest.TestCase):
     def test_lora_provenance_requires_matching_approved_open_weights_artifacts(self):
         with tempfile.TemporaryDirectory() as td:

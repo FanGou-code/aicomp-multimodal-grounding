@@ -11,13 +11,16 @@ class QueryValidationTests(unittest.TestCase):
         self.assertTrue(valid, reason)
 
     def test_rejects_annotation_scaffolding_and_coordinates(self):
-        self.assertFalse(validate_generated_query("The object inside the red box near the wall.")[0])
+        self.assertFalse(validate_generated_query("The object inside the red rectangle near the wall.")[0])
         self.assertFalse(validate_generated_query("The target is at (100, 200), near the wall.")[0])
         self.assertFalse(
             validate_generated_query(
                 "The pedestrian wearing <|image_pad|> a bright yellow jacket near the road"
             )[0]
         )
+        # "red box" is a legitimate description of an object shape; only
+        # explicit annotation-marking language is rejected.
+        self.assertTrue(validate_generated_query("The red box with a yellow top.")[0])
 
     def test_cleans_wrapping_markup(self):
         self.assertEqual(clean_query_text('`"The small red chair beside the wooden desk."`'), "The small red chair beside the wooden desk.")

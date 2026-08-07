@@ -234,7 +234,7 @@ class CheckpointAndMergeTests(unittest.TestCase):
         metadata = build_annotation_shard_metadata(plan["metadata"], 0, assigned, data)
         completed = _completed_result(assigned[0], data)
         frame = next(iter(completed["frames"].values()))
-        frame["query"] = "object"
+        frame["query"] = "thing"
         with self.assertRaisesRegex(ValueError, "query is invalid"):
             validate_annotation_checkpoint(
                 {"metadata": metadata, "results": {assigned[0]: completed}},

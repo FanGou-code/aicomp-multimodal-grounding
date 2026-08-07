@@ -23,7 +23,7 @@ ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST = 1_800
 
 DATA_ROOT = "/data/data"
 MIN_PIXELS = 256 * 28 * 28
-MAX_PIXELS = 1920 * 28 * 28  # 1636×920 max tokens limit (1,920 patches)
+MAX_PIXELS = 3072 * 28 * 28  # Full 1920x1080 at ~2645 patches; rounded up for safety
 INFERENCE_COMPUTE_DTYPE = "bfloat16"
 
 # Keep in sync with requirements-lock.txt when adding or upgrading packages.

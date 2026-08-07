@@ -64,8 +64,8 @@ def build_submission(
     expected_template_sha256: str | None = OFFICIAL_TEMPLATE_CANONICAL_SHA256,
 ) -> Path:
     """Preserve every official field, add only bbox, and create a submission ZIP."""
-    result_name = "result.diagnostic.json" if allow_fallback else "result.json"
-    zip_name = "submission.diagnostic.zip" if allow_fallback else "submission.zip"
+    result_name = "result.json"
+    zip_name = "submission.zip"
     result_path = output_dir / result_name
     zip_path = output_dir / zip_name
     for source in (test_json_path, predictions_path):

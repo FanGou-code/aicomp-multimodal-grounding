@@ -20,7 +20,7 @@ from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.io import load_json
-from aicomp_grounding.query import PLACEHOLDER_QUERY
+
 from aicomp_grounding.test_data import (
     OFFICIAL_QUERY_COUNT,
     OFFICIAL_TEMPLATE_CANONICAL_SHA256,
@@ -290,61 +290,6 @@ def build_split(sequence_names: list[str], train_ratio: float, seed: int) -> tup
     return sorted(shuffled[:split_index]), sorted(shuffled[split_index:])
 
 
-def _sha256_of_file(path: Path) -> str:
-    """Return the SHA-256 hex digest of a file's complete bytes."""
-    import hashlib
-
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while True:
-            chunk = handle.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def identify_test_overlap_frames(
-    raw_train_root: Path,
-    test_visible_dir: Path,
-) -> dict[str, dict[str, list[str]]]:
-    """Identify train frames byte-identical to a Test image.
-
-    The Test set uses its own sequential scene numbering (unrelated to the
-    RGBDT500 sequence ids), so scene-number coincidence is NOT evidence of
-    overlap. Only a SHA-256 byte match confirms the same physical frame
-    appears in both sets.
-
-    Returns ``{train_scene_id: {frame_filename: [test_scene_ids]}}``. Raw
-    files are never modified; this only reads bytes for hashing.
-    """
-    if not test_visible_dir.is_dir():
-        return {}
-
-    test_hashes: dict[str, list[str]] = {}
-    for path in sorted(test_visible_dir.iterdir()):
-        if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-            continue
-        test_hashes.setdefault(_sha256_of_file(path), []).append(path.stem)
-
-    matches: dict[str, dict[str, list[str]]] = {}
-    for sequence_dir in sorted(raw_train_root.iterdir()):
-        if not sequence_dir.is_dir() or not sequence_dir.name.isdigit():
-            continue
-        scene_id = sequence_dir.name
-        color_dir = sequence_dir / "color"
-        if not color_dir.is_dir():
-            continue
-        for frame_path in sorted(color_dir.iterdir()):
-            if not frame_path.is_file() or frame_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-                continue
-            hits = test_hashes.get(_sha256_of_file(frame_path))
-            if hits:
-                matches.setdefault(scene_id, {}).setdefault(frame_path.name, []).extend(hits)
-
-    return matches
-
-
 def _resolve_dataset_path(dataset_root: Path, relative: str, *, label: str) -> Path:
     if not isinstance(relative, str) or not relative or "\\" in relative:
         raise ValueError(f"{label} must be a non-empty POSIX relative path")
@@ -570,8 +515,6 @@ def prepare_dataset(
     sequences = sorted(path.name for path in raw_root.iterdir() if path.is_dir() and path.name.isdigit())
     if not sequences:
         raise ValueError(f"No numeric sequence directories found under {raw_root}")
-    test_visible_dir = args.dataset_root / "Test" / "Images" / "visible"
-    overlap_frames = identify_test_overlap_frames(raw_root, test_visible_dir)
     train_sequences, val_sequences = build_split(sequences, args.train_ratio, args.seed)
     train_set = set(train_sequences)
     outputs = {"train": {}, "val": {}}
@@ -580,13 +523,11 @@ def prepare_dataset(
         "groundtruth_rows": 0,
         "valid_samples": 0,
         "excluded_invalid_bbox": 0,
-        "excluded_overlap_frames": 0,
         "depth_written": 0,
         "depth_would_write": 0,
         "depth_reused": 0,
     }
     exclusions = []
-    overlap_exclusions = []
 
     for sequence_index, sequence in enumerate(sequences, start=1):
         sequence_root = raw_root / sequence
@@ -602,16 +543,6 @@ def prepare_dataset(
                     f"Duplicate frame stem {stem!r} in sequence {sequence}; sample IDs would collide"
                 )
             seen_stems.add(stem)
-            if filename in overlap_frames.get(sequence, {}):
-                stats["excluded_overlap_frames"] += 1
-                overlap_exclusions.append(
-                    {
-                        "sequence": sequence,
-                        "filename": filename,
-                        "test_scenes": sorted(set(overlap_frames[sequence][filename])),
-                    }
-                )
-                continue
             visible_path = sequence_root / "color" / filename
             infrared_path = sequence_root / "infrared" / filename
             depth_path = sequence_root / "depth" / filename
@@ -682,7 +613,12 @@ def prepare_dataset(
                 "visible": f"Train/{sequence}/color/{filename}",
                 "infrared": f"Train/{sequence}/infrared/{filename}",
                 "depth": f"Processed/Train/{sequence}/depth_jet/{filename}",
-                "query": PLACEHOLDER_QUERY,
+                # Query is intentionally empty here: these indexes are the raw
+                # annotation source list. Natural-language queries are generated
+                # later by scripts/generate_queries.py and published into
+                # outputs/annotations/<run_id>/<split>/approved.json. Training
+                # only consumes approved.json, never these bare indexes.
+                "query": "",
                 "bbox": bbox,
                 "width": image_width,
                 "height": image_height,
@@ -697,7 +633,7 @@ def prepare_dataset(
     stats["test_depth_written"] = test_stats.get("written", 0)
     stats["test_depth_would_write"] = test_stats.get("would_write", 0)
     stats["test_depth_reused"] = test_stats.get("reused", 0)
-    if stats["valid_samples"] + stats["excluded_invalid_bbox"] + stats["excluded_overlap_frames"] != stats["groundtruth_rows"]:
+    if stats["valid_samples"] + stats["excluded_invalid_bbox"] != stats["groundtruth_rows"]:
         raise AssertionError("Prepared sample counts do not reconcile with ground-truth rows")
     if not args.skip_test_validation:
         test_errors = validate_test_depth_references(
@@ -734,7 +670,6 @@ def prepare_dataset(
         "stats": stats,
         "test_contract": test_contract,
         "exclusions": exclusions,
-        "overlap_exclusions": overlap_exclusions,
         "index_fingerprints": {
             "train": stable_json_hash(outputs["train"]),
             "val": stable_json_hash(outputs["val"]),

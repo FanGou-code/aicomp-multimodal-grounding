@@ -51,14 +51,22 @@ def parse_args():
     parser.add_argument(
         "--model-path",
         type=str,
-        default=MODEL_NAME,
-        help="Path or HuggingFace/ModelScope ID of Qwen3-VL-8B-Instruct base model.",
+        default=Path("model/Qwen3-VL-8B-Instruct"),
+        help="Path to local Qwen3-VL-8B-Instruct base model (downloaded offline).",
     )
     parser.add_argument(
         "--test-json",
         type=Path,
         default=Path("data/test.json"),
         help="Path to input dataset JSON index (e.g. data/test.json or data/val.json).",
+    )
+    parser.add_argument(
+        "--max-pixels",
+        type=int,
+        default=MAX_PIXELS,
+        help="Processor max_pixels override. Training uses 3072 patches "
+        "(2408448); lower it (e.g. 1920*28*28=1505280) if the inference GPU "
+        "is short on VRAM. Lowering hurts grounding accuracy.",
     )
     parser.add_argument(
         "--data-dir",
@@ -69,8 +77,8 @@ def parse_args():
     parser.add_argument(
         "--lora-path",
         type=Path,
-        default=Path("outputs/output_lora/train_de9fad6e5016316c/best/epoch_02"),
-        help="Path to downloaded LoRA adapter directory.",
+        default=Path("best/epoch_02"),
+        help="Path to downloaded LoRA adapter directory (e.g. best/epoch_02).",
     )
     parser.add_argument(
         "--output-dir",
@@ -185,7 +193,11 @@ def main():
     dataset_for_fp = {item["key"]: item for item in items}
     input_fingerprint = fingerprint_inputs(dataset_for_fp, selected_keys)
     prompt_hash = grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
-    generation_config = {"max_new_tokens": 32, "do_sample": False}
+    generation_config = {
+        "max_new_tokens": 32,
+        "do_sample": False,
+        "max_pixels": args.max_pixels,
+    }
 
     metadata = build_run_metadata(
         mode="base",
@@ -230,7 +242,7 @@ def main():
 
         processor_kwargs = {
             "min_pixels": MIN_PIXELS,
-            "max_pixels": MAX_PIXELS,
+            "max_pixels": args.max_pixels,
         }
         if not os.path.exists(model_source):
             processor_kwargs["revision"] = MODEL_REVISION

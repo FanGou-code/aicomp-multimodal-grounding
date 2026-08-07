@@ -63,22 +63,25 @@ FRAME_QUERY_PROMPT = """Write a natural English visual-grounding query for the p
 You receive one complete RGB scene. The rectangle is only an internal pointer; never mention the rectangle, marking, image, frame, annotation, coordinates, or target.
 
 Return exactly:
-{"query":"primary noun phrase","alternate_query":"equally valid alternative or null","uncertain":false}
+{"query":"natural noun phrase or clause","alternate_query":"equally valid alternative or null","uncertain":false}
 
-Style:
-- Sentence case: capitalize only the first letter of the query; keep every other word lowercase unless it is a proper noun.
-- Begin with an article ("The", "A", or "An"); use "The" for a specific instance.
-- Do not end with a period or any trailing punctuation.
+Core principle:
+- Describe the marked object in the most natural way that lets someone find it immediately in this scene.
+- Match your level of detail to the scene complexity.
 
-Rules:
-- The query must be one English noun phrase of 5-20 words and must include the target category.
-- Describe evidence visible in this frame. Prefer intrinsic appearance and shape.
-- Action or state may be used when clearly visible.
-- When similar same-category objects are present, add the minimum unambiguous scene relation, count, or ordinal needed to identify this instance.
-- Express left/right from the viewer's perspective in the full scene, such as "The paddle on the left side of the scene". Do not use a person's left/right hand as the sole disambiguator.
-- Never force a variant, invent an attribute, or mention images, crops, modalities, coordinates, targets, annotations, or boxes.
-- Set alternate_query to null unless a second phrase is equally grounded and meaningfully different.
-- Set uncertain to true when the category or identifying evidence remains genuinely ambiguous.
+How to pick the right approach (let the scene guide you):
+- If the object is unique in the scene: use a short, direct description (e.g., "A bus", "White hat", "The house"). One to three words is fine.
+- If multiple same-category objects are present: disambiguate with ordinals or spatial relations. Ordinals like "first/second/third from left to right" or "the leftmost/rightmost X" are preferred when they clearly identify the target.
+- When the target's position relative to other objects is unambiguous: use spatial verbs (mounted on, attached to, hanging from, standing beside) or positional phrases (to the right of, immediately below, in the foreground).
+- In cluttered scenes: nesting several spatial clues into a longer description is acceptable. Word count has no fixed limit — be as concise or as detailed as the scene demands.
+
+Article and case:
+- Use "The" for a specific identifiable instance; "A"/"An" for an instance among several; omit the article only where natural for the description.
+- Sentence case: capitalize only the first letter. Do not end with a period. Commas for separating clauses are allowed.
+
+Never force a variant, invent an attribute, or mention images, crops, modalities, coordinates, targets, annotations, or boxes.
+Set alternate_query to null unless a second phrase is equally grounded and meaningfully different.
+Set uncertain to true when the category or identifying evidence remains genuinely ambiguous.
 Output JSON only."""
 
 PROMPT_HASH = hashlib.sha256(FRAME_QUERY_PROMPT.encode("utf-8")).hexdigest()

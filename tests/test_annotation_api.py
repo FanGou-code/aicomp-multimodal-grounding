@@ -180,7 +180,7 @@ class FrameGenerationTests(unittest.TestCase):
         client = self.FakeClient(
             [
                 json.dumps({
-                    "query": "object",
+                    "query": "thing",
                     "alternate_query": None,
                     "uncertain": False,
                 }),
@@ -210,7 +210,7 @@ class FrameGenerationTests(unittest.TestCase):
         marked = self._marked()
         client = self.FakeClient(
             [
-                json.dumps({"query": "object", "alternate_query": None, "uncertain": False}),
+                json.dumps({"query": "entity", "alternate_query": None, "uncertain": False}),
                 json.dumps({"query": "thing", "alternate_query": None, "uncertain": False}),
                 json.dumps({"query": "item", "alternate_query": None, "uncertain": False}),
             ],

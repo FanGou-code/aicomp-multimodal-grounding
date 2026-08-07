@@ -7,8 +7,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import run_inference
+try:
+    import torch  # noqa: F401
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
+
 import train_modal
+
+if _HAS_TORCH:
+    import run_inference
+else:
+    run_inference = None  # type: ignore[assignment]
 from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.artifacts import stable_json_hash
@@ -25,9 +35,9 @@ class AnnotationEntrypointTests(unittest.TestCase):
         query_prompt = generate_queries.FRAME_QUERY_PROMPT
         self.assertIn("enclosed by the red rectangle", query_prompt)
         self.assertIn("never mention the rectangle", query_prompt)
-        self.assertIn("similar same-category objects", query_prompt)
-        self.assertIn("viewer's perspective", query_prompt)
-        self.assertIn("sole disambiguator", query_prompt)
+        self.assertIn("multiple same-category objects", query_prompt)
+        self.assertIn("spatial relations", query_prompt)
+        self.assertIn("leftmost/rightmost X", query_prompt)
         self.assertIn("Never force a variant", query_prompt)
 
     def test_test_split_is_rejected_before_preflight(self):
@@ -76,7 +86,7 @@ class AnnotationEntrypointTests(unittest.TestCase):
             patch.object(generate_queries, "preflight_annotation_run", return_value=plan),
             patch.object(generate_queries, "annotate_shard", side_effect=worker) as annotate,
             patch.object(generate_queries, "finalize_annotation_run", side_effect=finalize) as final,
-            patch.dict("os.environ", {"ZHIPU_API_KEY": "test-key"}),
+            patch.dict("os.environ", {"API_KEY": "test-key"}),
         ):
             result = generate_queries.run_annotation(split="train", concurrency=2)
         self.assertEqual(result["run_id"], "annot_test")
@@ -167,6 +177,7 @@ class AnnotationSourceGateTests(unittest.TestCase):
             self.assertEqual(plan["pending_shard_ids"], [0])
 
 
+@unittest.skipUnless(_HAS_TORCH, "requires torch (run_inference imports torch at module level)")
 class InferenceEntrypointTests(unittest.TestCase):
     def test_retry_seed_depends_on_query_identity_not_resume_position(self):
         first = run_inference._retry_query_seed(42, "query-b")
@@ -399,6 +410,7 @@ class TrainingEntrypointTests(unittest.TestCase):
         train.assert_not_called()
 
 
+@unittest.skipUnless(_HAS_TORCH, "requires torch (run_inference imports torch at module level)")
 class InferencePlanSafetyTests(unittest.TestCase):
     @staticmethod
     def _dataset(count: int = 2) -> dict:

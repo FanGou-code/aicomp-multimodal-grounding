@@ -64,7 +64,7 @@ app = modal.App("rgbdt-visual-grounding", image=image)
 
 OUTPUT_ROOT = Path(DATA_ROOT) / "output_lora"
 BATCH_SIZE = 1
-GRAD_ACCUM_STEPS = 8
+GRAD_ACCUM_STEPS = 16
 LEARNING_RATE = 1e-4
 NUM_EPOCHS = 2
 WARMUP_RATIO = 0.05
@@ -125,19 +125,17 @@ def _validate_training_bboxes(datasets: list[tuple[str, dict]]) -> None:
                 )
 
 
-def _latest_epoch_checkpoint(run_dir: Path) -> Path | None:
+def _latest_resume_checkpoint(run_dir: Path) -> Path | None:
     checkpoint_root = run_dir / "checkpoints"
     candidates = []
     if checkpoint_root.is_dir():
         for path in checkpoint_root.iterdir():
             if not path.is_dir():
                 continue
-            # Only epoch-boundary checkpoints are safe resume sources. Step-level
-            # checkpoints intentionally do not participate: resuming from a
-            # step_* checkpoint would replay the current epoch's already-updated
-            # batches, double-training that epoch and breaking global_step
-            # accounting against validate_completed_training_state.
-            if not path.name.startswith("epoch_"):
+            # Accept both epoch_* and step_* as resume sources.  Step
+            # checkpoints carry a batch_index so the loader can skip
+            # already-trained batches on resume without double-training.
+            if not (path.name.startswith("epoch_") or path.name.startswith("step_")):
                 continue
             if (
                 (path / "state.json").is_file()
@@ -163,6 +161,8 @@ def prepare_training_plan(
     resume: bool,
     smoke_test: bool = False,
     verify_images: bool = True,
+    use_all_data: bool = False,
+    val_scenes: int = 40,
 ) -> dict:
     if not isinstance(smoke_test, bool):
         raise ValueError("smoke_test must be boolean")
@@ -179,6 +179,44 @@ def prepare_training_plan(
         )
     train_artifact = load_json(train_path)
     val_artifact = load_json(val_path)
+
+    if use_all_data:
+        import random as _random_for_split
+
+        merged = {**train_artifact["data"], **val_artifact["data"]}
+        scenes: dict[str, list[str]] = {}
+        for sample_id in merged:
+            scene = sample_id.split("_")[0]
+            scenes.setdefault(scene, []).append(sample_id)
+        all_scenes = sorted(scenes)
+        _random_for_split.Random(seed + 100).shuffle(all_scenes)
+        if not 1 <= val_scenes < len(all_scenes):
+            raise ValueError(
+                f"val_scenes must be in [1, {len(all_scenes) - 1}], got {val_scenes}"
+            )
+        new_val_scenes = set(all_scenes[:val_scenes])
+        train_artifact["data"] = {
+            k: v for k, v in merged.items() if k.split("_")[0] not in new_val_scenes
+        }
+        val_artifact["data"] = {
+            k: v for k, v in merged.items() if k.split("_")[0] in new_val_scenes
+        }
+        # Regenerate dataset and image fingerprints for the new split.
+        # dataset_fingerprint: deterministic hash of sample IDs.
+        # image_fingerprint: deterministic hash of sample paths (fast; full
+        # byte-level verification is deferred to the verify_images path below).
+        from aicomp_grounding.artifacts import key_hash, stable_json_hash
+
+        train_artifact["metadata"]["dataset_fingerprint"] = key_hash(
+            train_artifact["data"].keys()
+        )
+        val_artifact["metadata"]["dataset_fingerprint"] = key_hash(
+            val_artifact["data"].keys()
+        )
+        train_image_ids = stable_json_hash(sorted(train_artifact["data"].keys()))
+        val_image_ids = stable_json_hash(sorted(val_artifact["data"].keys()))
+        train_artifact["metadata"]["image_fingerprint"] = f"key:{train_image_ids}"
+        val_artifact["metadata"]["image_fingerprint"] = f"key:{val_image_ids}"
     train_artifact, val_artifact = validate_training_artifacts(
         train_artifact,
         val_artifact,
@@ -227,6 +265,15 @@ def prepare_training_plan(
         run_tag=run_tag,
     )
     run_dir = root / "output_lora" / metadata["training_run_id"]
+
+    if use_all_data:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        resplit_train = run_dir / "train_resplit.json"
+        resplit_val = run_dir / "val_resplit.json"
+        atomic_write_json(resplit_train, train_artifact)
+        atomic_write_json(resplit_val, val_artifact)
+        train_path = resplit_train
+        val_path = resplit_val
     completed_path = run_dir / "completed.json"
     if completed_path.is_file():
         completed = validate_completed_training_state(
@@ -248,7 +295,7 @@ def prepare_training_plan(
             "completed": completed,
         }
 
-    latest = _latest_epoch_checkpoint(run_dir)
+    latest = _latest_resume_checkpoint(run_dir)
     if latest is not None:
         validate_resume_checkpoint(latest, run_dir=run_dir, metadata=metadata,
             batch_size=BATCH_SIZE, grad_accum_steps=GRAD_ACCUM_STEPS, num_epochs=NUM_EPOCHS)
@@ -276,6 +323,8 @@ def preflight_training_environment(
     resume: bool = True,
     smoke_test: bool = False,
     deep_verify_images: bool = False,
+    use_all_data: bool = False,
+    val_scenes: int = 40,
 ) -> dict:
     dataset_volume.reload()
     plan = prepare_training_plan(
@@ -286,6 +335,8 @@ def preflight_training_environment(
         resume=resume,
         smoke_test=smoke_test,
         verify_images=deep_verify_images,
+        use_all_data=use_all_data,
+        val_scenes=val_scenes,
     )
     if plan["resume_checkpoint"]:
         import torch
@@ -370,7 +421,15 @@ def train(training_plan: dict) -> dict:
         run_tag=metadata["run_tag"],
     )
     require_exact_metadata(metadata, rebuilt_metadata, label="training plan")
+    # Modal re-schedules train() on preemption using the original plan
+    # (whose resume_checkpoint was None at creation time).  Dynmically
+    # re-probe the run directory so a re-scheduled worker picks up any
+    # step/epoch checkpoint written before the preemption.
     resume_checkpoint = training_plan.get("resume_checkpoint")
+    if not resume_checkpoint:
+        latest = _latest_resume_checkpoint(run_dir)
+        if latest is not None:
+            resume_checkpoint = str(latest)
     if resume_checkpoint:
         validate_resume_checkpoint(
             Path(resume_checkpoint),
@@ -564,9 +623,11 @@ def train(training_plan: dict) -> dict:
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     start_epoch = 0
+    resume_batch_index = 0
     global_step = 0
     best_val_loss = float("inf")
     best_path = None
+    resume_epoch_loss = 0.0
     if resume_checkpoint:
         checkpoint_path = Path(resume_checkpoint)
         state = load_json(checkpoint_path / "state.json")
@@ -583,8 +644,15 @@ def train(training_plan: dict) -> dict:
             torch.cuda.set_rng_state_all(binary_state["cuda_rng_state"])
         start_epoch = state["completed_epoch"]
         global_step = state["global_step"]
+        resume_batch_index = state.get("batch_index", 0)
         best_val_loss = state["best_val_loss"]
         best_path = state["best_path"]
+        # Restore the running epoch-loss accumulator so the per-epoch loss
+        # printout stays correct after a mid-epoch resume.  The step
+        # checkpoint stored it; the epoch checkpoint stores the completed
+        # epoch average (times a full epoch denominator) which we cannot
+        # use as a running total, so default to 0 there.
+        resume_epoch_loss = state.get("epoch_loss", 0.0)
 
     if training_plan.get("smoke_test"):
         smoke_epoch = min(start_epoch, NUM_EPOCHS - 1)
@@ -622,10 +690,25 @@ def train(training_plan: dict) -> dict:
 
     for epoch in range(start_epoch, NUM_EPOCHS):
         train_loader = make_train_loader(epoch)
+        # When resuming mid-epoch from a step checkpoint, skip
+        # already-trained batches.  The loader uses a deterministic
+        # per-epoch seed, so reconstruction produces identical order.
+        skip_batches = resume_batch_index if (epoch == start_epoch and resume_batch_index > 0) else 0
+        train_iter = iter(train_loader)
+        if skip_batches > 0:
+            for _ in range(skip_batches):
+                next(train_iter)
+            print(
+                f"Resumed at epoch {epoch + 1}, batch {skip_batches} / {batches_per_epoch}",
+                flush=True,
+            )
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        epoch_loss = 0.0
-        for batch_index, cpu_batch in enumerate(train_loader):
+        # On a mid-epoch resume, seed the running loss accumulator with the
+        # value stored in the step checkpoint so the loss printout is not
+        # distorted by dividing a fresh accumulator by a large batch index.
+        epoch_loss = resume_epoch_loss if (epoch == start_epoch and skip_batches > 0) else 0.0
+        for batch_index, cpu_batch in enumerate(train_iter, start=skip_batches):
             batch = move_batch_to_device(cpu_batch, device)
             with torch.autocast(device_type="cuda", dtype=compute_dtype):
                 outputs = model(**batch)
@@ -660,9 +743,13 @@ def train(training_plan: dict) -> dict:
                         "metadata": metadata,
                         "completed_epoch": epoch,
                         "global_step": global_step,
+                        "batch_index": batch_index + 1,
                         "best_val_loss": best_val_loss,
                         "best_path": best_path,
-                        "epoch_loss": epoch_loss / (batch_index + 1),
+                        # Store the RAW running accumulator (not the average)
+                        # so a mid-epoch resume can restore it exactly; the
+                        # per-step print uses epoch_loss / (batch_index + 1).
+                        "epoch_loss": epoch_loss,
                     }
                     atomic_write_json(step_dir / "state.json", step_state)
                     _atomic_torch_save(
@@ -779,6 +866,8 @@ def main(
     preflight_only: bool = False,
     smoke_test: bool = False,
     deep_verify_images: bool = False,
+    use_all_data: bool = False,
+    val_scenes: int = 40,
 ) -> dict:
     if not annotation_run_id:
         raise ValueError("annotation_run_id is required; bare train.json/val.json are prohibited")
@@ -789,6 +878,8 @@ def main(
         resume=resume,
         smoke_test=smoke_test,
         deep_verify_images=deep_verify_images,
+        use_all_data=use_all_data,
+        val_scenes=val_scenes,
     )
     if preflight_only:
         print(

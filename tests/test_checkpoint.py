@@ -3,7 +3,6 @@
 import unittest
 
 from aicomp_grounding.query import (
-    PLACEHOLDER_QUERY,
     preflight_check_dataset,
 )
 
@@ -25,16 +24,11 @@ class PreflightTests(unittest.TestCase):
         data = {"a": _make_sample()}
         self.assertEqual(preflight_check_dataset(data, split_name="train"), [])
 
-    def test_placeholder_query_fails(self):
-        data = {"a": _make_sample(query=PLACEHOLDER_QUERY)}
-        errors = preflight_check_dataset(data, split_name="train")
-        self.assertEqual(len(errors), 1)
-        self.assertIn("placeholder", errors[0])
-
     def test_empty_query_fails(self):
         data = {"a": _make_sample(query="")}
         errors = preflight_check_dataset(data, split_name="val")
-        self.assertTrue(any("empty" in e for e in errors))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("empty", errors[0])
 
     def test_invalid_bbox_fails(self):
         data = {"a": _make_sample(bbox=[0.9, 0.9, 0.1, 0.1])}

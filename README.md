@@ -34,15 +34,15 @@ flowchart LR
 | 基座模型 | `Qwen/Qwen3-VL-8B-Instruct` |
 | 模型 revision | `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` |
 | 输入 | RGB、Infrared、Depth 三张图像及英文 Query |
-| 图像预算 | 每个模态 `1920 * 28 * 28` pixels |
+| 图像预算 | 每个模态 `3072 * 28 * 28` pixels（原图 1920×1080 无损） |
 | 量化 | 无（原生 16-bit BF16 训练与推理） |
 | 计算精度 | BF16 |
 | 微调方法 | LoRA，rank 16，alpha 32，dropout 0.05 |
 | LoRA 模块 | `q/k/v/o_proj`、`gate/up/down_proj` |
-| 训练 | 2 epochs，batch size 1，gradient accumulation 8 |
+| 训练 | 2 epochs（本轮因预算以第 2 轮收尾），batch size 1，gradient accumulation 16 |
 | 优化器参数 | learning rate `1e-4`，weight decay `0.01`，warmup `0.05` |
 | 训练设备 | Modal A100-80GB |
-| 推理设备 | 本地单 GPU（BF16）或 Modal L40S 并行分片 |
+| 推理设备 | 魔搭 DSW A10-24GB（BF16，离线推理） |
 
 ### 教师模型 (Teacher Model)
 
@@ -65,43 +65,6 @@ GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原�
 
 解析器将其转换为 `[0.125, 0.240, 0.780, 0.910]`，随后进行 bbox 合法性校验和 IoU 评估。
 
-## 当前实验结果
-
-### 数据规模
-
-| Split | 场景数 | 有效样本数 |
-| --- | ---: | ---: |
-| Train | 320 | 3,121 |
-| Val | 80 | 782 |
-| Test | 2,000 组图像 | 9,555 Queries |
-
-原始训练数据包含 4,000 条 ground-truth 记录，其中 97 条因零面积、负宽高或其他非法 bbox 被排除。Train/Val 按场景划分，不共享场景 ID。
-
-### Val 指标
-
-| 模型 | 线上基线 (Mean IoU) | 内部 ACC@0.5 | 内部 Mean IoU | 解析失败 |
-| --- | ---: | ---: | ---: | ---: |
-| Qwen3-VL-8B Base | 0.6471 | 75.575% (591/782) | 0.6312 | 23 |
-| 4-bit LoRA (epoch 2) | 0.5978 | 84.271% (659/782) | 0.7226 | 0 |
-| BF16 LoRA | **0.7226** | **89.770% (702/782)** | **0.8376** | **1** |
-
-- Base 线上 0.6471 为早期提交记录，对应推理产物已归档清理。
-- 4-bit LoRA 线上 0.5978 为旧版次优推理产物，BF16 LoRA 已稳定替代。
-- BF16 LoRA 线上 0.7226 为官方排行榜实际返回分数，对应 `infer_test_base_36c66faf0e90fcdc`（Test 9,555 条，1 条 fallback）。
-
-### 当前运行快照
-
-| 阶段 | Run ID / 产物 |
-| --- | --- |
-| Query 标注 (GLM-4.6V 校准) | `annot_f9682e93205f2f0a` |
-| LoRA 训练 | `train_de9fad6e5016316c` |
-| Best adapter | `outputs/output_lora/train_de9fad6e5016316c/best/epoch_02/`（epoch 2, val_loss 0.3714） |
-| BF16 LoRA Val | `infer_val_base_bcab7a9b5fe8bc98` |
-| BF16 LoRA Test 首次推理 | `infer_test_base_36c66faf0e90fcdc` |
-| 失败重试 | `infer_test_retry_0a31b6f91a2f63d0` |
-
-BF16 LoRA Test 推理得到 9,554 个有效框和 1 个失败项，该失败项采用 `[0, 0, 0.001, 0.001]` 最小合法框完成提交，占全部 Query 的 0.010%。
-
 ## 项目结构
 
 ```text
@@ -123,6 +86,7 @@ aicomp_grounding/
 
 scripts/
   prepare_rgbdt.py      RGBDT 检查、场景划分和 Depth JET 转换
+  filter_overlap.py     SHA-256 剔除与 Test 同源的 Train/Val 样本
   generate_queries.py   自动 Query 生成与 approved 发布
   build_submission.py   官方模板校验与提交 ZIP 构建
 
@@ -150,6 +114,25 @@ python -m pip install -r requirements-lock.txt
 modal setup
 modal volume create rgbdt-dataset
 modal volume create hf-model-cache
+```
+
+### 魔搭 DSW 推理环境
+
+Test 推理在 ModelScope DSW（A10-24GB，离线）执行。镜像自带 torch 2.3.0（CUDA 12.1），**不升级 torch**，其余推理库走阿里云镜像安装：
+
+```bash
+bash setup_env.sh
+```
+
+`setup_env.sh` 安装 `transformers==4.57.0`、`peft`、`accelerate`、`pillow`、`safetensors`、`qwen-vl-utils`，并卸载冲突的 `autoawq`。镜像打包路径约定：
+
+```text
+/mnt/workspace/offline_inference_pack/   # 推理包根目录
+  model/Qwen3-VL-8B-Instruct/            # 基座模型（离线）
+  best/epoch_02/                         # LoRA adapter
+  data/                                  # 预处理数据与索引
+  run_inference.py
+  build_submission.py
 ```
 
 数据集、API Key 和运行输出均被 `.gitignore` 排除，不应提交到代码仓库。
@@ -209,6 +192,7 @@ data/
   val.json
   test.json
   split_manifest.json
+  excluded_overlap.json   # filter_overlap.py 剔除同源帧的审计日志
 ```
 
 Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使不同场景间的颜色具有一致距离含义。
@@ -250,6 +234,20 @@ excluded_invalid_bbox=97
 ```text
 8fae701890bbbf05099e11ac8b2a3ead18990a496449355c9f09825d88ccfbbf
 ```
+
+#### 1.1 剔除与 Test 同源的数据（哈希查重）
+
+训练/验证样本若与 Test 图像字节相同（同源帧），会在训练前被剔除，避免数据泄漏——Test 里见过的帧绝不允许进训练。
+
+```bash
+python scripts/filter_overlap.py \
+  --dataset-root data \
+  --overwrite-indexes
+```
+
+`filter_overlap.py` 对 `data/Train/*/color/*.png` 与 `data/Test/Images/visible/*.png` 做 SHA-256 字节级匹配，从 `train.json` / `val.json` 删除命中样本，并将剔除记录写入 `data/excluded_overlap.json`（审计日志）。
+
+> 当前 `annot_ac72f1d926bb2d23` 标注集已核查：Train 2,875 条、Val 719 条与 Test 的 SHA-256 匹配均为 **0**，无同源帧进入训练。
 
 ### 2. Query 生成
 
@@ -320,7 +318,7 @@ modal volume put --force rgbdt-dataset data/split_manifest.json data/split_manif
 上传 approved 标注：
 
 ```bash
-ANNOTATION_RUN_ID="annot_f9682e93205f2f0a"
+ANNOTATION_RUN_ID="annot_ac72f1d926bb2d23"
 
 modal volume put --force rgbdt-dataset \
   "outputs/annotations/$ANNOTATION_RUN_ID" \
@@ -335,7 +333,7 @@ modal volume put --force rgbdt-dataset \
 modal run train_modal.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --seed 42 \
-  --run-tag bf16-lora-r1 \
+  --run-tag bf16-lora-r2 \
   --preflight-only
 ```
 
@@ -345,7 +343,7 @@ modal run train_modal.py \
 modal run train_modal.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --seed 42 \
-  --run-tag bf16-lora-r1 \
+  --run-tag bf16-lora-r2 \
   --smoke-test
 ```
 
@@ -355,7 +353,7 @@ modal run train_modal.py \
 modal run train_modal.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --seed 42 \
-  --run-tag bf16-lora-r1
+  --run-tag bf16-lora-r2
 ```
 
 训练产物保存在 Modal Volume：
@@ -377,54 +375,52 @@ modal run train_modal.py \
 将训练产物下载到本地镜像目录（默认 `outputs/output_lora/<id>/`）：
 
 ```bash
-TRAINING_RUN_ID="train_de9fad6e5016316c"
+TRAINING_RUN_ID="train_9e468a454061153b"
 
 modal volume get --force rgbdt-dataset \
   "data/output_lora/$TRAINING_RUN_ID" \
   "outputs/output_lora/$TRAINING_RUN_ID"
 ```
 
-使用 `run_inference.py` 进行本地推理与评估：
+使用 `run_inference.py` 进行 Val 推理与评估（Val 必须用 approved 产物，不能用纯索引 `data/val.json`）：
 
 ```bash
-ANNOTATION_RUN_ID="annot_f9682e93205f2f0a"
+ANNOTATION_RUN_ID="annot_ac72f1d926bb2d23"
 BEST_ADAPTER="outputs/output_lora/$TRAINING_RUN_ID/best/epoch_02"
 
-# Base（不带 LoRA）
+# LoRA Adapter（Val 评估）
 python run_inference.py \
-  --test-json data/val.json \
-  --annotation-run-id "$ANNOTATION_RUN_ID" \
-  --output-dir outputs/inference \
-  --run-tag bf16-lora-r1-val-baseline
-
-# LoRA Adapter
-python run_inference.py \
-  --test-json data/val.json \
+  --test-json outputs/annotations/$ANNOTATION_RUN_ID/val/approved.json \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --lora-path "$BEST_ADAPTER" \
+  --limit 300 \
   --output-dir outputs/inference \
-  --run-tag bf16-lora-r1-val-trained
+  --run-tag bf16-lora-r2-val
 ```
 
 Val 结束后从 `outputs/inference/<RUN_ID>/summary.json` 中读取 `ACC@0.5`、Mean IoU 和解析失败数。
 
-### 6. Test 推理
+### 6. Test 推理（魔搭 DSW）
 
-Test 入口直接读取 `data/test.json`，不能传 `--annotation-run-id`：
+Test 入口直接读取 `data/test.json`，不能传 `--annotation-run-id`（Test 推理禁止 annotation_run_id）。在魔搭 DSW 推理包目录执行：
 
 ```bash
+cd /mnt/workspace/offline_inference_pack
 python run_inference.py \
+  --model-path model/Qwen3-VL-8B-Instruct \
   --test-json data/test.json \
-  --lora-path "$BEST_ADAPTER" \
+  --lora-path best/epoch_02 \
+  --data-dir data \
   --output-dir outputs/inference \
-  --run-tag bf16-lora-r1-test
+  --run-tag bf16-lora-r2-test
 ```
 
-`--resume` 开启后，相同参数重新运行会从 `predictions.json` 增量续跑。
+- `--max-pixels` 默认 2408448（训练同款 3072 patches）。若 A10-24GB 显存不足（BF16 推理约 21-23GB），可降到 `--max-pixels 1505280`（1920 patches）兜底。
+- `--resume` 开启后，相同参数重新运行会从 `predictions.json` 增量续跑。
 
 ### 7. 失败重试
 
-当前运行的 1 个失败项已通过 `--default-bbox` 最小合法框策略完成提交，无需单独 Retry 流程。若后续运行出现批量失败，可手动编写 Retry 脚本并基于已有 `predictions.json` 重新发起。
+当前运行的 13 个失败项（解析 None）已通过 `--default-bbox` 兜底框策略完成提交。若后续运行出现批量失败，可手动编写 Retry 脚本并基于已有 `predictions.json` 重新发起。
 
 ### 8. 构建提交包
 
@@ -444,24 +440,18 @@ python scripts/build_submission.py \
 - 官方 Query 字段保持不变；
 - ZIP 内只包含 `result.json`。
 
-当前运行仍有 1 个失败项，按既定策略填入最小合法框：
+当前运行仍有 13 个失败项（解析 None），按既定策略填入兜底框 `[0, 0, 1, 1]`：
 
 ```bash
 python scripts/build_submission.py \
   --test-json data/Test/queries/queries.json \
   --predictions "outputs/inference/<RUN_ID>/predictions.json" \
   --output-dir "outputs/submission/<RUN_ID>" \
-  --default-bbox 0 0 0.001 0.001 \
+  --default-bbox 0 0 1 1 \
   --allow-fallback
 ```
 
-为避免误传，带 fallback 的构建结果默认命名为 `submission.diagnostic.zip`。确认日志显示 `invalid=1` 后，再保留一份平台提交文件：
-
-```bash
-cp -f \
-  "outputs/submission/<RUN_ID>/submission.diagnostic.zip" \
-  "outputs/submission/<RUN_ID>/submission.zip"
-```
+`build_submission.py` 统一输出 `result.json` 与 `submission.zip`，确认日志显示 `invalid=13`（或实际失败数）后即可提交 `outputs/submission/<RUN_ID>/submission.zip`。
 
 ## 运行产物与恢复
 

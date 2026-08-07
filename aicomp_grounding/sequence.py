@@ -58,11 +58,18 @@ def source_fingerprint(dataset: dict) -> str:
 
 
 def validate_annotation_query(query: str) -> tuple[bool, str]:
-    valid, reason = validate_generated_query(query, min_words=5, max_words=20)
+    valid, reason = validate_generated_query(query, min_words=1, max_words=55)
     if not valid:
         return valid, reason
     lowered = clean_query_text(query).lower()
-    marker = next((phrase for phrase in _ANNOTATION_SCAFFOLD if phrase in lowered), None)
+    marker = next(
+        (
+            phrase
+            for phrase in _ANNOTATION_SCAFFOLD
+            if re.search(rf"(?<![a-z]){re.escape(phrase)}(?![a-z])", lowered)
+        ),
+        None,
+    )
     if marker:
         return False, f"query mentions annotation scaffolding {marker!r}"
     marker_match = _ANNOTATION_TERM.search(clean_query_text(query))
@@ -114,8 +121,15 @@ def parse_frame_query_candidates(text: str) -> dict[str, object]:
         alternate = clean_query_text(alternate_value)
         valid, reason = validate_annotation_query(alternate)
         if not valid:
-            raise ValueError(f"Invalid alternate query {alternate!r}: {reason}")
-        if alternate.casefold() == query.casefold():
+            # The alternate is a secondary candidate; a scaffolding violation
+            # there should not sink the whole frame's valid primary query.
+            print(
+                f"Warning: dropping alternate query {alternate!r} "
+                f"({reason}); keeping primary {query!r}",
+                flush=True,
+            )
+            alternate = None
+        elif alternate.casefold() == query.casefold():
             raise ValueError("Alternate query duplicates the primary query")
     if not isinstance(payload["uncertain"], bool):
         raise ValueError("Frame query uncertain must be a boolean")
