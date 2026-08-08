@@ -10,7 +10,7 @@
 
 竞赛评价指标为 `ACC@0.5`，即预测框与真实框的 IoU 不低于 0.5 时计为命中。
 
-> README 中报告的 ACC 和 IoU 均为项目内部 Val 结果，不代表官方排行榜成绩。
+
 
 ## 方法概览
 
@@ -39,7 +39,7 @@ flowchart LR
 | 计算精度 | BF16 |
 | 微调方法 | LoRA，rank 16，alpha 32，dropout 0.05 |
 | LoRA 模块 | `q/k/v/o_proj`、`gate/up/down_proj` |
-| 训练 | 2 epochs（本轮因预算以第 2 轮收尾），batch size 1，gradient accumulation 16 |
+| 训练 | 2 epochs，batch size 1，gradient accumulation 16 |
 | 优化器参数 | learning rate `1e-4`，weight decay `0.01`，warmup `0.05` |
 | 训练设备 | Modal A100-80GB |
 | 推理设备 | 魔搭 DSW A10-24GB（BF16，离线推理） |
@@ -118,7 +118,7 @@ modal volume create hf-model-cache
 
 ### 魔搭 DSW 推理环境
 
-Test 推理在 ModelScope DSW（A10-24GB，离线）执行。镜像自带 torch 2.3.0（CUDA 12.1），**不升级 torch**，其余推理库走阿里云镜像安装：
+Test 推理在 ModelScope DSW（A10-24GB，离线）执行。镜像自带 torch 2.3.0（CUDA 12.1），推理库走阿里云镜像安装：
 
 ```bash
 bash setup_env.sh
@@ -135,7 +135,7 @@ bash setup_env.sh
   build_submission.py
 ```
 
-数据集、API Key 和运行输出均被 `.gitignore` 排除，不应提交到代码仓库。
+数据集、API Key 和运行输出均被 `.gitignore` 排除，不提交到代码仓库。
 
 ## 训练数据来源
 
