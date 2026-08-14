@@ -32,6 +32,7 @@ from aicomp_grounding.prompts import (
     build_grounding_messages,
     build_training_messages,
     grounding_prompt_hash,
+    standardize_query,
 )
 from aicomp_grounding.training_state import (
     accumulation_window_size,
@@ -66,7 +67,7 @@ OUTPUT_ROOT = Path(DATA_ROOT) / "output_lora"
 BATCH_SIZE = 1
 GRAD_ACCUM_STEPS = 16
 LEARNING_RATE = 1e-4
-NUM_EPOCHS = 2
+NUM_EPOCHS = 3  # Conservative upgrade: 2→3 epochs with cosine annealing
 WARMUP_RATIO = 0.05
 MAX_GRAD_NORM = 1.0
 SEED = 42
@@ -77,10 +78,11 @@ HYPERPARAMETERS = {
     "learning_rate": LEARNING_RATE,
     "epochs": NUM_EPOCHS,
     "warmup_ratio": WARMUP_RATIO,
+    "lr_scheduler_type": "cosine",
     "max_grad_norm": MAX_GRAD_NORM,
     "weight_decay": 0.01,
     "lora_rank": 16,
-    "lora_alpha": 32,
+    "lora_alpha": 48,
     "lora_dropout": 0.05,
     "compute_dtype": "bfloat16",
     "autocast": True,
@@ -474,12 +476,17 @@ def train(training_plan: dict) -> dict:
                 with Image.open(Path(DATA_ROOT) / item[field]) as opened:
                     images.append(opened.convert("RGB"))
             visible, infrared, depth = images
+
+            # Apply text standardization for training/inference symmetry
+            raw_query = item["query"]
+            clean_query = standardize_query(raw_query)
+
             bbox_text = format_qwen_bbox(item["bbox"])
             prompt_messages = build_grounding_messages(
-                visible, infrared, depth, item["query"]
+                visible, infrared, depth, clean_query
             )
             messages = build_training_messages(
-                visible, infrared, depth, item["query"], bbox_text
+                visible, infrared, depth, clean_query, bbox_text
             )
             text = processor.apply_chat_template(
                 messages,
@@ -608,19 +615,23 @@ def train(training_plan: dict) -> dict:
     )
     batches_per_epoch = math.ceil(len(train_dataset) / BATCH_SIZE)
     steps_per_epoch = optimizer_steps_per_epoch(batches_per_epoch, GRAD_ACCUM_STEPS)
-    total_steps = steps_per_epoch * NUM_EPOCHS
+    total_steps = int(steps_per_epoch * NUM_EPOCHS)
     warmup_steps = int(total_steps * WARMUP_RATIO)
+
     optimizer = torch.optim.AdamW(
         (parameter for parameter in model.parameters() if parameter.requires_grad),
         lr=LEARNING_RATE,
         weight_decay=HYPERPARAMETERS["weight_decay"],
     )
 
+    # Cosine annealing scheduler with min_lr = 1e-5
+    min_lr = LEARNING_RATE * 0.1  # 1e-5
     def lr_lambda(step: int) -> float:
         if step < warmup_steps:
             return step / max(warmup_steps, 1)
         progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
-        return 0.5 * (1.0 + math.cos(math.pi * min(progress, 1.0)))
+        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * min(progress, 1.0)))
+        return min_lr / LEARNING_RATE + (1.0 - min_lr / LEARNING_RATE) * cosine_decay
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     start_epoch = 0

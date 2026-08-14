@@ -67,6 +67,45 @@ def build_retry_grounding_messages(visible_image, infrared_image, depth_image, q
     ]
 
 
+def standardize_query(query: str) -> str:
+    """
+    Standardize visual grounding query text for training and inference symmetry.
+
+    Normalization rules:
+    1. Strip leading/trailing whitespace
+    2. Remove trailing punctuation (. ? ! : ;)
+    3. Collapse multiple spaces/tabs into single space
+    4. Normalize curly quotes to ASCII quotes
+    5. Capitalize first letter (Sentence Case)
+
+    Args:
+        query: Raw query text
+
+    Returns:
+        Cleaned query text with consistent formatting
+    """
+    if not query:
+        return ""
+
+    # Strip whitespace
+    q = query.strip()
+
+    # Remove trailing punctuation
+    q = q.rstrip(".?!:;").strip()
+
+    # Collapse multiple spaces
+    q = " ".join(q.split())
+
+    # Normalize curly quotes to ASCII
+    q = q.replace(""", '"').replace(""", '"').replace("'", "'").replace("'", "'")
+
+    # Capitalize first letter
+    if q and q[0].islower():
+        q = q[0].upper() + q[1:]
+
+    return q
+
+
 def build_training_messages(
     visible_image,
     infrared_image,

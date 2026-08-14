@@ -24,7 +24,7 @@ from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from aicomp_grounding.bbox import compute_iou, parse_bbox_from_text, validate_bbox
+from aicomp_grounding.bbox import calibrate_bbox, compute_iou, parse_bbox_from_text, validate_bbox
 from aicomp_grounding.config import (
     INFERENCE_COMPUTE_DTYPE,
     MAX_PIXELS,
@@ -38,7 +38,13 @@ from aicomp_grounding.inference_state import (
     fingerprint_lora,
 )
 from aicomp_grounding.io import atomic_write_json, load_json
-from aicomp_grounding.prompts import build_grounding_messages, grounding_prompt_hash, GROUNDING_SYSTEM_PROMPT
+from aicomp_grounding.prompts import (
+    build_grounding_messages,
+    build_retry_grounding_messages,
+    grounding_prompt_hash,
+    standardize_query,
+    GROUNDING_SYSTEM_PROMPT,
+)
 from scripts.build_submission import build_submission
 
 CACHE_MAX_SIZE = 32
@@ -282,7 +288,11 @@ def main():
         with torch.no_grad():
             for item in pending_items:
                 key = item["key"]
-                query = item["query"]
+                raw_query = item["query"]
+
+                # Apply text standardization for training/inference symmetry
+                query = standardize_query(raw_query)
+
                 scene_id = (
                     item["visible"],
                     item["infrared"],
@@ -328,6 +338,10 @@ def main():
 
                 bbox = parse_bbox_from_text(text_output)
 
+                # Apply bbox calibration for tiny targets
+                if bbox is not None:
+                    bbox = calibrate_bbox(bbox, pad_ratio=0.03)
+
                 predictions[key] = bbox
                 processed_count += 1
 
@@ -348,6 +362,65 @@ def main():
                         torch.cuda.empty_cache()
 
     print(f"\nInference finished for {len(predictions)} queries. Saved to {predictions_path}")
+
+    # Selective Retry: re-run failed predictions with stronger prompt
+    failed_keys = [k for k, v in predictions.items() if v is None]
+    if failed_keys:
+        print(f"\n🔄 Selective Retry triggered for {len(failed_keys)} failed predictions...")
+        retry_count = 0
+        with torch.no_grad():
+            for key in failed_keys:
+                item = next((x for x in items if x["key"] == key), None)
+                if not item:
+                    continue
+
+                raw_query = item["query"]
+                query = standardize_query(raw_query)
+                scene_id = (item["visible"], item["infrared"], item["depth"])
+
+                if scene_id in scene_cache:
+                    images = scene_cache[scene_id]
+                else:
+                    images = load_scene_images(item, args.data_dir)
+                    scene_cache[scene_id] = images
+
+                # Use stronger retry prompt
+                retry_messages = build_retry_grounding_messages(
+                    images[0], images[1], images[2], query
+                )
+                retry_text = processor.apply_chat_template(
+                    retry_messages, tokenize=False, add_generation_prompt=True
+                )
+                image_inputs, video_inputs = process_vision_info(retry_messages)
+
+                inputs = processor(
+                    text=[retry_text],
+                    images=image_inputs,
+                    videos=video_inputs,
+                    padding=True,
+                    return_tensors="pt",
+                )
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+
+                with torch.autocast(device_type="cuda", dtype=compute_dtype):
+                    generated_ids = model.generate(
+                        **inputs,
+                        max_new_tokens=32,
+                        do_sample=False,
+                    )
+
+                prompt_len = inputs["input_ids"].shape[1]
+                generated_tokens = generated_ids[0][prompt_len:]
+                text_output = processor.decode(generated_tokens, skip_special_tokens=False)
+
+                retry_bbox = parse_bbox_from_text(text_output)
+                if retry_bbox is not None:
+                    retry_bbox = calibrate_bbox(retry_bbox, pad_ratio=0.03)
+                    predictions[key] = retry_bbox
+                    retry_count += 1
+
+        print(f"✅ Retry recovered {retry_count}/{len(failed_keys)} predictions")
+        atomic_write_json(predictions_path, predictions)
 
     # Check if dataset contains Ground Truth "bbox" (e.g. val.json) -> Calculate Evaluation Metrics
     sample_item = items[0] if items else {}

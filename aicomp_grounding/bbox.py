@@ -155,3 +155,41 @@ def compute_iou(box_a: Sequence[float], box_b: Sequence[float]) -> float:
     return intersection / union if union > 0.0 else 0.0
 
 
+def calibrate_bbox(box: Sequence[float], pad_ratio: float = 0.03) -> BBox:
+    """
+    Calibrate predicted normalized bbox with safety padding for tiny targets.
+
+    For very small targets (area < 0.5%), expand the bbox outward by pad_ratio
+    to increase IoU tolerance. This improves ACC@0.5 for distant/small objects.
+
+    Args:
+        box: Normalized [x1, y1, x2, y2] bbox
+        pad_ratio: Expansion ratio for each dimension (default 3%)
+
+    Returns:
+        Calibrated bbox, clipped to [0, 1] range
+    """
+    validated = validate_bbox(box)
+    if validated is None:
+        raise ValueError(f"Invalid normalized bbox for calibration: {box!r}")
+
+    x1, y1, x2, y2 = validated
+    width = max(0.0, x2 - x1)
+    height = max(0.0, y2 - y1)
+    area = width * height
+
+    # Only pad extremely small targets (< 0.5% of image area)
+    if 0.0 < area < 0.005:
+        dx = width * pad_ratio
+        dy = height * pad_ratio
+        return [
+            max(0.0, round(x1 - dx, 4)),
+            max(0.0, round(y1 - dy, 4)),
+            min(1.0, round(x2 + dx, 4)),
+            min(1.0, round(y2 + dy, 4)),
+        ]
+
+    # Return original with consistent precision
+    return [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)]
+
+
