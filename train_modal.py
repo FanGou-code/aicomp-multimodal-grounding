@@ -880,7 +880,6 @@ def main(
     deep_verify_images: bool = False,
     use_all_data: bool = False,
     val_scenes: int = 40,
-    detach: bool = False,
 ) -> dict:
     if not annotation_run_id:
         raise ValueError("annotation_run_id is required; bare train.json/val.json are prohibited")
@@ -905,15 +904,6 @@ def main(
     if plan["skip_training"] and not smoke_test:
         print(f"Training run already completed: {plan['metadata']['training_run_id']}")
         return plan["completed"]
-
-    if detach:
-        call = train.spawn(plan)
-        print(f"\n🚀 Training successfully spawned in Modal cloud!", flush=True)
-        print(f"Run ID:  {plan['metadata']['training_run_id']}", flush=True)
-        print(f"Call ID: {call.object_id}", flush=True)
-        print(f"💡 You can now SAFELY close your terminal, exit WSL2, or power off your PC completely!", flush=True)
-        print(f"Track live progress at: https://modal.com/apps\n", flush=True)
-        return {"status": "spawned", "call_id": call.object_id, "plan": plan}
 
     result = train.remote(plan)
     if smoke_test:
