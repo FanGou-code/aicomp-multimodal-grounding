@@ -382,9 +382,9 @@ def _load_training_state(torch_module, path: Path) -> object:
 
 
 @app.function(
-    gpu="A100-80GB",
+    gpu="H100",
     cpu=4.0,
-    memory=65536,
+    memory=32768,
     timeout=43200,
     volumes={
         "/data": dataset_volume,
@@ -562,8 +562,9 @@ def train(training_plan: dict) -> dict:
     assert_single_cuda_device_map(getattr(base_model, "hf_device_map", None))
     if hasattr(base_model, "enable_input_require_grads"):
         base_model.enable_input_require_grads()
-    base_model.config.use_cache = False
-    base_model.gradient_checkpointing_enable()
+    base_model.gradient_checkpointing_enable(
+        gradient_checkpointing_kwargs={"use_reentrant": False}
+    )
 
     if resume_checkpoint:
         model = PeftModel.from_pretrained(
