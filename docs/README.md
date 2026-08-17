@@ -20,8 +20,11 @@ aicomp-multimodal-grounding/
 │   │   ├── iteration_02_conservative_optimization.md  # 完整技术报告
 │   │   └── iteration_02_summary.md                    # 执行总结
 │   │
-│   └── reports/                   # 📊 专项报告
-│       └── BUG_FIX_REPORT.md           # 历史缺陷与修复报告
+│   ├── reports/                   # 📊 专项报告
+│   │   └── BUG_FIX_REPORT.md           # 历史缺陷与修复报告
+│   │
+│   └── archive/                   # 🗄️ 归档库 (过时方案与历史草稿备查)
+│       └── README.md                   # 归档库索引与规范
 │
 ├── tasks/                         # 📋 任务清单（微观）
 │   ├── README.md                       # 任务索引
