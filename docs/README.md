@@ -10,14 +10,18 @@
 aicomp-multimodal-grounding/
 │
 ├── docs/                          # 📖 项目文档中心
+│   ├── README.md                  # 文档中心总览与规范
 │   ├── research/                  # 研究分析
 │   │   ├── competition_rules.md        # 竞赛规则
 │   │   └── research_summary.md         # 技术研究总结
 │   │
-│   └── iterations/                # 🔄 迭代记录（宏观）
-│       ├── README.md                   # 迭代目录索引
-│       ├── iteration_02_conservative_optimization.md  # 完整技术报告
-│       └── iteration_02_summary.md                    # 执行总结
+│   ├── iterations/                # 🔄 迭代记录（宏观）
+│   │   ├── README.md                   # 迭代目录索引
+│   │   ├── iteration_02_conservative_optimization.md  # 完整技术报告
+│   │   └── iteration_02_summary.md                    # 执行总结
+│   │
+│   └── reports/                   # 📊 专项报告
+│       └── BUG_FIX_REPORT.md           # 历史缺陷与修复报告
 │
 ├── tasks/                         # 📋 任务清单（微观）
 │   ├── README.md                       # 任务索引
