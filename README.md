@@ -86,10 +86,8 @@ deploy/
   modelscope/           魔搭 DSW 专属环境初始化与一键离线推理脚本
 
 docs/
-  README.md             文档中心架构与总览
-  iterations/           迭代技术报告与执行总结
-  reports/              历史缺陷与专项修复报告
-  research/             竞赛规则与调研分析
+  research.md           赛题规则、数据统计与多模态基准调研
+  iteration_02.md       迭代 02 完整技术方案与任务复盘报告
 
 scripts/
   prepare_rgbdt.py      RGBDT 检查、场景划分和 Depth JET 转换
