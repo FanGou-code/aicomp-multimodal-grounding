@@ -26,7 +26,7 @@ docs/
 
 **核心改进**:
 - Task 02: 文本标准化（训练+推理两端）
-- Task 03: 保守版训练策略（Rank16, Alpha48, 2.5轮, 余弦退火）
+- Task 03: 保守版训练策略（Rank16, Alpha48, 3 轮, 余弦退火）
 - Task 04: 推理后处理（BBox校准 + Selective Retry）
 - Task 01: 已放弃（实测数据证伪深度13m假设）
 
