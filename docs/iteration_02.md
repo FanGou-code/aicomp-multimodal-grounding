@@ -69,9 +69,8 @@
 ### 2. 接手标准操作流程 (Next Actions SOP)
 
 #### 步骤 1：启动 3 轮 H100 生产级训练
-在 `tmux` 会话中执行以下命令（单卡 H100 挂机 3.3 小时）：
+直接在前台终端执行以下训练命令：
 ```bash
-tmux new -s train
 modal run train_modal.py \
   --annotation-run-id annot_ac72f1d926bb2d23 \
   --run-tag exp-h100-final
