@@ -52,3 +52,45 @@
 | **3 轮全量 H100 训练** | 1x H100 80GB (540 步) | 3.3 小时 | **$14.52** |
 | **9,555 条测试集全量推理** | 8x H100 容器并发分片 | 17 分钟 | **$9.90** |
 | **🔥 全流程总计** | - | **3.5 小时** | **`$24.42 美元` (净剩 $5.58)** |
+
+---
+
+## 五、 Agent 状态交接与下一步执行手册 (Handover Protocol)
+
+> [!IMPORTANT]
+> 任何新接手或恢复执行的 AI Agent 请严格遵循以下状态快照与标准操作流程（SOP）：
+
+### 1. 系统与产物状态快照
+* **代码分支**：`main`（`working tree clean`，145+ 单元测试 100% 通过）；
+* **标注黄金集**：`annot_ac72f1d926bb2d23`（2,875 Train + 719 Val Approved 样本）；
+* **历史最佳检查点**：`/data/data/output_lora/train_9e468a454061153b/best/epoch_02`（0.7439 基准模型）；
+* **云端挂载 Volume**：`rgbdt-dataset` 挂载于容器 `/data`，数据根目录为 `/data/data`。
+
+### 2. 接手标准操作流程 (Next Actions SOP)
+
+#### 步骤 1：启动 3 轮 H100 生产级训练
+在 `tmux` 会话中执行以下命令（单卡 H100 挂机 3.3 小时）：
+```bash
+tmux new -s train
+modal run train_modal.py \
+  --annotation-run-id annot_ac72f1d926bb2d23 \
+  --run-tag exp-h100-final
+```
+* **监控目标**：观察 Step 20 $\rightarrow$ Step 540，Loss 从 ~0.84 平滑收敛至 ~0.45 以下；
+* **产物路径**：训练完成自动在 Volume 生成 `/data/data/output_lora/<run_id>/best/epoch_03/`。
+
+#### 步骤 2：8 卡并发极速推理与自动打包 (17 分钟)
+训练完成后，直接使用产出的最佳 Adapter 启动 8 卡云端分片推理：
+```bash
+modal run infer_modal.py \
+  --split test \
+  --num-shards 8 \
+  --adapter-path /data/data/output_lora/<run_id>/best/epoch_03
+```
+* **最终交付物**：在本地 `outputs/modal_inference/submission.zip` 直接生成官方严格校验合格的最终比赛提交包。
+
+### 3. 禁忌红线 (Negative Constraints)
+1. ❌ **严禁使用 4-bit 量化**：实测会破坏空间注意力热力图，导致坐标数值退化；
+2. ❌ **严禁使用 CLAHE / 双边滤波**：Task 01 已证伪滤镜破坏了预训练特征；
+3. ❌ **严禁将 1080p 原图暴力缩放至 448x448**：会直接消灭 58.4% 的超小目标；
+4. ❌ **`NUM_EPOCHS` 必须保持整数 3**：严禁再次传入浮点数导致 `range()` 崩溃。
