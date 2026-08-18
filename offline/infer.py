@@ -22,7 +22,8 @@ from qwen_vl_utils import process_vision_info
 
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# This entrypoint lives in offline/; make the repository root importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.bbox import compute_iou, parse_bbox_from_text, validate_bbox
 from aicomp_grounding.config import (

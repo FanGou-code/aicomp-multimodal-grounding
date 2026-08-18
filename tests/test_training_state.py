@@ -32,7 +32,7 @@ from aicomp_grounding.training_state import (
 )
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
-from train_modal import (
+from cloud.train import (
     _load_training_state,
     prepare_training_plan,
 )

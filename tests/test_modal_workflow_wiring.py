@@ -13,10 +13,10 @@ try:
 except ImportError:
     _HAS_TORCH = False
 
-import train_modal
+from cloud import train as train_modal
 
 if _HAS_TORCH:
-    import run_inference
+    from offline import infer as run_inference
 else:
     run_inference = None  # type: ignore[assignment]
 from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION

@@ -1,14 +1,19 @@
-"""A100-80GB LoRA training gated by approved self-annotation artifacts."""
+"""Cloud (Modal) H100 LoRA training gated by approved self-annotation artifacts."""
 
 from __future__ import annotations
 
 import math
 import os
 import re
+import sys
 import tempfile
 from pathlib import Path
 
 import modal
+
+# This entrypoint lives in cloud/; make the repository root importable so the
+# shared library resolves both under `modal run` and in offline unit tests.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.annotation_state import validate_approved_artifact
 from aicomp_grounding.artifacts import require_exact_metadata

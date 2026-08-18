@@ -30,7 +30,7 @@ flowchart LR
 | 配置 | 当前实现 |
 | --- | --- |
 | 基座模型 | `Qwen/Qwen3-VL-8B-Instruct` |
-| 模型 revision | `f793ec29f21a31f973161d7e6dd0d50b18807a35` |
+| 模型 revision | `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` |
 | 输入 | RGB、Infrared、Depth 三张图像及英文 Query |
 | 图像预算 | 每个模态 `3072 * 28 * 28` pixels（原图 1920×1080 无损） |
 | 量化 | 无（原生 16-bit BF16 训练与推理） |
@@ -82,12 +82,17 @@ aicomp_grounding/
   test_data.py          官方 Test 模板与索引合同
   training_state.py     训练身份、调度与 checkpoint 校验
 
-deploy/
-  modelscope/           魔搭 DSW 专属环境初始化与一键离线推理脚本
+cloud/
+  train.py              云端端（Modal）：H100 LoRA 3 轮训练入口
+  infer.py              云端端（Modal）：Batch-4 / 8 卡分片推理入口
+
+offline/
+  infer.py              离线端：通用单 GPU 推理与评估入口（平台无关）
+  dsw/                  魔搭 DSW 环境预设（setup.sh / run.sh）
 
 docs/
   research.md           赛题规则、数据统计与多模态基准调研
-  iteration_02.md       迭代 02 完整技术方案与任务复盘报告
+  iteration_02.md       迭代 02 技术方案与状态
 
 scripts/
   prepare_rgbdt.py      RGBDT 检查、场景划分和 Depth JET 转换
@@ -95,9 +100,6 @@ scripts/
   generate_queries.py   自动 Query 生成与 approved 发布
   build_submission.py   官方模板校验与提交 ZIP 构建
 
-train_modal.py          Modal H100-80GB LoRA 3 轮训练入口
-infer_modal.py          Modal 云端 Batch-4 / 8 卡分片推理入口
-run_inference.py        通用单 GPU 离线推理与评估入口
 tests/                  离线单元测试与工作流契约测试
 ```
 
@@ -127,7 +129,7 @@ modal volume create hf-model-cache
 Test 推理支持在 ModelScope DSW（A10-24GB，离线）执行。推理库走阿里云镜像安装：
 
 ```bash
-bash deploy/modelscope/setup_dsw.sh
+bash offline/dsw/setup.sh
 ```
 
 ## 训练数据来源
@@ -290,6 +292,10 @@ outputs/annotations/<ANNOTATION_RUN_ID>/<split>/
   approved.json
 ```
 
+> 黄金标注集 `annot_ac72f1d926bb2d23` 的 `train/val approved.json` 已通过 `.gitignore`
+> 白名单随仓库分发——队友 `git pull` 即得字节级一致的标注，指纹校验天然通过。
+> 其余产物（shards / merged 等）仍在本地生成、不入库。
+
 默认开启 Resume。若存在失败项，保持原参数并增加 `--retry-failed --publish`，只重新请求失败帧。
 
 ### 3. 上传到 Modal Volume
@@ -323,7 +329,7 @@ modal volume put --force rgbdt-dataset \
 先运行 CPU Preflight，确认 Volume、approved 数据和模型配置可用：
 
 ```bash
-modal run train_modal.py \
+modal run cloud/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --seed 42 \
   --run-tag exp-h100-final \
@@ -333,7 +339,7 @@ modal run train_modal.py \
 运行单 batch 前向和反向冒烟测试：
 
 ```bash
-modal run train_modal.py \
+modal run cloud/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --seed 42 \
   --run-tag exp-h100-final \
@@ -343,7 +349,7 @@ modal run train_modal.py \
 启动完整 3 轮训练：
 
 ```bash
-modal run train_modal.py \
+modal run cloud/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --seed 42 \
   --run-tag exp-h100-final
@@ -371,7 +377,7 @@ modal run train_modal.py \
 验证集评估（Val 评估）：
 
 ```bash
-modal run infer_modal.py \
+modal run cloud/infer.py \
   --split val \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --adapter-path "/data/data/output_lora/<TRAINING_RUN_ID>/best/epoch_03"
@@ -380,7 +386,7 @@ modal run infer_modal.py \
 官方测试集推理与自动提交构建（支持 8 卡并行分片）：
 
 ```bash
-modal run infer_modal.py \
+modal run cloud/infer.py \
   --split test \
   --num-shards 8 \
   --adapter-path "/data/data/output_lora/<TRAINING_RUN_ID>/best/epoch_03"
@@ -398,12 +404,12 @@ modal volume get --force rgbdt-dataset \
   "outputs/output_lora/$TRAINING_RUN_ID"
 ```
 
-使用 `run_inference.py` 进行离线推理：
+使用 `offline/infer.py` 进行离线推理：
 
 ```bash
 BEST_ADAPTER="outputs/output_lora/$TRAINING_RUN_ID/best/epoch_03"
 
-python run_inference.py \
+python offline/infer.py \
   --model-path Qwen/Qwen3-VL-8B-Instruct \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
@@ -465,7 +471,7 @@ python -m unittest discover -s tests -v
 可额外执行语法编译检查：
 
 ```bash
-python -m compileall aicomp_grounding scripts train_modal.py run_inference.py infer_modal.py
+python -m compileall aicomp_grounding scripts cloud/train.py cloud/infer.py offline/infer.py
 ```
 
 ## 模型与服务

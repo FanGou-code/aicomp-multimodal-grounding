@@ -14,7 +14,7 @@ except ImportError:
     _HAS_TORCH = False
 
 if _HAS_TORCH:
-    import run_inference
+    from offline import infer as run_inference
 else:
     run_inference = None  # type: ignore[assignment]
 from aicomp_grounding.annotation_state import (

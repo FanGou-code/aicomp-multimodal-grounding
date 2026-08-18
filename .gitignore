@@ -29,18 +29,25 @@ environment.yml.bak
 *.pem
 *.key
 
-# Data files & Datasets (prevent accidental large file commits)
+# Data files & Datasets (shared offline, never committed)
 data/
 dataset/
-Train/
-Train_Processed/
-preview_check/
-*.json
-!package.json
 
-# OS
+# Model weights & LoRA adapters (any location)
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+model/
+best/
+checkpoints/
+runs/
+
+# OS / WSL
 .DS_Store
 Thumbs.db
+*:Zone.Identifier
 
 # Modal
 .modal/
@@ -49,9 +56,19 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
-# Logs & outputs
+# Logs & caches
 *.log
+.cache/
 wandb/
-outputs/
-checkpoints/
-runs/
+
+# Outputs: everything is local EXCEPT the golden annotation set, which is the
+# shared training contract and travels with the repository (update the run id
+# below deliberately when a new golden annotation run is published).
+outputs/**
+!outputs/annotations/
+outputs/annotations/**
+!outputs/annotations/annot_ac72f1d926bb2d23/
+!outputs/annotations/annot_ac72f1d926bb2d23/train/
+!outputs/annotations/annot_ac72f1d926bb2d23/val/
+!outputs/annotations/annot_ac72f1d926bb2d23/train/approved.json
+!outputs/annotations/annot_ac72f1d926bb2d23/val/approved.json

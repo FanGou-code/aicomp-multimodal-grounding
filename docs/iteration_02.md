@@ -25,7 +25,7 @@
 
 ### 3. 推理基础设施
 
-* 新增 `infer_modal.py` 生产级推理引擎（Batch-4 + `--num-shards 8` 分片 + 自动构建提交包）
+* 新增 `cloud/infer.py`（原 `infer_modal.py`）生产级推理引擎（Batch-4 + `--num-shards 8` 分片 + 自动构建提交包）
 
 ### 4. 已评估并剔除的方向
 

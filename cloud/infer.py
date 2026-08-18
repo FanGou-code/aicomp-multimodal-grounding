@@ -12,11 +12,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 import time
 from typing import Any
 
 import modal
+
+# This entrypoint lives in cloud/; make the repository root importable so the
+# shared library and the scripts package resolve under `modal run`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.config import (
     DATA_ROOT,

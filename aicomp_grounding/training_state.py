@@ -253,7 +253,7 @@ def assert_single_cuda_device_map(device_map: dict | None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Adapter and checkpoint validation (shared by train_modal and inference_state)
+# Adapter and checkpoint validation (shared by cloud/train and inference_state)
 # ---------------------------------------------------------------------------
 
 def adapter_weight_path(adapter_dir: "Path") -> "Path | None":

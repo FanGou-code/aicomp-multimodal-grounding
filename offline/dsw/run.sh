@@ -36,8 +36,8 @@ if [ ! -f "${TEST_JSON}" ]; then
     fi
 fi
 
-# 执行推理
-python run_inference.py \
+# 执行推理（在仓库根目录运行本脚本）
+python offline/infer.py \
     --model-path "${MODEL_PATH}" \
     --test-json "${TEST_JSON}" \
     --data-dir "${DATA_DIR}" \
