@@ -9,7 +9,6 @@ Supports:
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import sys
@@ -31,12 +30,16 @@ from aicomp_grounding.config import (
     MODEL_NAME,
     MODEL_REVISION,
 )
+from aicomp_grounding.inference_core import (
+    evaluate_predictions,
+    load_inference_items,
+    merge_shard_results,
+)
 
 image = (
     modal.Image.debian_slim(python_version="3.10")
     .pip_install(*MODAL_GPU_PACKAGES)
     .add_local_python_source("aicomp_grounding")
-    .add_local_python_source("scripts")
 )
 
 app = modal.App("rgbdt-modal-inference", image=image)
@@ -73,7 +76,7 @@ def run_shard_inference(
     from aicomp_grounding.prompts import build_grounding_messages
 
     dataset_volume.reload()
-    data_root = Path("/data/data")
+    data_root = Path(DATA_ROOT)
 
     total_samples = len(items)
     print(f"Loading Base Model: {MODEL_NAME} on H100 for {total_samples} queries...")
@@ -238,7 +241,7 @@ def run_shard_inference(
 @app.local_entrypoint()
 def main(
     split: str = "val",
-    adapter_path: str = "/data/data/output_lora/train_9e468a454061153b/best/epoch_02",
+    adapter_path: str = f"{DATA_ROOT}/output_lora/train_9e468a454061153b/best/epoch_02",
     annotation_run_id: str = "annot_ac72f1d926bb2d23",
     batch_size: int = 4,
     num_workers: int = 4,
@@ -246,7 +249,7 @@ def main(
     output_dir: str = "outputs/modal_inference",
 ):
     """Local entrypoint for running validation or test inference on Modal."""
-    from scripts.build_submission import build_submission
+    from aicomp_grounding.submission import build_submission
 
     print(f"=================================================================")
     print(f"🚀 Modal Visual Grounding Inference Engine")
@@ -256,7 +259,8 @@ def main(
     print(f"  Parallel Shards:    {num_shards}")
     print(f"=================================================================")
 
-    # Load dataset index from Volume or local template
+    # Load dataset index from local data dir; path policy stays platform
+    # specific, item normalization is shared via the inference core.
     if split == "val":
         data_root = Path("data")
         val_approved_path = (
@@ -272,25 +276,16 @@ def main(
             val_approved_path = data_root / "val.json"
         if not val_approved_path.exists():
             raise FileNotFoundError(f"Val dataset not found at {val_approved_path}")
-
-        with open(val_approved_path, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-            data_dict = raw.get("data", raw)
-            items = [
-                dict(v, key=k) if isinstance(v, dict) else v
-                for k, v in data_dict.items()
-            ]
+        index_path = val_approved_path
     else:  # test split
         test_template_path = Path("data/Test/queries/queries.json")
         if not test_template_path.exists():
             test_template_path = Path("data/test.json")
         if not test_template_path.exists():
             raise FileNotFoundError(f"Test queries not found at {test_template_path}")
+        index_path = test_template_path
 
-        with open(test_template_path, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-            data_dict = raw.get("data", raw)
-            items = [{"key": k, **v} for k, v in data_dict.items()]
+    items, _ = load_inference_items(index_path)
 
     total_queries = len(items)
     print(f"Loaded {total_queries} queries for split '{split}'.")
@@ -317,17 +312,10 @@ def main(
             )
         ]
 
-    # Merge results from all shards
-    all_predictions: dict[str, list[float] | None] = {}
-    total_correct = 0
-    total_iou = 0.0
-    total_time = max(r["elapsed_seconds"] for r in results)
-
-    for r in results:
-        all_predictions.update(r["predictions"])
-        if r["correct_05"] is not None:
-            total_correct += r["correct_05"]
-            total_iou += r["total_iou"]
+    # Merge results from all shards (wall clock = slowest shard)
+    merged = merge_shard_results(results)
+    all_predictions = merged["predictions"]
+    total_time = merged["elapsed_seconds"]
 
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -343,10 +331,13 @@ def main(
     print(f"  Global Throughput:  {total_queries/max(1e-5, total_time):.2f} samples/s")
 
     if split == "val" and total_queries > 0:
-        final_acc = (total_correct / total_queries) * 100
-        final_miou = (total_iou / total_queries) * 100
-        print(f"  ACC@0.5 Accuracy:   {final_acc:.4f}% ({total_correct}/{total_queries})")
-        print(f"  Mean IoU:           {final_miou:.4f}%")
+        metrics = evaluate_predictions(items, all_predictions)
+        if metrics is not None:
+            print(
+                f"  ACC@0.5 Accuracy:   {metrics['acc_at_0_5'] * 100:.4f}% "
+                f"({metrics['hits']}/{metrics['total']})"
+            )
+            print(f"  Mean IoU:           {metrics['mean_iou'] * 100:.4f}%")
 
     if split == "test":
         print("\n📦 Generating verified official submission ZIP...")

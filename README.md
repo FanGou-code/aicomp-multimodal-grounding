@@ -87,18 +87,22 @@ cloud/
   infer.py              云端端（Modal）：Batch-4 / 8 卡分片推理入口
 
 offline/
+  train.py              离线端：单机训练入口（与云端共用 training_core）
   infer.py              离线端：通用单 GPU 推理与评估入口（平台无关）
-  dsw/                  魔搭 DSW 环境预设（setup.sh / run.sh）
+  dsw/                  魔搭 DSW 环境预设（setup.sh）
 
 docs/
   research.md           赛题规则、数据统计与多模态基准调研
   iteration_02.md       迭代 02 技术方案与状态
 
+aicomp_grounding/
+  ...
+  submission.py         官方模板校验与提交 ZIP 构建（含 CLI）
+
 scripts/
   prepare_rgbdt.py      RGBDT 检查、场景划分和 Depth JET 转换
   filter_overlap.py     SHA-256 剔除与 Test 同源的 Train/Val 样本
   generate_queries.py   自动 Query 生成与 approved 发布
-  build_submission.py   官方模板校验与提交 ZIP 构建
 
 tests/                  离线单元测试与工作流契约测试
 ```
@@ -423,7 +427,7 @@ python offline/infer.py \
 若所有预测均有效，使用严格模式构建提交 ZIP：
 
 ```bash
-python scripts/build_submission.py \
+python -m aicomp_grounding.submission \
   --test-json data/Test/queries/queries.json \
   --predictions "outputs/inference/<RUN_ID>/predictions.json" \
   --output-dir "outputs/submission/<RUN_ID>"
@@ -439,7 +443,7 @@ python scripts/build_submission.py \
 若存在解析异常项（None），可使用默认兜底框：
 
 ```bash
-python scripts/build_submission.py \
+python -m aicomp_grounding.submission \
   --test-json data/Test/queries/queries.json \
   --predictions "outputs/inference/<RUN_ID>/predictions.json" \
   --output-dir "outputs/submission/<RUN_ID>" \
@@ -471,7 +475,7 @@ python -m unittest discover -s tests -v
 可额外执行语法编译检查：
 
 ```bash
-python -m compileall aicomp_grounding scripts cloud/train.py cloud/infer.py offline/infer.py
+python -m compileall aicomp_grounding scripts cloud offline
 ```
 
 ## 模型与服务

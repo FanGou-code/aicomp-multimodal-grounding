@@ -25,7 +25,7 @@ from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 # This entrypoint lives in offline/; make the repository root importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aicomp_grounding.bbox import compute_iou, parse_bbox_from_text, validate_bbox
+from aicomp_grounding.bbox import parse_bbox_from_text, validate_bbox
 from aicomp_grounding.config import (
     INFERENCE_COMPUTE_DTYPE,
     MAX_PIXELS,
@@ -33,6 +33,7 @@ from aicomp_grounding.config import (
     MODEL_NAME,
     MODEL_REVISION,
 )
+from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.inference_state import (
     build_run_metadata,
     fingerprint_inputs,
@@ -44,7 +45,7 @@ from aicomp_grounding.prompts import (
     grounding_prompt_hash,
     GROUNDING_SYSTEM_PROMPT,
 )
-from scripts.build_submission import build_submission
+from aicomp_grounding.submission import build_submission
 
 CACHE_MAX_SIZE = 32
 
@@ -162,34 +163,9 @@ def main():
     if not args.test_json.is_file():
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
 
-    raw_test_data = load_json(args.test_json)
-
-    # Accept either a flat {query_id: item} index or an approved annotation
-    # artifact ({metadata, data}); the latter mirrors the Modal entry point.
-    approved_metadata = None
-    if (
-        isinstance(raw_test_data, dict)
-        and isinstance(raw_test_data.get("data"), dict)
-        and isinstance(raw_test_data.get("metadata"), dict)
-    ):
-        approved_metadata = raw_test_data["metadata"]
-        raw_test_data = raw_test_data["data"]
-        print(f"Loaded approved artifact data with {len(raw_test_data)} samples.")
-
-    # Standardize items list with keys
-    items: list[dict] = []
-    if isinstance(raw_test_data, dict):
-        for k, v in raw_test_data.items():
-            entry = dict(v)
-            entry["key"] = k
-            items.append(entry)
-    elif isinstance(raw_test_data, list):
-        items = list(raw_test_data)
-    else:
-        raise ValueError("Invalid test_json format: expected dict or list")
-
-    if args.limit > 0:
-        items = items[: args.limit]
+    # Accepts an approved annotation artifact or a flat {query_id: item}
+    # index; see the shared inference core for the exact contract.
+    items, approved_metadata = load_inference_items(args.test_json, limit=args.limit)
 
     # ---- Build a Modal-compatible run identity ----------------------------
     selected_keys = [item["key"] for item in items]
@@ -355,49 +331,18 @@ def main():
 
     print(f"\nInference finished for {len(predictions)} queries. Saved to {predictions_path}")
 
-    # Check if dataset contains Ground Truth "bbox" (e.g. val.json) -> Calculate Evaluation Metrics
-    sample_item = items[0] if items else {}
-    has_ground_truth = "bbox" in sample_item
+    # Metrics only exist when the dataset carries ground-truth bboxes (e.g. val).
+    has_ground_truth = bool(items) and "bbox" in items[0]
+    metrics = evaluate_predictions(items, predictions)
 
-    metrics = None
-    if has_ground_truth:
-        hits = 0
-        total_iou = 0.0
-        failures = 0
-        item_map = {item["key"]: item for item in items}
-
-        for key, pred_bbox in predictions.items():
-            gt_item = item_map.get(key, {})
-            gt_bbox = validate_bbox(gt_item.get("bbox"))
-            valid_pred = validate_bbox(pred_bbox)
-
-            if valid_pred is None:
-                failures += 1
-                continue
-
-            if gt_bbox is not None:
-                iou = compute_iou(valid_pred, gt_bbox)
-                total_iou += iou
-                if iou >= 0.5:
-                    hits += 1
-
-        total = len(predictions)
-        acc_05 = hits / total if total > 0 else 0.0
-        mean_iou = total_iou / total if total > 0 else 0.0
-        metrics = {
-            "hits": hits,
-            "total": total,
-            "acc_at_0_5": acc_05,
-            "mean_iou": mean_iou,
-            "failures": failures,
-        }
-
+    if metrics is not None:
         print("\n" + "="*50)
         print("=== EVALUATION REPORT (GROUND TRUTH DETECTED) ===")
-        print(f"Total Evaluated Samples : {total}")
-        print(f"Accuracy @ IoU >= 0.5   : {acc_05 * 100:.2f}% ({hits}/{total})")
-        print(f"Mean IoU (mIoU)         : {mean_iou:.4f}")
-        print(f"Failed Bbox Predictions : {failures}")
+        print(f"Total Evaluated Samples : {metrics['total']}")
+        print(f"Accuracy @ IoU >= 0.5   : {metrics['acc_at_0_5'] * 100:.2f}% "
+              f"({metrics['hits']}/{metrics['total']})")
+        print(f"Mean IoU (mIoU)         : {metrics['mean_iou']:.4f}")
+        print(f"Failed Bbox Predictions : {metrics['failures']}")
         print("="*50 + "\n")
 
     # Persist Modal-compatible artifacts: metadata.json + checkpoint.json + summary.json

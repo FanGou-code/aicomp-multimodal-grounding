@@ -32,8 +32,9 @@ from aicomp_grounding.training_state import (
 )
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
-from cloud.train import (
+from aicomp_grounding.training_core import (
     _load_training_state,
+    persist_training_plan,
     prepare_training_plan,
 )
 
@@ -428,6 +429,56 @@ class CompletedTrainingStateTests(unittest.TestCase):
                     metadata=metadata,
                     **_TRAIN_PARAMS,
                 )
+
+
+class PersistTrainingPlanTests(unittest.TestCase):
+    @staticmethod
+    def _plan(root: Path, *, smoke_test: bool = False) -> dict:
+        run_dir = root / "output_lora" / "train_persist"
+        return {
+            "metadata": {"training_run_id": "train_persist"},
+            "train_artifact_path": str(root / "train.json"),
+            "val_artifact_path": str(root / "val.json"),
+            "run_dir": str(run_dir),
+            "smoke_test": smoke_test,
+        }
+
+    def test_smoke_plan_never_persists_or_commits(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            plan = self._plan(root, smoke_test=True)
+            commits = []
+            persist_training_plan(plan, commit_hook=lambda: commits.append(1))
+            self.assertFalse((Path(plan["run_dir"]) / "plan.json").exists())
+            self.assertEqual(commits, [])
+
+    def test_formal_plan_persists_and_commits(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            plan = self._plan(root)
+            commits = []
+            persist_training_plan(plan, commit_hook=lambda: commits.append(1))
+            plan_path = Path(plan["run_dir"]) / "plan.json"
+            self.assertTrue(plan_path.is_file())
+            self.assertEqual(commits, [1])
+
+    def test_matching_existing_plan_is_accepted_without_commit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            plan = self._plan(root)
+            persist_training_plan(plan)
+            commits = []
+            persist_training_plan(plan, commit_hook=lambda: commits.append(1))
+            self.assertEqual(commits, [])
+
+    def test_diverging_existing_plan_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            plan = self._plan(root)
+            persist_training_plan(plan)
+            plan["train_artifact_path"] = str(root / "other_train.json")
+            with self.assertRaisesRegex(ValueError, "Training plan mismatch"):
+                persist_training_plan(plan)
 
 
 if __name__ == "__main__":

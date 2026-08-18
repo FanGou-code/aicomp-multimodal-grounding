@@ -1,0 +1,86 @@
+"""Offline single-machine LoRA training shell around the shared training core.
+
+Runs the exact cloud training pipeline on a local CUDA GPU. Practical uses:
+cheap QLoRA-style experiments on 24GB cards (with a reduced pixel budget),
+GroundingDINO-scale fine-tuning, or full runs on >=48GB local hardware.
+
+Requires an approved annotation artifact directory layout under --data-dir,
+identical to the cloud volume layout.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+# This entrypoint lives in offline/; make the repository root importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from aicomp_grounding.training_core import SEED, persist_training_plan, prepare_training_plan, run_training
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--annotation-run-id", type=str, required=True)
+    parser.add_argument("--data-dir", type=Path, default=Path("data"))
+    parser.add_argument("--run-tag", type=str, default="")
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resume from an existing incomplete checkpoint (default: on).",
+    )
+    parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--smoke-test", action="store_true")
+    parser.add_argument("--deep-verify-images", action="store_true")
+    parser.add_argument("--use-all-data", action="store_true")
+    parser.add_argument("--val-scenes", type=int, default=40)
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    plan = prepare_training_plan(
+        data_root=args.data_dir,
+        annotation_run_id=args.annotation_run_id,
+        run_tag=args.run_tag,
+        seed=args.seed,
+        resume=args.resume,
+        smoke_test=args.smoke_test,
+        verify_images=args.deep_verify_images,
+        use_all_data=args.use_all_data,
+        val_scenes=args.val_scenes,
+    )
+    if not args.smoke_test:
+        persist_training_plan(plan)
+
+    if args.preflight_only:
+        print(
+            f"Training preflight passed: {plan['metadata']['training_run_id']} | "
+            f"already completed: {plan['skip_training']}"
+        )
+        return plan
+
+    if plan["skip_training"] and not args.smoke_test:
+        print(f"Training run already completed: {plan['metadata']['training_run_id']}")
+        return plan["completed"]
+
+    result = run_training(plan, data_root=args.data_dir)
+    if args.smoke_test:
+        if result.get("status") != "smoke_passed":
+            raise RuntimeError("Training smoke test did not return a passing result")
+        print(
+            f"Training smoke passed: train_loss={result['train_loss']:.4f}, "
+            f"val_loss={result['val_loss']:.4f}"
+        )
+        return result
+    print(f"Training run_id: {result['metadata']['training_run_id']}")
+    print(f"Best adapter: {result['best_path']}")
+    print(f"Last adapter: {result['last_path']}")
+    return result
+
+
+if __name__ == "__main__":
+    main()

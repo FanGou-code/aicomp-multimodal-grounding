@@ -5,12 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import tempfile
 import zipfile
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.io import atomic_write_json, load_json, require_distinct_paths

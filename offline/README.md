@@ -1,19 +1,29 @@
-# 💻 Offline End — 离线推理端
+# 💻 Offline End — 离线端
 
-离线端：平台无关的纯推理（兜底 / 免费算力）。本体只有 `infer.py`，
-任何单卡 CUDA 机器装好依赖即可运行；各平台差异只体现在"怎么装环境"。
+离线端：平台无关的训练与推理（兜底 / 免费算力）。推理本体是 `infer.py`，训练本体是
+`train.py`（与云端共用 `aicomp_grounding/training_core`，行为完全一致）；任何单卡
+CUDA 机器装好依赖即可运行，各平台差异只体现在"怎么装环境"。
 
 ## 平台 × 任务矩阵
 
 | 平台 | 训练 | 推理 | 环境怎么装 |
 | --- | --- | --- | --- |
-| 魔搭 DSW (A10 24G) | ❌ 卡不够 | `infer.py` | `bash offline/dsw/setup.sh` |
-| **实体 GPU / 任意 CUDA 机** | 视显存 | `infer.py` | `pip install -r requirements-lock.txt`，**零额外脚本** |
+| 魔搭 DSW (A10 24G) | ❌ 卡不够（QLoRA 低分辨率实验除外） | `infer.py` | `bash offline/dsw/setup.sh` |
+| **实体 GPU / 任意 CUDA 机** | `train.py`（≥48GB 满血 / 24GB 需降像素预算） | `infer.py` | `pip install -r requirements-lock.txt`，**零额外脚本** |
 | （未来离线平台 X） | ? | `infer.py` | 往本目录加一个 `x/setup.sh` 预设即可 |
 
 ## 通用用法（仓库根目录执行）
 
-直接调本体：
+离线训练（与云端同一套核心与指纹）：
+
+```bash
+python offline/train.py \
+  --annotation-run-id annot_ac72f1d926bb2d23 \
+  --data-dir data \
+  --run-tag offline-exp
+```
+
+直接调推理本体：
 
 ```bash
 python offline/infer.py \
