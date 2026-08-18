@@ -32,7 +32,6 @@ from aicomp_grounding.prompts import (
     build_grounding_messages,
     build_training_messages,
     grounding_prompt_hash,
-    standardize_query,
 )
 from aicomp_grounding.training_state import (
     accumulation_window_size,
@@ -477,16 +476,12 @@ def train(training_plan: dict) -> dict:
                     images.append(opened.convert("RGB"))
             visible, infrared, depth = images
 
-            # Apply text standardization for training/inference symmetry
-            raw_query = item["query"]
-            clean_query = standardize_query(raw_query)
-
             bbox_text = format_qwen_bbox(item["bbox"])
             prompt_messages = build_grounding_messages(
-                visible, infrared, depth, clean_query
+                visible, infrared, depth, item["query"]
             )
             messages = build_training_messages(
-                visible, infrared, depth, clean_query, bbox_text
+                visible, infrared, depth, item["query"], bbox_text
             )
             text = processor.apply_chat_template(
                 messages,

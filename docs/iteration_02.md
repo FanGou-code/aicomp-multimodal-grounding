@@ -1,94 +1,51 @@
-# 🔄 Iteration 02: Conservative Optimization (保守优化与极速推理)
+# 🔄 Iteration 02: Conservative Optimization (保守优化)
 
 ---
 
-## 一、 迭代背景与核心目标
+## 一、基线（实际成绩）
 
-* **基线状态 (Iteration 01)**：Qwen3-VL-8B + LoRA (Rank 16, Alpha 32, 2 Epochs) 达成 Val IoU **0.7439**；
-* **迭代目标**：在不推倒重构、保持 100% 确定性的前提下，实施 4 个独立维度的保守优化（Task 01 ~ Task 04），目标将正式成绩提升至 **`0.76 ~ 0.77+`**。
-
----
-
-## 二、 4 大任务实施复盘
-
-### Task 01: 图像预处理增强（已放弃 ❌）
-* **探索假设**：尝试通过直方图均衡化（CLAHE）增强暗光可见光，通过双边滤波平滑红外噪点；
-* **实验结论**：实测发现滤镜破坏了预训练模型特征分布，在验证集上产生负优化，因此**果断放弃，保持 1080p 原图无损输入**。
-
-### Task 02: 文本对称标准化（已完成 ✅ 预期 +0.5%）
-* **问题发现**：Query 文本中存在 15% 的特殊符号、非标准空格与句末标点噪声；
-* **优化实施**：在 `aicomp_grounding/prompts.py` 中落地 `standardize_query`，训练与推理两端严格对称清洗，消除文本特征漂移。
-
-### Task 03: 训练策略升级（已完成 ✅ 预期 +1.0%）
-* **微调超参升级**：
-  * LoRA Alpha 从 32 提升至 **48**（强化坐标回归约束）；
-  * 训练轮数从 2 轮提升至 **3 轮**（540 个优化步）；
-  * 学习率调度器从线性升级为 **Cosine Annealing（余弦退火）**，平滑收敛至最优点；
-* **显存与硬件优化**：
-  * 硬件升级至 Modal H100 80GB（32GB RAM），开启现代非重入梯度检查点（`use_reentrant=False`），峰值显存 32.5GB，**0 OOM**；
-  * 支持 mid-epoch 0.05 秒确定性跳步断点续跑。
-
-### Task 04: 推理后处理与极小目标校准（已完成 ✅ 预期 +0.8%）
-* **微小目标补偿**：针对数据集中 **58.4% 面积小于 0.5% 的超小目标**，应用 `calibrate_bbox(pad_ratio=0.03)` 进行 3% 边界自适应外扩补偿；
-* **推理流水线提速**：
-  * 实现 `batch_size = 4` 多进程 DataLoader 异步预切图流水线（单卡稳态 **1.06 samples/s**）；
-  * 落地 `--num-shards 8` 云端 8 卡并发分片调度（9,555 条测试集 **17 分钟直出提交 ZIP**）。
+* **唯一完整跑通的一套**：`train_9e468a454061153b`（Qwen3-VL-8B-Instruct + LoRA）
+* **竞赛成绩 ACC@0.5**：**0.7439**（官方测试集）
 
 ---
 
-## 三、 验证集实测成果
+## 二、本轮已落地改动（尚未训练）
 
-在 719 条全量 Val 验证集上，0.7439 检查点结合 Task 02 文本标准化与 Task 04 极小目标微调，实测战绩：
-* **`ACC@0.5 准确率`**：**`91.59%`**
-* **`Mean IoU`**：**`85.02%`**
-* **实测单张耗时**：从 2.93 秒/张压缩至 **0.84 秒/张**（提速 3.5 倍）。
+### 1. 训练策略
+
+* LoRA alpha 32 → **48**
+* 训练轮数 2 → **3**
+* cosine 调度加入 **min_lr = 1e-5 下限**（基线已用 cosine，但会衰减到 0）
+* `total_steps` 强制取整，避免浮点值进入 `range()`
+
+### 2. 硬件
+
+* 训练卡 A100-80GB（64GB RAM）→ **H100**（32GB RAM）
+* 梯度检查点开启 `use_reentrant=False`（非重入）
+
+### 3. 推理基础设施
+
+* 新增 `infer_modal.py` 生产级推理引擎（Batch-4 + `--num-shards 8` 分片 + 自动构建提交包）
+
+### 4. 已评估并剔除的方向
+
+* **图像滤镜增强**（CLAHE / 双边滤波）：破坏预训练特征分布，放弃。
+* **文本标准化 `standardize_query`**：实测仅覆盖 2.4% query，收益接近零，已从仓库剔除。
+* **极小目标外扩 `calibrate_bbox`（3% padding）**：未经验证的启发式，且会扭曲框几何、干扰后续 WBF 多模型融合，已从仓库剔除。
+* **Selective retry（强约束 prompt 重跑解析失败样本）**：与 `calibrate_bbox` 绑定，一并剔除。
 
 ---
 
-## 四、 算力开销决算 ($30 账户闭环)
+## 三、当前配置快照
 
-| 阶段任务 | 硬件配置 | 实测耗时 | 扣费金额 |
-| :--- | :--- | :---: | :---: |
-| **3 轮全量 H100 训练** | 1x H100 80GB (540 步) | 3.3 小时 | **$14.52** |
-| **9,555 条测试集全量推理** | 8x H100 容器并发分片 | 17 分钟 | **$9.90** |
-| **🔥 全流程总计** | - | **3.5 小时** | **`$24.42 美元` (净剩 $5.58)** |
+* `MAX_PIXELS = 3072 * 28 * 28`（1080p 无损输入）
+* `MODEL_REVISION = 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`
+* 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ---
 
-## 五、 Agent 状态交接与下一步执行手册 (Handover Protocol)
+## 四、状态
 
-> [!IMPORTANT]
-> 任何新接手或恢复执行的 AI Agent 请严格遵循以下状态快照与标准操作流程（SOP）：
+**尚未开始训练**。上述改动已落地 `main`，下一步启动 H100 训练并评估 Val 与官方测试集。
 
-### 1. 系统与产物状态快照
-* **代码分支**：`main`（`working tree clean`，145+ 单元测试 100% 通过）；
-* **标注黄金集**：`annot_ac72f1d926bb2d23`（2,875 Train + 719 Val Approved 样本）；
-* **历史最佳检查点**：`/data/data/output_lora/train_9e468a454061153b/best/epoch_02`（0.7439 基准模型）；
-* **云端挂载 Volume**：`rgbdt-dataset` 挂载于容器 `/data`，数据根目录为 `/data/data`。
-
-### 2. 接手标准操作流程 (Next Actions SOP)
-
-#### 步骤 1：启动 3 轮 H100 生产级训练
-直接在前台终端执行以下训练命令：
-```bash
-modal run train_modal.py \
-  --annotation-run-id annot_ac72f1d926bb2d23 \
-  --run-tag exp-h100-final
-```
-* **监控目标**：观察 Step 20 $\rightarrow$ Step 540，Loss 从 ~0.84 平滑收敛至 ~0.45 以下；
-* **产物路径**：训练完成自动在 Volume 生成 `/data/data/output_lora/<run_id>/best/epoch_03/`。
-
-#### 步骤 2：8 卡并发极速推理与自动打包 (17 分钟)
-训练完成后，直接使用产出的最佳 Adapter 启动 8 卡云端分片推理：
-```bash
-modal run infer_modal.py \
-  --split test \
-  --num-shards 8 \
-  --adapter-path /data/data/output_lora/<run_id>/best/epoch_03
-```
-* **最终交付物**：在本地 `outputs/modal_inference/submission.zip` 直接生成官方严格校验合格的最终比赛提交包。
-
-### 3. 工程防坑红线 (Negative Constraints)
-1. ❌ **严禁引入图像滤镜预处理**：Task 01 已证伪 CLAHE 直方图均衡化与双边滤波会破坏预训练特征分布；
-2. ❌ **`NUM_EPOCHS` 必须保持整数 3**：严禁传入浮点数导致 `range()` 崩溃；
-3. ❌ **保持 `MAX_PIXELS = 3072 * 28 * 28`**：保持 1080p 原图无损输入，避免小目标特征丢失。
+团队分工：本仓库负责 Qwen3-VL 单模型（融合锚点）；队友分别负责 InternVL-3.5 与 GroundingDINO 异构模型，最终做 WBF 加权框融合。

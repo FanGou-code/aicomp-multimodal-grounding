@@ -64,12 +64,8 @@ def run_shard_inference(
     from qwen_vl_utils import process_vision_info
     from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
-    from aicomp_grounding.bbox import calibrate_bbox, compute_iou, parse_bbox_from_text
-    from aicomp_grounding.prompts import (
-        build_grounding_messages,
-        build_retry_grounding_messages,
-        standardize_query,
-    )
+    from aicomp_grounding.bbox import compute_iou, parse_bbox_from_text
+    from aicomp_grounding.prompts import build_grounding_messages
 
     dataset_volume.reload()
     data_root = Path("/data/data")
@@ -110,7 +106,6 @@ def run_shard_inference(
 
         def __getitem__(self, idx):
             item = self.items[idx]
-            clean_query = standardize_query(item["query"])
             key = item.get("key", str(idx))
             gt_bbox = item.get("bbox", None)
 
@@ -125,7 +120,7 @@ def run_shard_inference(
             with Image.open(dp_path) as im:
                 dp_img = im.convert("RGB")
 
-            messages = build_grounding_messages(vis_img, ir_img, dp_img, clean_query)
+            messages = build_grounding_messages(vis_img, ir_img, dp_img, item["query"])
             return {
                 "key": key,
                 "messages": messages,
@@ -200,13 +195,11 @@ def run_shard_inference(
 
             for key, text_out, gt_bbox in zip(keys, text_outputs, gt_bboxes):
                 pred_bbox = parse_bbox_from_text(text_out)
-                if pred_bbox is not None:
-                    pred_bbox = calibrate_bbox(pred_bbox, pad_ratio=0.03)
-                    if gt_bbox is not None:
-                        iou = compute_iou(pred_bbox, gt_bbox)
-                        total_iou += iou
-                        if iou >= 0.5:
-                            correct_05 += 1
+                if pred_bbox is not None and gt_bbox is not None:
+                    iou = compute_iou(pred_bbox, gt_bbox)
+                    total_iou += iou
+                    if iou >= 0.5:
+                        correct_05 += 1
                 predictions[key] = pred_bbox
 
             processed += len(keys)
