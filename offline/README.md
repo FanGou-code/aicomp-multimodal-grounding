@@ -8,9 +8,8 @@ CUDA 机器装好依赖即可运行，各平台差异只体现在"怎么装环�
 
 | 平台 | 训练 | 推理 | 环境怎么装 |
 | --- | --- | --- | --- |
-| 魔搭 DSW (A10 24G) | ❌ 卡不够（QLoRA 低分辨率实验除外） | `infer.py` | `bash offline/dsw/setup.sh` |
-| **实体 GPU / 任意 CUDA 机** | `train.py`（≥48GB 满血 / 24GB 需降像素预算） | `infer.py` | `pip install -r requirements-lock.txt`，**零额外脚本** |
-| （未来离线平台 X） | ? | `infer.py` | 往本目录加一个 `x/setup.sh` 预设即可 |
+| 魔搭 DSW (A10 24G) | ❌ 卡不够（QLoRA 低分辨率实验除外） | `infer.py` | 见下方「魔搭 DSW 环境」 |
+| **实体 GPU / 任意 CUDA 机** | `train.py`（≥48GB 满血 / 24GB 需降像素预算） | `infer.py` | `pip install -r requirements-lock.txt` |
 
 ## 通用用法（仓库根目录执行）
 
@@ -67,7 +66,17 @@ bash offline/run.sh [LORA_PATH] [DATA_DIR] [MODEL_PATH]
 **不需要**：维护者的 LoRA 权重（融合只交换各自 predictions.json）、Zhipu API Key
 （标注已随仓库分发，仅重新生成标注时才需要）、维护者的 Modal 凭据。
 
-## DSW 预设
+## 魔搭 DSW 环境
 
-见 [`dsw/`](dsw/)：只有 `setup.sh`（阿里云镜像 + 与云端 `MODAL_GPU_PACKAGES` 同版本
-锁定的环境安装）是 DSW 专属；启动器与推理本体全平台通用。
+DSW 镜像已预装 torch / torchvision / pillow（不重装，避免覆盖镜像自带版本），
+只需补齐四个推理库——与云端 `aicomp_grounding/config.py` 的 `MODAL_GPU_PACKAGES`
+同版本锁定，走阿里云镜像：
+
+```bash
+pip install transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 \
+    qwen-vl-utils==0.0.14 \
+    -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+```
+
+基础模型建议从魔搭镜像下载到本地，`--model-path` 指定本地目录，
+避免直连 HuggingFace。

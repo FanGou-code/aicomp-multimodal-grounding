@@ -3,7 +3,7 @@
 GroundingDINO is a discriminative detector: it consumes exactly ONE image and
 a bare text query (no prompt template) and natively emits confidence scores,
 which is exactly what WBF fusion needs. Infrared and depth are accepted by
-the interface but ignored by design — see docs/iteration_02.md for the
+the interface but ignored by design — see docs/handoff.md for the
 rationale (single-image architecture; pseudo-color/thermal are
 out-of-distribution for its Swin encoder).
 

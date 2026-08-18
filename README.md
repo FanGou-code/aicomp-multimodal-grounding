@@ -94,12 +94,12 @@ cloud/
 offline/
   train.py              离线端：单机训练入口（与云端共用 training_core）
   infer.py              离线端：通用单 GPU 推理与评估入口（--model 选适配器）
-  dsw/                  魔搭 DSW 环境预设（setup.sh）
+  run.sh                通用启动器（默认参数 + 数据存在性检查）
 
 docs/
   architecture.md       仓库架构、adapter 约定与队友接入指南
+  handoff.md            交接文档：当前状态、成绩与交接日志（唯一状态记录）
   research.md           赛题规则、数据统计与多模态基准调研
-  iteration_02.md       迭代 02 技术方案与状态
 
 scripts/
   prepare_rgbdt.py      RGBDT 检查、场景划分和 Depth JET 转换
@@ -132,10 +132,14 @@ modal volume create hf-model-cache
 
 ### 魔搭 DSW 推理环境
 
-Test 推理支持在 ModelScope DSW（A10-24GB，离线）执行。推理库走阿里云镜像安装：
+Test 推理支持在 ModelScope DSW（A10-24GB，离线）执行。DSW 镜像已预装
+torch / torchvision / pillow，只需补齐四个推理库（与云端 `MODAL_GPU_PACKAGES`
+同版本锁定），走阿里云镜像：
 
 ```bash
-bash offline/dsw/setup.sh
+pip install transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 \
+    qwen-vl-utils==0.0.14 \
+    -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 ```
 
 ## 训练数据来源
