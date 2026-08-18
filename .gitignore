@@ -56,6 +56,9 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
+# Agent entry (local only, not for the shared repo)
+CODEBUDDY.md
+
 # Logs & caches
 *.log
 .cache/
