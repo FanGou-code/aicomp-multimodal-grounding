@@ -34,13 +34,9 @@ from aicomp_grounding.artifacts import (
     stable_json_hash,
 )
 from aicomp_grounding.bbox import compute_iou, validate_bbox
-from aicomp_grounding.config import (
-    CHECKPOINT_VERSION,
-    INFERENCE_COMPUTE_DTYPE,
-    MAX_PIXELS,
-    MIN_PIXELS,
-)
+from aicomp_grounding.config import CHECKPOINT_VERSION, INFERENCE_COMPUTE_DTYPE
 from aicomp_grounding.io import load_json
+from aicomp_grounding.models.qwen3vl import MAX_PIXELS, MIN_PIXELS
 from aicomp_grounding.training_state import validate_adapter_manifest, adapter_weight_path
 
 RUN_METADATA_FIELDS = (
@@ -158,6 +154,8 @@ def build_run_metadata(
     num_shards: int,
     base_run_id: str = "",
     base_prediction_fingerprint: str = "",
+    min_pixels: int | None = MIN_PIXELS,
+    max_pixels: int | None = MAX_PIXELS,
 ) -> dict:
     if mode not in {"base", "retry"}:
         raise ValueError(f"Unsupported inference mode: {mode}")
@@ -182,8 +180,8 @@ def build_run_metadata(
         "prompt_hash": prompt_hash,
         "generation_config": generation_config,
         "compute_dtype": INFERENCE_COMPUTE_DTYPE,
-        "min_pixels": MIN_PIXELS,
-        "max_pixels": MAX_PIXELS,
+        "min_pixels": min_pixels,
+        "max_pixels": max_pixels,
         "run_tag": run_tag,
         "limit": limit,
         "selected_key_hash": key_hash(selected_keys),

@@ -67,14 +67,19 @@ GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原�
 
 ```text
 aicomp_grounding/
+  models/               模型适配层：qwen3vl / internvl35 / groundingdino / mock
+                        （统一 identity·指纹 / load / predict 接口）
+  training_core.py      平台无关训练核心（cloud 与 offline 共用）
+  inference_core.py     平台无关推理核心（items 加载/评估/分片合并）
+  submission.py         官方模板校验与提交 ZIP 构建（含 CLI）
   annotation_state.py   标注计划、检查点、QC 与 approved 发布
   artifacts.py          JSON 内容指纹与元数据校验
-  bbox.py               bbox 格式化、解析、校准与 IoU
-  config.py             模型 revision、像素预算与云端依赖
+  bbox.py               bbox 格式化、解析与 IoU
+  config.py             跨模型公共配置（数据根/云端依赖/协议版本）
   images.py             数据图像引用检查
-  inference_state.py    推理计划、分片、恢复、重试与评估
+  inference_state.py    推理身份、LoRA 指纹与 run 元数据
   io.py                 原子 JSON 读写
-  prompts.py            训练和推理共享 Prompt 与文本标准化
+  prompts.py            Qwen 定位 Prompt 协议（qwen3vl 适配器使用）
   query.py              Query 与训练样本结构校验
   sequence.py           Query 生成响应与文本 QC
   sharding.py           场景级均衡分片
@@ -84,20 +89,16 @@ aicomp_grounding/
 
 cloud/
   train.py              云端端（Modal）：H100 LoRA 3 轮训练入口
-  infer.py              云端端（Modal）：Batch-4 / 8 卡分片推理入口
+  infer.py              云端端（Modal）：Batch-4 / 8 卡分片推理入口（--model 选适配器）
 
 offline/
   train.py              离线端：单机训练入口（与云端共用 training_core）
-  infer.py              离线端：通用单 GPU 推理与评估入口（平台无关）
+  infer.py              离线端：通用单 GPU 推理与评估入口（--model 选适配器）
   dsw/                  魔搭 DSW 环境预设（setup.sh）
 
 docs/
   research.md           赛题规则、数据统计与多模态基准调研
   iteration_02.md       迭代 02 技术方案与状态
-
-aicomp_grounding/
-  ...
-  submission.py         官方模板校验与提交 ZIP 构建（含 CLI）
 
 scripts/
   prepare_rgbdt.py      RGBDT 检查、场景划分和 Depth JET 转换

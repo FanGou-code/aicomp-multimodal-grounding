@@ -1,6 +1,7 @@
-"""Standalone single-GPU offline inference and evaluation script for Qwen3-VL.
+"""Standalone single-GPU offline inference and evaluation entry.
 
-Handles both:
+Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl /
+internvl35 / groundingdino / mock). Handles both:
 1. Competition Submission Generation (when running on unannotated test queries)
 2. Validation Accuracy & IoU Score Evaluation (when running on annotated val/train queries)
 """
@@ -9,30 +10,16 @@ from __future__ import annotations
 
 import argparse
 from collections import OrderedDict
-import json
-import os
 from pathlib import Path
 import sys
 import time
 
 import torch
-from peft import PeftModel
-from PIL import Image
-from qwen_vl_utils import process_vision_info
-
-from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 # This entrypoint lives in offline/; make the repository root importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aicomp_grounding.bbox import parse_bbox_from_text, validate_bbox
-from aicomp_grounding.config import (
-    INFERENCE_COMPUTE_DTYPE,
-    MAX_PIXELS,
-    MIN_PIXELS,
-    MODEL_NAME,
-    MODEL_REVISION,
-)
+from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.inference_state import (
     build_run_metadata,
@@ -40,11 +27,9 @@ from aicomp_grounding.inference_state import (
     fingerprint_lora,
 )
 from aicomp_grounding.io import atomic_write_json, load_json
-from aicomp_grounding.prompts import (
-    build_grounding_messages,
-    grounding_prompt_hash,
-    GROUNDING_SYSTEM_PROMPT,
-)
+from aicomp_grounding.models import available_models, get_adapter
+from aicomp_grounding.models.base import ModelInput
+from aicomp_grounding.models.qwen3vl import MAX_PIXELS
 from aicomp_grounding.submission import build_submission
 
 CACHE_MAX_SIZE = 32
@@ -52,13 +37,21 @@ CACHE_MAX_SIZE = 32
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run offline Qwen3-VL inference or evaluation on a single GPU."
+        description="Run offline grounding inference or evaluation on a single GPU."
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="qwen3vl",
+        choices=available_models(),
+        help="Grounding model adapter to run.",
     )
     parser.add_argument(
         "--model-path",
         type=str,
-        default=Path("model/Qwen3-VL-8B-Instruct"),
-        help="Path to local Qwen3-VL-8B-Instruct base model (downloaded offline).",
+        default=None,
+        help="Optional local base-model directory override (offline machines); "
+        "defaults to the adapter's canonical hub id + pinned revision.",
     )
     parser.add_argument(
         "--test-json",
@@ -70,7 +63,7 @@ def parse_args():
         "--max-pixels",
         type=int,
         default=MAX_PIXELS,
-        help="Processor max_pixels override. Training uses 3072 patches "
+        help="Qwen processor max_pixels override. Training uses 3072 patches "
         "(2408448); lower it (e.g. 1920*28*28=1505280) if the inference GPU "
         "is short on VRAM. Lowering hurts grounding accuracy.",
     )
@@ -83,8 +76,14 @@ def parse_args():
     parser.add_argument(
         "--lora-path",
         type=Path,
-        default=Path("best/epoch_02"),
-        help="Path to downloaded LoRA adapter directory (e.g. best/epoch_02).",
+        default=None,
+        help="Optional LoRA adapter directory; omit for zero-shot runs.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Number of queries predicted per adapter call.",
     )
     parser.add_argument(
         "--output-dir",
@@ -131,7 +130,9 @@ def resolve_image_path(raw_path: str, data_dir: Path) -> Path:
     return (data_dir / p).resolve()
 
 
-def load_scene_images(item: dict, data_dir: Path) -> tuple[Image.Image, Image.Image, Image.Image]:
+def load_scene_images(item: dict, data_dir: Path):
+    from PIL import Image
+
     images_dict = item.get("images") if isinstance(item.get("images"), dict) else item
     v_raw = images_dict.get("visible")
     i_raw = images_dict.get("infrared")
@@ -163,33 +164,38 @@ def main():
     if not args.test_json.is_file():
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
 
+    adapter_kwargs = {}
+    if args.model == "qwen3vl":
+        adapter_kwargs["max_pixels"] = args.max_pixels
+    adapter = get_adapter(args.model, **adapter_kwargs)
+
     # Accepts an approved annotation artifact or a flat {query_id: item}
     # index; see the shared inference core for the exact contract.
     items, approved_metadata = load_inference_items(args.test_json, limit=args.limit)
 
     # ---- Build a Modal-compatible run identity ----------------------------
     selected_keys = [item["key"] for item in items]
-    adapter_dir = Path(args.lora_path).resolve() if args.lora_path.exists() else None
+    adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
+    if adapter_dir is not None and not adapter_dir.exists():
+        print(f"Warning: LoRA path {adapter_dir} does not exist; running zero-shot.")
+        adapter_dir = None
+    if adapter_dir is not None and not adapter.supports_lora:
+        print(f"Warning: --model {adapter.name} does not use LoRA; ignoring adapter path.")
+        adapter_dir = None
     adapter_fingerprint = fingerprint_lora(adapter_dir)
     dataset_for_fp = {item["key"]: item for item in items}
     input_fingerprint = fingerprint_inputs(dataset_for_fp, selected_keys)
-    prompt_hash = grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
-    generation_config = {
-        "max_new_tokens": 32,
-        "do_sample": False,
-        "max_pixels": args.max_pixels,
-    }
 
     metadata = build_run_metadata(
         mode="base",
         split="test" if approved_metadata is None else approved_metadata["split"],
         annotation_run_id=args.annotation_run_id,
-        model=MODEL_NAME,
-        model_revision=MODEL_REVISION,
+        model=adapter.model_name,
+        model_revision=adapter.model_revision,
         lora_path=adapter_dir,
         adapter_fingerprint=adapter_fingerprint,
-        prompt_hash=prompt_hash,
-        generation_config=generation_config,
+        prompt_hash=adapter.prompt_hash(),
+        generation_config=adapter.generation_config,
         run_tag=args.run_tag,
         limit=args.limit if args.limit > 0 else None,
         selected_keys=selected_keys,
@@ -217,117 +223,72 @@ def main():
     if pending_items:
         pending_items.sort(key=lambda x: (x.get("visible", x["key"]), x["key"]))
 
-        model_source = args.model_path
-        print(f"Loading base model from '{model_source}' ({INFERENCE_COMPUTE_DTYPE})...")
-        compute_dtype = getattr(torch, INFERENCE_COMPUTE_DTYPE)
-
-        processor_kwargs = {
-            "min_pixels": MIN_PIXELS,
-            "max_pixels": args.max_pixels,
-        }
-        if not os.path.exists(model_source):
-            processor_kwargs["revision"] = MODEL_REVISION
-
-        processor = AutoProcessor.from_pretrained(
-            model_source,
-            **processor_kwargs,
-        )
-
-        model_kwargs = {
-            "dtype": compute_dtype,
-            "attn_implementation": "sdpa",
-            "device_map": "auto",
-        }
-
-        if not os.path.exists(model_source):
-            model_kwargs["revision"] = MODEL_REVISION
-
-        base_model = Qwen3VLForConditionalGeneration.from_pretrained(
-            model_source,
-            **model_kwargs,
-        )
-
-        print(f"Attaching LoRA adapter from '{args.lora_path}'...")
-        model = PeftModel.from_pretrained(base_model, str(args.lora_path))
-        model.eval()
-
-        device = next(model.parameters()).device
+        print(f"Loading model '{adapter.model_name}' (revision {adapter.model_revision})...")
+        adapter.load(device="cuda", lora_path=adapter_dir, model_path=args.model_path)
 
         scene_cache: OrderedDict = OrderedDict()
+        batch: list[ModelInput] = []
+
+        def flush():
+            if not batch:
+                return
+            results = adapter.predict(batch)
+            for sample, result in zip(batch, results):
+                predictions[sample.key] = result.bbox
+            batch.clear()
 
         start_time = time.time()
         processed_count = len(predictions)
 
         print("Starting single-GPU inference...")
 
-        with torch.no_grad():
-            for item in pending_items:
-                key = item["key"]
-                query = item["query"]
+        for item in pending_items:
+            scene_id = (
+                item["visible"],
+                item["infrared"],
+                item["depth"],
+            )
 
-                scene_id = (
-                    item["visible"],
-                    item["infrared"],
-                    item["depth"],
+            if scene_id in scene_cache:
+                images = scene_cache[scene_id]
+                scene_cache.move_to_end(scene_id)
+            else:
+                images = load_scene_images(item, args.data_dir)
+                scene_cache[scene_id] = images
+                if len(scene_cache) > CACHE_MAX_SIZE:
+                    scene_cache.popitem(last=False)
+
+            batch.append(
+                ModelInput(
+                    visible=images[0],
+                    infrared=images[1],
+                    depth=images[2],
+                    query=item["query"],
+                    key=item["key"],
                 )
+            )
+            if len(batch) >= args.batch_size:
+                flush()
 
-                if scene_id in scene_cache:
-                    images = scene_cache[scene_id]
-                    scene_cache.move_to_end(scene_id)
-                else:
-                    images = load_scene_images(item, args.data_dir)
-                    scene_cache[scene_id] = images
-                    if len(scene_cache) > CACHE_MAX_SIZE:
-                        scene_cache.popitem(last=False)
+            processed_count += 1
 
-                messages = build_grounding_messages(images[0], images[1], images[2], query)
-                prompt_text = processor.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
+            if processed_count % args.batch_save == 0 or processed_count == len(items):
+                flush()
+                elapsed = time.time() - start_time
+                avg_speed = elapsed / max(1, processed_count - (len(items) - len(pending_items)))
+                print(
+                    f"Progress: [{processed_count}/{len(items)}] | "
+                    f"Avg speed: {avg_speed:.2f}s/query | "
+                    f"Elapsed: {elapsed / 60:.1f}m"
                 )
-                image_inputs, video_inputs = process_vision_info(messages)
-
-                inputs = processor(
-                    text=[prompt_text],
-                    images=image_inputs,
-                    videos=video_inputs,
-                    padding=True,
-                    return_tensors="pt",
+                atomic_write_json(predictions_path, predictions)
+                atomic_write_json(
+                    checkpoint_path,
+                    {"metadata": metadata, "predictions": predictions},
                 )
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-
-                with torch.autocast(device_type="cuda", dtype=compute_dtype):
-                    generated_ids = model.generate(
-                        **inputs,
-                        max_new_tokens=32,
-                        do_sample=False,
-                    )
-
-                prompt_len = inputs["input_ids"].shape[1]
-                generated_tokens = generated_ids[0][prompt_len:]
-                text_output = processor.decode(
-                    generated_tokens, skip_special_tokens=False
-                )
-
-                bbox = parse_bbox_from_text(text_output)
-
-                predictions[key] = bbox
-                processed_count += 1
-
-                if processed_count % args.batch_save == 0 or processed_count == len(items):
-                    elapsed = time.time() - start_time
-                    avg_speed = elapsed / max(1, processed_count - (len(items) - len(pending_items)))
-                    print(
-                        f"Progress: [{processed_count}/{len(items)}] | "
-                        f"Avg speed: {avg_speed:.2f}s/query | "
-                        f"Elapsed: {elapsed / 60:.1f}m"
-                    )
-                    atomic_write_json(predictions_path, predictions)
-                    atomic_write_json(
-                        checkpoint_path,
-                        {"metadata": metadata, "predictions": predictions},
-                    )
-                    if processed_count % (args.batch_save * 2) == 0:
-                        torch.cuda.empty_cache()
+                if processed_count % (args.batch_save * 2) == 0:
+                    torch.cuda.empty_cache()
+        flush()
 
     print(f"\nInference finished for {len(predictions)} queries. Saved to {predictions_path}")
 

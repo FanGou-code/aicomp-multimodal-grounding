@@ -21,6 +21,10 @@ modal run cloud/infer.py --split val --adapter-path /data/data/output_lora/<RUN_
 
 # 官方测试集 8 卡分片推理 + 自动生成 submission.zip
 modal run cloud/infer.py --split test --num-shards 8 --adapter-path /data/data/output_lora/<RUN_ID>/best/epoch_XX
+
+# 队友模型（--model 换适配器；LoRA 可选）
+modal run cloud/infer.py --model internvl35 --split val --adapter-path ""
+modal run cloud/infer.py --model groundingdino --split test --num-shards 8 --adapter-path ""
 ```
 
 ## 计费要点（2026-08 官网单价实测）

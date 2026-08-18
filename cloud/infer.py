@@ -22,19 +22,13 @@ import modal
 # shared library and the scripts package resolve under `modal run`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aicomp_grounding.config import (
-    DATA_ROOT,
-    MAX_PIXELS,
-    MIN_PIXELS,
-    MODAL_GPU_PACKAGES,
-    MODEL_NAME,
-    MODEL_REVISION,
-)
+from aicomp_grounding.config import DATA_ROOT, MODAL_GPU_PACKAGES
 from aicomp_grounding.inference_core import (
     evaluate_predictions,
     load_inference_items,
     merge_shard_results,
 )
+from aicomp_grounding.models import available_models
 
 image = (
     modal.Image.debian_slim(python_version="3.10")
@@ -63,48 +57,47 @@ def run_shard_inference(
     adapter_path: str,
     batch_size: int = 4,
     num_workers: int = 4,
+    model: str = "qwen3vl",
 ) -> dict[str, Any]:
-    """Run Batch-4 high-throughput visual grounding inference on a shard of queries."""
-    import torch
-    from torch.utils.data import DataLoader, Dataset
-    from peft import PeftModel
-    from PIL import Image
-    from qwen_vl_utils import process_vision_info
-    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+    """Run high-throughput grounding inference on a shard of queries.
 
-    from aicomp_grounding.bbox import compute_iou, parse_bbox_from_text
-    from aicomp_grounding.prompts import build_grounding_messages
+    Model-agnostic: ``model`` selects the grounding adapter; the DataLoader
+    pipeline only loads tri-modal images, all model-specific preprocessing
+    and generation live inside the adapter.
+    """
+    import torch
+    from PIL import Image
+    from torch.utils.data import DataLoader, Dataset
+
+    from aicomp_grounding.bbox import compute_iou
+    from aicomp_grounding.models import get_adapter
+    from aicomp_grounding.models.base import ModelInput
 
     dataset_volume.reload()
     data_root = Path(DATA_ROOT)
 
     total_samples = len(items)
-    print(f"Loading Base Model: {MODEL_NAME} on H100 for {total_samples} queries...")
-
-    processor = AutoProcessor.from_pretrained(
-        MODEL_NAME,
-        revision=MODEL_REVISION,
-        min_pixels=MIN_PIXELS,
-        max_pixels=MAX_PIXELS,
+    adapter = get_adapter(model)
+    print(
+        f"Loading model '{adapter.model_name}' (rev {adapter.model_revision}) "
+        f"on H100 for {total_samples} queries..."
     )
-    processor.tokenizer.padding_side = "left"
 
-    base_model = Qwen3VLForConditionalGeneration.from_pretrained(
-        MODEL_NAME,
-        revision=MODEL_REVISION,
-        torch_dtype=torch.bfloat16,
-        attn_implementation="sdpa",
-    ).to("cuda")
-
+    lora_path = None
     if adapter_path and os.path.exists(adapter_path):
-        print(f"Attaching LoRA Adapter: {adapter_path}...")
-        model = PeftModel.from_pretrained(base_model, adapter_path).to("cuda")
+        if adapter.supports_lora:
+            print(f"Attaching LoRA Adapter: {adapter_path}...")
+            lora_path = Path(adapter_path)
+        else:
+            print(f"Warning: --model {adapter.name} does not use LoRA; ignoring adapter path.")
     else:
         print("Running in Base Model mode (no LoRA adapter attached)...")
-        model = base_model
-    model.eval()
+
+    adapter.load(device="cuda", lora_path=lora_path)
 
     class GroundingDataset(Dataset):
+        """Generic: worker-side work is tri-modal image loading only."""
+
         def __init__(self, sample_items, root_dir):
             self.items = sample_items
             self.root_dir = root_dir
@@ -112,52 +105,39 @@ def run_shard_inference(
         def __len__(self):
             return len(self.items)
 
-        def __getitem__(self, idx):
+        def __getitem__(self, idx) -> dict:
             item = self.items[idx]
-            key = item.get("key", str(idx))
-            gt_bbox = item.get("bbox", None)
-
-            vis_path = self.root_dir / item["visible"]
-            ir_path = self.root_dir / item["infrared"]
-            dp_path = self.root_dir / item["depth"]
-
-            with Image.open(vis_path) as im:
+            with Image.open(self.root_dir / item["visible"]) as im:
                 vis_img = im.convert("RGB")
-            with Image.open(ir_path) as im:
+            with Image.open(self.root_dir / item["infrared"]) as im:
                 ir_img = im.convert("RGB")
-            with Image.open(dp_path) as im:
+            with Image.open(self.root_dir / item["depth"]) as im:
                 dp_img = im.convert("RGB")
-
-            messages = build_grounding_messages(vis_img, ir_img, dp_img, item["query"])
             return {
-                "key": key,
-                "messages": messages,
-                "gt_bbox": gt_bbox,
+                "key": item.get("key", str(idx)),
+                "visible": vis_img,
+                "infrared": ir_img,
+                "depth": dp_img,
+                "query": item["query"],
+                "gt_bbox": item.get("bbox", None),
             }
 
     dataset = GroundingDataset(items, data_root)
 
     def collate_batch(batch_items):
-        keys = [item["key"] for item in batch_items]
-        messages_list = [item["messages"] for item in batch_items]
-        gt_bboxes = [item["gt_bbox"] for item in batch_items]
-
-        texts = [
-            processor.apply_chat_template(
-                m, tokenize=False, add_generation_prompt=True
+        samples = [
+            ModelInput(
+                visible=item["visible"],
+                infrared=item["infrared"],
+                depth=item["depth"],
+                query=item["query"],
+                key=item["key"],
             )
-            for m in messages_list
+            for item in batch_items
         ]
-        image_inputs, video_inputs = process_vision_info(messages_list)
-
-        inputs = processor(
-            text=texts,
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
-        return keys, inputs, gt_bboxes
+        keys = [item["key"] for item in batch_items]
+        gt_bboxes = [item["gt_bbox"] for item in batch_items]
+        return samples, keys, gt_bboxes
 
     loader = DataLoader(
         dataset,
@@ -166,7 +146,6 @@ def run_shard_inference(
         num_workers=num_workers,
         prefetch_factor=2 if num_workers > 0 else None,
         collate_fn=collate_batch,
-        pin_memory=True,
     )
 
     print(
@@ -181,28 +160,11 @@ def run_shard_inference(
     processed = 0
 
     with torch.no_grad():
-        for keys, batch_inputs, gt_bboxes in loader:
-            model_inputs = {
-                k: v.to("cuda", non_blocking=True)
-                for k, v in batch_inputs.items()
-                if torch.is_tensor(v)
-            }
+        for samples, keys, gt_bboxes in loader:
+            results = adapter.predict(samples)
 
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                generated_ids = model.generate(
-                    **model_inputs,
-                    max_new_tokens=32,
-                    do_sample=False,
-                )
-
-            prompt_len = model_inputs["input_ids"].shape[1]
-            generated_tokens = generated_ids[:, prompt_len:]
-            text_outputs = processor.batch_decode(
-                generated_tokens, skip_special_tokens=False
-            )
-
-            for key, text_out, gt_bbox in zip(keys, text_outputs, gt_bboxes):
-                pred_bbox = parse_bbox_from_text(text_out)
+            for key, result, gt_bbox in zip(keys, results, gt_bboxes):
+                pred_bbox = result.bbox
                 if pred_bbox is not None and gt_bbox is not None:
                     iou = compute_iou(pred_bbox, gt_bbox)
                     total_iou += iou
@@ -247,12 +209,17 @@ def main(
     num_workers: int = 4,
     num_shards: int = 1,
     output_dir: str = "outputs/modal_inference",
+    model: str = "qwen3vl",
 ):
     """Local entrypoint for running validation or test inference on Modal."""
     from aicomp_grounding.submission import build_submission
 
+    if model not in available_models():
+        raise ValueError(f"Unknown model {model!r}; available: {available_models()}")
+
     print(f"=================================================================")
     print(f"🚀 Modal Visual Grounding Inference Engine")
+    print(f"  Model:              {model}")
     print(f"  Split:              {split}")
     print(f"  Adapter:            {adapter_path}")
     print(f"  Batch Size:         {batch_size}")
@@ -300,6 +267,7 @@ def main(
                 [adapter_path] * num_shards,
                 [batch_size] * num_shards,
                 [num_workers] * num_shards,
+                [model] * num_shards,
             )
         )
     else:
@@ -309,6 +277,7 @@ def main(
                 adapter_path=adapter_path,
                 batch_size=batch_size,
                 num_workers=num_workers,
+                model=model,
             )
         ]
 
@@ -319,7 +288,7 @@ def main(
 
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
-    predictions_file = out_path / f"predictions_{split}.json"
+    predictions_file = out_path / f"predictions_{model}_{split}.json"
     with open(predictions_file, "w", encoding="utf-8") as f:
         json.dump(all_predictions, f, indent=2, ensure_ascii=False)
 

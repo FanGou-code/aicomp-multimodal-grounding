@@ -1,9 +1,11 @@
-"""Shared configuration for local checks and Modal jobs."""
+"""Shared configuration for local checks and Modal jobs.
+
+Model-specific identity (model ids, revisions, pixel budgets) lives in
+``aicomp_grounding.models`` adapters; this module keeps only cross-model
+constants.
+"""
 
 from __future__ import annotations
-
-MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
-MODEL_REVISION = "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
 
 ANNOTATION_PROVIDER = "zhipu"
 ANNOTATION_MODEL_NAME = "glm-4.6v"
@@ -22,8 +24,6 @@ ANNOTATION_TOKENS_PER_MINUTE = 500_000
 ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST = 1_800
 
 DATA_ROOT = "/data/data"
-MIN_PIXELS = 256 * 28 * 28
-MAX_PIXELS = 3072 * 28 * 28  # Full 1920x1080 at ~2645 patches; rounded up for safety
 INFERENCE_COMPUTE_DTYPE = "bfloat16"
 
 # Keep in sync with requirements-lock.txt when adding or upgrading packages.

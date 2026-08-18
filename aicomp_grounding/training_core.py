@@ -18,18 +18,18 @@ from pathlib import Path
 
 from aicomp_grounding.artifacts import require_exact_metadata
 from aicomp_grounding.bbox import format_qwen_bbox, parse_bbox_from_text
-from aicomp_grounding.config import (
-    MAX_PIXELS,
-    MIN_PIXELS,
-    MODAL_GPU_PACKAGES,
-    MODEL_NAME,
-    MODEL_REVISION,
-)
+from aicomp_grounding.config import MODAL_GPU_PACKAGES
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.images import (
     is_trusted_image_fingerprint,
     trusted_dataset_image_fingerprint,
     verify_dataset_images,
+)
+from aicomp_grounding.models.qwen3vl import (
+    MAX_PIXELS,
+    MIN_PIXELS,
+    MODEL_NAME,
+    MODEL_REVISION,
 )
 from aicomp_grounding.prompts import (
     GROUNDING_SYSTEM_PROMPT,

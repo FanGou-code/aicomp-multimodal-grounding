@@ -23,17 +23,25 @@ python offline/train.py \
   --run-tag offline-exp
 ```
 
-直接调推理本体：
+直接调推理本体（`--model` 选适配器：qwen3vl / internvl35 / groundingdino / mock）：
 
 ```bash
 python offline/infer.py \
-  --model-path Qwen/Qwen3-VL-8B-Instruct \
+  --model qwen3vl \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path <下载到本地的 LoRA 目录> \
   --output-dir outputs/inference \
   --run-tag offline-test
+
+# 队友方向示例（zero-shot，无需 LoRA）：
+python offline/infer.py --model groundingdino --test-json data/test.json ...
+python offline/infer.py --model internvl35 --test-json data/test.json ...
 ```
+
+模型适配器的约定（坐标解析、prompt、identity/指纹）见
+`aicomp_grounding/models/`；InternVL / GroundingDINO 的 GPU 路径尚未冒烟，
+首次使用先跑小切片验证。
 
 或用通用启动器（带默认参数 + 数据存在性检查）：
 
