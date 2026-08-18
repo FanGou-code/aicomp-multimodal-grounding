@@ -27,7 +27,14 @@
 
 * 新增 `cloud/infer.py`（原 `infer_modal.py`）生产级推理引擎（Batch-4 + `--num-shards 8` 分片 + 自动构建提交包）
 
-### 4. 已评估并剔除的方向
+### 4. 仓库基础设施重构（已落地 main，2026-08-18）
+
+* 双端布局：`cloud/`（Modal 壳）+ `offline/`（离线壳，`dsw/` 仅存环境脚本）；训练/推理核心下沉 `aicomp_grounding/{training_core,inference_core}.py`，两端共用
+* `models/` 适配层：qwen3vl（参考实现）/ internvl35 / groundingdino / mock，两个推理入口 `--model` 切换
+* `fusion/wbf.py`：多模型加权框融合，CLI 可直出提交包
+* 超参与 Qwen identity 一字未动 → training run id 与历史一致（测试钉死）
+
+### 5. 已评估并剔除的方向
 
 * **图像滤镜增强**（CLAHE / 双边滤波）：破坏预训练特征分布，放弃。
 * **文本标准化 `standardize_query`**：实测仅覆盖 2.4% query，收益接近零，已从仓库剔除。
@@ -38,8 +45,7 @@
 
 ## 三、当前配置快照
 
-* `MAX_PIXELS = 3072 * 28 * 28`（1080p 无损输入）
-* `MODEL_REVISION = 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`
+* `MAX_PIXELS = 3072 * 28 * 28`（1080p 无损输入）、`MODEL_REVISION = 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` 等模型 identity 已迁至 `aicomp_grounding/models/qwen3vl.py`（值不变，`tests/test_models.py` 钉死防漂移）
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ---
