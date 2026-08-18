@@ -97,6 +97,7 @@ offline/
   dsw/                  魔搭 DSW 环境预设（setup.sh）
 
 docs/
+  architecture.md       仓库架构、adapter 约定与队友接入指南
   research.md           赛题规则、数据统计与多模态基准调研
   iteration_02.md       迭代 02 技术方案与状态
 
