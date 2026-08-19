@@ -1,6 +1,10 @@
-# RGBDT Visual Grounding with Qwen3-VL
+# RGBDT Multimodal Visual Grounding
 
-基于 `Qwen3-VL-8B-Instruct` 的 RGB、红外与深度三模态视觉定位方案。项目覆盖数据预处理、训练 Query 自动生成、LoRA 微调、离线/并行推理、失败重试与结果包构建。
+基于统一 adapter 接口的 RGB、红外与深度视觉定位项目。当前模型层支持
+`Qwen3-VL-8B-Instruct`、`InternVL3.5-8B`、`GroundingDINO-B` 与用于本地
+端到端测试的 mock 模型；推理入口通过 `--model` 选择 adapter，输出统一为归一化
+边界框，最终可由 WBF 多模型加权框融合生成结果包。当前 LoRA 训练入口以
+`Qwen3-VL` 为参考实现。
 
 给定一组对齐的 RGB、Infrared、Depth 图像和英文 Query，模型输出目标的归一化边界框：
 
@@ -18,14 +22,23 @@ flowchart LR
     B --> C["RGB 标框图"]
     C --> D["GLM-4.6V 自动生成 Query"]
     D --> E["QC 与 approved Train/Val"]
-    E --> F["Qwen3-VL-8B LoRA"]
+    E --> F["Model Adapters"]
     G["RGB + Infrared + Depth + Query"] --> H["Grounding Inference"]
     F --> H
-    H --> I["0-1000 整数坐标"]
-    I --> J["归一化 bbox 与提交文件"]
+    H --> I["Normalized XYXY"]
+    I --> J["Multi-Model WBF / Submission"]
 ```
 
-### 学生模型
+### 模型适配层
+
+| Adapter | 模型 | 输入 | 输出 |
+| --- | --- | --- | --- |
+| `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | RGB + Infrared + Depth + Query | 归一化 XYXY |
+| `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | RGB + Infrared + Depth + Query | 归一化 XYXY |
+| `groundingdino` | `IDEA-Research/grounding-dino-base` | RGB + Query | 归一化 XYXY + score |
+| `mock` | 本地确定性模型 | 三模态接口兼容 | 归一化 XYXY + score |
+
+### Qwen3-VL 训练配置
 
 | 配置 | 当前实现 |
 | --- | --- |
@@ -55,13 +68,16 @@ GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原�
 
 ### 定位协议与后处理
 
-训练与推理共享同一套 Prompt（`build_grounding_messages`）。模型按照 Qwen Grounding 格式输出 0-1000 整数坐标，例如：
+各模型 adapter 内部负责把原生输出统一转换为归一化 XYXY。Qwen3-VL 使用
+`build_grounding_messages`，输出 0-1000 整数坐标，例如：
 
 ```text
 <|box_start|>(125,240),(780,910)<|box_end|>
 ```
 
-解析器将其转换为 `[0.125, 0.240, 0.780, 0.910]`，随后进行 bbox 合法性校验和 IoU 评估。
+解析器将其转换为 `[0.125, 0.240, 0.780, 0.910]`。InternVL3.5 使用
+`<box>[[x1,y1,x2,y2]]</box>` 并做同样的 0-1000 归一化；GroundingDINO
+输出原始检测 score，供 WBF 使用。所有 adapter 的框都会经过合法性校验和 IoU 评估。
 
 ## 项目结构
 
@@ -490,7 +506,10 @@ python -m compileall aicomp_grounding scripts cloud offline
 
 ## 模型与服务
 
-- Base model: [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
+- Student models:
+  - [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
+  - [InternVL3.5-8B](https://huggingface.co/OpenGVLab/InternVL3_5-8B-HF)
+  - [GroundingDINO-B](https://huggingface.co/IDEA-Research/grounding-dino-base)
 - Query annotator: [GLM-4.6V](https://huggingface.co/zai-org/GLM-4.6V)
 - Annotation API: [Zhipu AI](https://open.bigmodel.cn/)
 - GPU runtime: [Modal](https://modal.com/)
