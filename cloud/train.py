@@ -37,6 +37,7 @@ app = modal.App("rgbdt-visual-grounding", image=image)
 @app.function(cpu=4.0, memory=8192, timeout=3600, volumes={"/data": dataset_volume})
 def preflight_training_environment(
     annotation_run_id: str,
+    model: str = "qwen3vl",
     run_tag: str = "",
     seed: int = SEED,
     resume: bool = True,
@@ -49,6 +50,7 @@ def preflight_training_environment(
     plan = prepare_training_plan(
         data_root=DATA_ROOT,
         annotation_run_id=annotation_run_id,
+        model=model,
         run_tag=run_tag,
         seed=seed,
         resume=resume,
@@ -93,6 +95,7 @@ def train(training_plan: dict) -> dict:
 @app.local_entrypoint()
 def main(
     annotation_run_id: str = "",
+    model: str = "qwen3vl",
     run_tag: str = "",
     seed: int = SEED,
     resume: bool = True,
@@ -106,6 +109,7 @@ def main(
         raise ValueError("annotation_run_id is required; bare train.json/val.json are prohibited")
     plan = preflight_training_environment.remote(
         annotation_run_id=annotation_run_id,
+        model=model,
         run_tag=run_tag,
         seed=seed,
         resume=resume,

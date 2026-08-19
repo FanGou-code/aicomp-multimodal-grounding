@@ -76,6 +76,16 @@ class QwenIdentityContinuityTests(unittest.TestCase):
         )
 
 
+class TrainableAdapterContractTests(unittest.TestCase):
+    def test_vlm_adapters_expose_training_contract(self):
+        for name in ("qwen3vl", "internvl35"):
+            adapter = get_adapter(name)
+            hyperparameters = adapter.training_hyperparameters()
+            self.assertEqual(hyperparameters["lora_rank"], 16)
+            self.assertEqual(hyperparameters["lora_alpha"], 48)
+            self.assertIn("q_proj", adapter.lora_target_modules())
+
+
 class InternVLContractTests(unittest.TestCase):
     def test_question_has_numbered_image_slots_and_official_prompt(self):
         question = build_grounding_question("the red car")

@@ -21,6 +21,7 @@ GPU 机器装好依赖即可运行，各平台差异只体现在"怎么装环境
 ```bash
 python offline/train.py \
   --annotation-run-id annot_ac72f1d926bb2d23 \
+  --model qwen3vl \
   --data-dir data \
   --annotation-root outputs/annotations \
   --output-root outputs \
@@ -67,6 +68,10 @@ used when a platform starts the process from another working directory.
 模型适配器的约定（坐标解析、prompt、identity/指纹）见
 `aicomp_grounding/models/`；InternVL / GroundingDINO 的 GPU 路径尚未冒烟，
 首次使用先跑小切片验证。
+
+本地多进程推理可使用 `--num-shards N`。开启后每个 worker 会写入独立的
+`shard_checkpoints/shard_<id>.checkpoint.json`，主进程在合并时进行严格 payload
+校验；`--resume` 只重新处理未完成的 pending query。
 
 ## 仓库内容与外部数据清单
 

@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from aicomp_grounding.config import INFERENCE_COMPUTE_DTYPE, TRAINING_PROTOCOL_VERSION
 from aicomp_grounding.inference_state import (
+    assign_pending_shards,
     build_run_metadata,
     build_shard_metadata,
     evaluate_predictions,
@@ -164,6 +165,20 @@ class RunIdentityTests(unittest.TestCase):
     def test_test_metadata_forbids_annotation_run(self):
         with self.assertRaisesRegex(ValueError, "forbids annotation_run_id"):
             _metadata(["001_1"], split="test", annotation_run_id="annot_round1")
+
+
+class PendingShardTests(unittest.TestCase):
+    def test_pending_shards_exclude_existing_predictions(self):
+        items = [{"key": f"k{i}"} for i in range(6)]
+        shards = assign_pending_shards(
+            items,
+            num_shards=2,
+            existing_predictions={"k1", "k3"},
+        )
+        keys = [item["key"] for shard in shards for item in shard]
+        self.assertEqual(set(keys), {"k0", "k2", "k4", "k5"})
+        self.assertNotIn("k1", keys)
+        self.assertNotIn("k3", keys)
 
 
 class CheckpointTests(unittest.TestCase):

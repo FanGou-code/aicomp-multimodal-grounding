@@ -17,26 +17,16 @@ import tempfile
 from pathlib import Path
 
 from aicomp_grounding.artifacts import require_exact_metadata
-from aicomp_grounding.bbox import format_qwen_bbox, parse_bbox_from_text
-from aicomp_grounding.config import MODAL_GPU_PACKAGES, RUNTIME_PYTHON_VERSION
+from aicomp_grounding.bbox import compute_iou, validate_bbox
+from aicomp_grounding.config import MODAL_GPU_PACKAGES
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.images import (
     is_trusted_image_fingerprint,
     trusted_dataset_image_fingerprint,
     verify_dataset_images,
 )
-from aicomp_grounding.models.qwen3vl import (
-    MAX_PIXELS,
-    MIN_PIXELS,
-    MODEL_NAME,
-    MODEL_REVISION,
-)
-from aicomp_grounding.prompts import (
-    GROUNDING_SYSTEM_PROMPT,
-    build_grounding_messages,
-    build_training_messages,
-    grounding_prompt_hash,
-)
+from aicomp_grounding.models import get_adapter
+from aicomp_grounding.models.base import ModelInput
 from aicomp_grounding.training_state import (
     accumulation_window_size,
     adapter_weight_path,
@@ -52,46 +42,11 @@ from aicomp_grounding.training_state import (
     validate_loaded_training_state,
     validate_resume_checkpoint,
     validate_training_artifacts,
+    validate_epoch_metrics,
     validated_prompt_length,
 )
 
-BATCH_SIZE = 1
-GRAD_ACCUM_STEPS = 16
-LEARNING_RATE = 1e-4
-NUM_EPOCHS = 3  # Conservative upgrade: 2→3 epochs with cosine annealing
-WARMUP_RATIO = 0.05
-MAX_GRAD_NORM = 1.0
 SEED = 42
-
-HYPERPARAMETERS = {
-    "batch_size": BATCH_SIZE,
-    "gradient_accumulation_steps": GRAD_ACCUM_STEPS,
-    "learning_rate": LEARNING_RATE,
-    "epochs": NUM_EPOCHS,
-    "warmup_ratio": WARMUP_RATIO,
-    "lr_scheduler_type": "cosine",
-    "max_grad_norm": MAX_GRAD_NORM,
-    "weight_decay": 0.01,
-    "lora_rank": 16,
-    "lora_alpha": 48,
-    "lora_dropout": 0.05,
-    "compute_dtype": "bfloat16",
-    "autocast": True,
-    "python_version": RUNTIME_PYTHON_VERSION,
-    "runtime_packages": list(MODAL_GPU_PACKAGES),
-    "lora_targets": [
-        "q_proj",
-        "k_proj",
-        "v_proj",
-        "o_proj",
-        "gate_proj",
-        "up_proj",
-        "down_proj",
-    ],
-    "min_pixels": MIN_PIXELS,
-    "max_pixels": MAX_PIXELS,
-}
-GROUNDING_PROMPT_HASH = grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
 
 
 def _verify_training_images(
@@ -112,11 +67,90 @@ def _verify_training_images(
 def _validate_training_bboxes(datasets: list[tuple[str, dict]]) -> None:
     for split, dataset in datasets:
         for sample_id, item in dataset.items():
-            encoded_bbox = format_qwen_bbox(item["bbox"])
-            if parse_bbox_from_text(encoded_bbox) is None:
+            if validate_bbox(item["bbox"]) is None:
                 raise ValueError(
-                    f"{split} sample {sample_id!r} collapses after Qwen 0-1000 rounding"
+                    f"{split} sample {sample_id!r} has an invalid training bbox"
                 )
+
+
+def _evaluate_grounding_metrics(
+    *,
+    adapter,
+    model,
+    processor,
+    val_data: dict,
+    data_root: Path,
+    device,
+    batch_size: int,
+) -> dict:
+    """Run full validation-set grounding inference and compute ACC/mIoU."""
+    import torch
+    from PIL import Image
+
+    keys = sorted(val_data)
+    hits = 0
+    total_iou = 0.0
+    failures = 0
+    for start in range(0, len(keys), batch_size):
+        batch_keys = keys[start : start + batch_size]
+        samples = []
+        for key in batch_keys:
+            item = val_data[key]
+            visible = Image.open(data_root / item["visible"]).convert("RGB")
+            infrared = Image.open(data_root / item["infrared"]).convert("RGB")
+            depth = Image.open(data_root / item["depth"]).convert("RGB")
+            samples.append(
+                ModelInput(
+                    visible=visible,
+                    infrared=infrared,
+                    depth=depth,
+                    query=item["query"],
+                    key=key,
+                )
+            )
+
+        inputs = adapter.build_grounding_batch(samples, processor=processor)
+        inputs = {key: value.to(device) for key, value in inputs.items()}
+
+        with torch.no_grad(), torch.autocast(
+            device_type="cuda", dtype=torch.bfloat16
+        ):
+            generated_ids = model.generate(
+                **inputs,
+                max_new_tokens=adapter.generation_config["max_new_tokens"],
+                do_sample=False,
+            )
+
+        prompt_len = inputs["input_ids"].shape[1]
+        text_outputs = adapter.decode_grounding_outputs(
+            processor,
+            generated_ids,
+            prompt_len,
+        )
+        for sample, text in zip(samples, text_outputs):
+            item = val_data[sample.key]
+            key = sample.key
+            ground_truth = validate_bbox(item.get("bbox"))
+            if ground_truth is None:
+                raise ValueError(f"Validation sample {key!r} has invalid ground-truth bbox")
+            prediction = adapter.parse_grounding_text(text)
+            if prediction is None:
+                failures += 1
+                continue
+            iou = compute_iou(prediction, ground_truth)
+            total_iou += iou
+            hits += int(iou >= 0.5)
+
+    total = len(keys)
+    return validate_epoch_metrics(
+        {
+            "hits": hits,
+            "total": total,
+            "acc_at_0_5": hits / total if total else 0.0,
+            "mean_iou": total_iou / total if total else 0.0,
+            "failures": failures,
+        }
+    )
 
 
 def _latest_resume_checkpoint(run_dir: Path) -> Path | None:
@@ -152,6 +186,7 @@ def prepare_training_plan(
     annotation_root: str | Path | None = None,
     output_root: str | Path | None = None,
     annotation_run_id: str,
+    model: str = "qwen3vl",
     run_tag: str,
     seed: int,
     resume: bool,
@@ -164,6 +199,16 @@ def prepare_training_plan(
         raise ValueError("smoke_test must be boolean")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id or ""):
         raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
+    adapter_kwargs = {}
+    if model == "qwen3vl":
+        pass
+    elif model == "internvl35":
+        adapter_kwargs["max_num_tiles"] = 12
+    else:
+        raise ValueError(f"Unsupported training model: {model!r}")
+    adapter = get_adapter(model, **adapter_kwargs)
+    hyperparameters = adapter.training_hyperparameters()
+    hyperparameters["runtime_packages"] = list(MODAL_GPU_PACKAGES)
     root = Path(data_root).resolve()
     # Keep the historical Modal layout as the implicit default.  Portable
     # entrypoints pass the repository-level outputs/annotations explicitly so
@@ -261,10 +306,10 @@ def prepare_training_plan(
         annotation_run_id=annotation_run_id,
         train_artifact=train_artifact,
         val_artifact=val_artifact,
-        model_name=MODEL_NAME,
-        model_revision=MODEL_REVISION,
-        grounding_prompt_hash=GROUNDING_PROMPT_HASH,
-        hyperparameters=HYPERPARAMETERS,
+        model_name=adapter.model_name,
+        model_revision=adapter.model_revision,
+        grounding_prompt_hash=adapter.prompt_hash(),
+        hyperparameters=hyperparameters,
         seed=seed,
         run_tag=run_tag,
     )
@@ -292,12 +337,13 @@ def prepare_training_plan(
             load_json(completed_path),
             metadata,
             run_dir,
-            batch_size=BATCH_SIZE,
-            grad_accum_steps=GRAD_ACCUM_STEPS,
-            num_epochs=NUM_EPOCHS,
+            batch_size=hyperparameters["batch_size"],
+            grad_accum_steps=hyperparameters["gradient_accumulation_steps"],
+            num_epochs=hyperparameters["epochs"],
         )
         return {
             "metadata": metadata,
+            "model": model,
             "train_artifact_path": str(train_path),
             "val_artifact_path": str(val_path),
             "run_dir": str(run_dir),
@@ -310,13 +356,16 @@ def prepare_training_plan(
     latest = _latest_resume_checkpoint(run_dir)
     if latest is not None:
         validate_resume_checkpoint(latest, run_dir=run_dir, metadata=metadata,
-            batch_size=BATCH_SIZE, grad_accum_steps=GRAD_ACCUM_STEPS, num_epochs=NUM_EPOCHS)
+            batch_size=hyperparameters["batch_size"],
+            grad_accum_steps=hyperparameters["gradient_accumulation_steps"],
+            num_epochs=hyperparameters["epochs"])
     if latest is not None and not resume:
         raise FileExistsError(
             f"Incomplete training state exists at {latest}; use resume=True or change run_tag"
         )
     return {
         "metadata": metadata,
+        "model": model,
         "train_artifact_path": str(train_path),
         "val_artifact_path": str(val_path),
         "run_dir": str(run_dir),
@@ -332,6 +381,7 @@ def persist_training_plan(plan: dict, *, commit_hook=None) -> None:
     plan_path = Path(plan["run_dir"]) / "plan.json"
     persisted = {
         "metadata": plan["metadata"],
+        "model": plan.get("model", "qwen3vl"),
         "train_artifact_path": plan["train_artifact_path"],
         "val_artifact_path": plan["val_artifact_path"],
     }
@@ -377,10 +427,7 @@ def run_training(
     """
     import torch
     from peft import LoraConfig, PeftModel, get_peft_model
-    from PIL import Image
-    from qwen_vl_utils import process_vision_info
     from torch.utils.data import DataLoader, Dataset
-    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
     data_root_path = Path(data_root).resolve()
 
@@ -389,6 +436,30 @@ def run_training(
             commit_hook()
 
     metadata = training_plan["metadata"]
+    model_name = training_plan.get("model", "qwen3vl")
+    hyperparameters = metadata["hyperparameters"]
+    batch_size = hyperparameters["batch_size"]
+    grad_accum_steps = hyperparameters["gradient_accumulation_steps"]
+    num_epochs = hyperparameters["epochs"]
+    learning_rate = hyperparameters["learning_rate"]
+    warmup_ratio = hyperparameters["warmup_ratio"]
+    max_grad_norm = hyperparameters["max_grad_norm"]
+    weight_decay = hyperparameters["weight_decay"]
+    eval_batch_size = hyperparameters["eval_batch_size"]
+    best_metric_name = hyperparameters["best_epoch_primary_metric"]
+
+    if model_name == "qwen3vl":
+        adapter = get_adapter(
+            "qwen3vl",
+            max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
+        )
+    elif model_name == "internvl35":
+        adapter = get_adapter(
+            "internvl35",
+            max_num_tiles=hyperparameters.get("max_num_tiles", 12),
+        )
+    else:
+        raise ValueError(f"Unsupported training model: {model_name!r}")
     run_dir = Path(training_plan["run_dir"])
     train_artifact = load_json(Path(training_plan["train_artifact_path"]))
     val_artifact = load_json(Path(training_plan["val_artifact_path"]))
@@ -401,10 +472,10 @@ def run_training(
         annotation_run_id=metadata["annotation_run_id"],
         train_artifact=train_artifact,
         val_artifact=val_artifact,
-        model_name=MODEL_NAME,
-        model_revision=MODEL_REVISION,
-        grounding_prompt_hash=GROUNDING_PROMPT_HASH,
-        hyperparameters=HYPERPARAMETERS,
+        model_name=adapter.model_name,
+        model_revision=adapter.model_revision,
+        grounding_prompt_hash=adapter.prompt_hash(),
+        hyperparameters=hyperparameters,
         seed=metadata["seed"],
         run_tag=metadata["run_tag"],
     )
@@ -423,9 +494,9 @@ def run_training(
             Path(resume_checkpoint),
             run_dir=run_dir,
             metadata=metadata,
-            batch_size=BATCH_SIZE,
-            grad_accum_steps=GRAD_ACCUM_STEPS,
-            num_epochs=NUM_EPOCHS,
+            batch_size=batch_size,
+            grad_accum_steps=grad_accum_steps,
+            num_epochs=num_epochs,
         )
 
     seed = metadata["seed"]
@@ -440,12 +511,7 @@ def run_training(
     device = torch.device("cuda:0")
     compute_dtype = torch.bfloat16
 
-    processor = AutoProcessor.from_pretrained(
-        MODEL_NAME,
-        revision=MODEL_REVISION,
-        min_pixels=MIN_PIXELS,
-        max_pixels=MAX_PIXELS,
-    )
+    base_model, processor = adapter.load_for_training(device=device)
 
     class RGBDTGroundingDataset(Dataset):
         def __init__(self, data: dict):
@@ -457,97 +523,18 @@ def run_training(
 
         def __getitem__(self, index):
             item = self.data[self.keys[index]]
-            images = []
-            for field in ("visible", "infrared", "depth"):
-                with Image.open(data_root_path / item[field]) as opened:
-                    images.append(opened.convert("RGB"))
-            visible, infrared, depth = images
-
-            bbox_text = format_qwen_bbox(item["bbox"])
-            prompt_messages = build_grounding_messages(
-                visible, infrared, depth, item["query"]
+            return adapter.build_training_batch(
+                item,
+                data_root=data_root_path,
+                processor=processor,
             )
-            messages = build_training_messages(
-                visible, infrared, depth, item["query"], bbox_text
-            )
-            text = processor.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=False,
-            )
-            image_inputs, video_inputs = process_vision_info(messages)
-            inputs = processor(
-                text=[text],
-                images=image_inputs,
-                videos=video_inputs,
-                return_tensors="pt",
-            )
-            prompt_text = processor.apply_chat_template(
-                prompt_messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            prompt_inputs = processor(
-                text=[prompt_text],
-                images=image_inputs,
-                videos=video_inputs,
-                return_tensors="pt",
-            )
-            prompt_length = validated_prompt_length(
-                inputs["input_ids"],
-                prompt_inputs["input_ids"],
-                sample_id=self.keys[index],
-            )
-            labels = inputs["input_ids"].clone()
-            labels[0, :prompt_length] = -100
-            result = {key: value.squeeze(0) for key, value in inputs.items()}
-            result["labels"] = labels.squeeze(0)
-            return result
 
     def collate_cpu(batch: list[dict]) -> dict:
-        max_length = max(item["input_ids"].size(0) for item in batch)
-        pad_id = processor.tokenizer.pad_token_id
-        if pad_id is None:
-            raise ValueError("Processor tokenizer has no pad_token_id")
-        ids, labels, attention, pixels, grids = [], [], [], [], []
-        for item in batch:
-            padding = max_length - item["input_ids"].size(0)
-            ids.append(
-                torch.cat(
-                    [item["input_ids"], torch.full((padding,), pad_id, dtype=torch.long)]
-                )
-            )
-            labels.append(
-                torch.cat(
-                    [item["labels"], torch.full((padding,), -100, dtype=torch.long)]
-                )
-            )
-            attention.append(
-                torch.cat(
-                    [item["attention_mask"], torch.zeros(padding, dtype=torch.long)]
-                )
-            )
-            pixels.append(item["pixel_values"])
-            grids.append(item["image_grid_thw"])
-        return {
-            "input_ids": torch.stack(ids),
-            "labels": torch.stack(labels),
-            "attention_mask": torch.stack(attention),
-            "pixel_values": torch.cat(pixels, dim=0),
-            "image_grid_thw": torch.cat(grids, dim=0),
-        }
+        return adapter.collate_training_batch(batch, processor=processor)
 
     train_dataset = RGBDTGroundingDataset(train_artifact["data"])
     val_dataset = RGBDTGroundingDataset(val_artifact["data"])
 
-    base_model = Qwen3VLForConditionalGeneration.from_pretrained(
-        MODEL_NAME,
-        revision=MODEL_REVISION,
-        quantization_config=None,
-        device_map={"": 0},
-        dtype=compute_dtype,
-        attn_implementation="sdpa",
-    )
     assert_single_cuda_device_map(getattr(base_model, "hf_device_map", None))
     if hasattr(base_model, "enable_input_require_grads"):
         base_model.enable_input_require_grads()
@@ -563,10 +550,10 @@ def run_training(
         )
     else:
         lora = LoraConfig(
-            r=HYPERPARAMETERS["lora_rank"],
-            lora_alpha=HYPERPARAMETERS["lora_alpha"],
-            lora_dropout=HYPERPARAMETERS["lora_dropout"],
-            target_modules=HYPERPARAMETERS["lora_targets"],
+            r=hyperparameters["lora_rank"],
+            lora_alpha=hyperparameters["lora_alpha"],
+            lora_dropout=hyperparameters["lora_dropout"],
+            target_modules=adapter.lora_target_modules(),
             task_type="CAUSAL_LM",
         )
         model = get_peft_model(base_model, lora)
@@ -577,7 +564,7 @@ def run_training(
         generator.manual_seed(seed + epoch)
         return DataLoader(
             train_dataset,
-            batch_size=BATCH_SIZE,
+            batch_size=batch_size,
             shuffle=True,
             generator=generator,
             collate_fn=collate_cpu,
@@ -588,38 +575,40 @@ def run_training(
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_cpu,
         num_workers=2,
         pin_memory=True,
         persistent_workers=False,
     )
-    batches_per_epoch = math.ceil(len(train_dataset) / BATCH_SIZE)
-    steps_per_epoch = optimizer_steps_per_epoch(batches_per_epoch, GRAD_ACCUM_STEPS)
-    total_steps = int(steps_per_epoch * NUM_EPOCHS)
-    warmup_steps = int(total_steps * WARMUP_RATIO)
+    batches_per_epoch = math.ceil(len(train_dataset) / batch_size)
+    steps_per_epoch = optimizer_steps_per_epoch(batches_per_epoch, grad_accum_steps)
+    total_steps = int(steps_per_epoch * num_epochs)
+    warmup_steps = int(total_steps * warmup_ratio)
 
     optimizer = torch.optim.AdamW(
         (parameter for parameter in model.parameters() if parameter.requires_grad),
-        lr=LEARNING_RATE,
-        weight_decay=HYPERPARAMETERS["weight_decay"],
+        lr=learning_rate,
+        weight_decay=weight_decay,
     )
 
     # Cosine annealing scheduler with min_lr = 1e-5
-    min_lr = LEARNING_RATE * 0.1  # 1e-5
+    min_lr = learning_rate * 0.1
     def lr_lambda(step: int) -> float:
         if step < warmup_steps:
             return step / max(warmup_steps, 1)
         progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
         cosine_decay = 0.5 * (1.0 + math.cos(math.pi * min(progress, 1.0)))
-        return min_lr / LEARNING_RATE + (1.0 - min_lr / LEARNING_RATE) * cosine_decay
+        return min_lr / learning_rate + (1.0 - min_lr / learning_rate) * cosine_decay
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     start_epoch = 0
     resume_batch_index = 0
     global_step = 0
     best_val_loss = float("inf")
+    best_metric_name = hyperparameters["best_epoch_primary_metric"]
+    best_metric_value = -1.0
     best_path = None
     resume_epoch_loss = 0.0
     if resume_checkpoint:
@@ -640,7 +629,15 @@ def run_training(
         global_step = state["global_step"]
         resume_batch_index = state.get("batch_index", 0)
         best_val_loss = state["best_val_loss"]
+        best_metric_name = state.get("best_metric", best_metric_name)
+        best_metric_value = state.get("best_metric_value", -1.0)
         best_path = state["best_path"]
+        if best_path:
+            metrics_path = Path(best_path) / "metrics.json"
+            if metrics_path.is_file():
+                best_metrics = validate_epoch_metrics(load_json(metrics_path))
+                best_metric_name = hyperparameters["best_epoch_primary_metric"]
+                best_metric_value = best_metrics[best_metric_name]
         # Restore the running epoch-loss accumulator so the per-epoch loss
         # printout stays correct after a mid-epoch resume.  The step
         # checkpoint stored it; the epoch checkpoint stores the completed
@@ -649,7 +646,7 @@ def run_training(
         resume_epoch_loss = state.get("epoch_loss", 0.0)
 
     if training_plan.get("smoke_test"):
-        smoke_epoch = min(start_epoch, NUM_EPOCHS - 1)
+        smoke_epoch = min(start_epoch, num_epochs - 1)
         smoke_loader = make_train_loader(smoke_epoch)
         try:
             cpu_batch = next(iter(smoke_loader))
@@ -665,7 +662,7 @@ def run_training(
         if not torch.isfinite(smoke_train_loss):
             raise FloatingPointError("Non-finite training loss in one-batch smoke test")
         smoke_train_loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
 
@@ -682,7 +679,7 @@ def run_training(
             "val_loss": smoke_val_loss.item(),
         }
 
-    for epoch in range(start_epoch, NUM_EPOCHS):
+    for epoch in range(start_epoch, num_epochs):
         train_loader = make_train_loader(epoch)
         # When resuming mid-epoch from a step checkpoint, skip
         # already-trained batches.  The loader uses a deterministic
@@ -714,19 +711,19 @@ def run_training(
             divisor = accumulation_window_size(
                 batch_index,
                 len(train_loader),
-                GRAD_ACCUM_STEPS,
+                grad_accum_steps,
             )
             (raw_loss / divisor).backward()
             epoch_loss += raw_loss.item()
-            if should_optimizer_step(batch_index, len(train_loader), GRAD_ACCUM_STEPS):
-                torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
+            if should_optimizer_step(batch_index, len(train_loader), grad_accum_steps):
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
                 if global_step % 20 == 0:
                     print(
-                        f"Epoch {epoch + 1}/{NUM_EPOCHS} | step {global_step}/{total_steps} | "
+                        f"Epoch {epoch + 1}/{num_epochs} | step {global_step}/{total_steps} | "
                         f"loss {epoch_loss / (batch_index + 1):.4f}",
                         flush=True,
                     )
@@ -780,14 +777,37 @@ def run_training(
             f"val_loss={average_val_loss:.4f}"
         )
 
+        epoch_metrics = _evaluate_grounding_metrics(
+            adapter=adapter,
+            model=model,
+            processor=processor,
+            val_data=val_artifact["data"],
+            data_root=data_root_path,
+            device=device,
+            batch_size=eval_batch_size,
+        )
+        candidate_metric = epoch_metrics[best_metric_name]
+        print(
+            f"Epoch {epoch + 1}: ACC@0.5={epoch_metrics['acc_at_0_5']:.4f}, "
+            f"mIoU={epoch_metrics['mean_iou']:.4f}, failures={epoch_metrics['failures']}"
+        )
+
         epoch_adapter_manifest = build_epoch_adapter_manifest(
             metadata,
             epoch=epoch + 1,
             val_loss=average_val_loss,
         )
 
-        if average_val_loss < best_val_loss:
+        is_best = (
+            candidate_metric > best_metric_value
+            or (
+                candidate_metric == best_metric_value
+                and average_val_loss < best_val_loss
+            )
+        )
+        if is_best:
             best_val_loss = average_val_loss
+            best_metric_value = candidate_metric
             best_dir = run_dir / "best" / f"epoch_{epoch + 1:02d}"
             model.save_pretrained(best_dir)
             processor.save_pretrained(best_dir)
@@ -795,6 +815,7 @@ def run_training(
                 best_dir / "adapter_manifest.json",
                 epoch_adapter_manifest,
             )
+            atomic_write_json(best_dir / "metrics.json", epoch_metrics)
             best_path = str(best_dir)
 
         checkpoint_dir = run_dir / "checkpoints" / f"epoch_{epoch + 1:02d}"
@@ -804,6 +825,7 @@ def run_training(
             checkpoint_dir / "adapter_manifest.json",
             epoch_adapter_manifest,
         )
+        atomic_write_json(checkpoint_dir / "metrics.json", epoch_metrics)
         checkpoint_state = {
             "metadata": metadata,
             "completed_epoch": epoch + 1,
@@ -812,6 +834,9 @@ def run_training(
             "best_path": best_path,
             "train_loss": average_train_loss,
             "val_loss": average_val_loss,
+            "best_metric": best_metric_name,
+            "best_metric_value": best_metric_value,
+            "epoch_metrics": epoch_metrics,
         }
         atomic_write_json(checkpoint_dir / "state.json", checkpoint_state)
         _atomic_torch_save(
@@ -834,7 +859,7 @@ def run_training(
     processor.save_pretrained(last_dir)
     atomic_write_json(
         last_dir / "adapter_manifest.json",
-        {"metadata": metadata, "completed_epochs": NUM_EPOCHS},
+        {"metadata": metadata, "completed_epochs": num_epochs},
     )
     completed = {
         "metadata": metadata,
@@ -842,10 +867,12 @@ def run_training(
         "global_step": global_step,
         "best_val_loss": best_val_loss,
         "best_path": best_path,
+        "best_metric": best_metric_name,
+        "best_metric_value": best_metric_value,
         "last_path": str(last_dir),
     }
     validate_completed_training_state(completed, metadata, run_dir,
-        batch_size=BATCH_SIZE, grad_accum_steps=GRAD_ACCUM_STEPS, num_epochs=NUM_EPOCHS)
+        batch_size=batch_size, grad_accum_steps=grad_accum_steps, num_epochs=num_epochs)
     atomic_write_json(run_dir / "completed.json", completed)
     _commit()
     return completed

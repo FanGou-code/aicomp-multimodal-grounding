@@ -16,8 +16,8 @@ Modal 的远程容器、Volume 和分片调度。Modal 账号、Volume 名称和
 
 ```bash
 # 训练（先 preflight 再正式）
-modal run cloud/train.py --annotation-run-id annot_ac72f1d926bb2d23 --run-tag exp-h100 --preflight-only
-modal run cloud/train.py --annotation-run-id annot_ac72f1d926bb2d23 --run-tag exp-h100
+modal run cloud/train.py --annotation-run-id annot_ac72f1d926bb2d23 --model qwen3vl --run-tag exp-h100 --preflight-only
+modal run cloud/train.py --annotation-run-id annot_ac72f1d926bb2d23 --model qwen3vl --run-tag exp-h100
 
 # 验证集评估（Modal 的本地入口；使用 approved 标注）
 modal run cloud/infer.py --split val --adapter-path /data/data/output_lora/<RUN_ID>/best/epoch_XX

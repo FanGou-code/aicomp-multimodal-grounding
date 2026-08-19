@@ -261,6 +261,23 @@ def pending_keys(assigned_keys: list[str], predictions: Mapping[str, object]) ->
     return [key for key in assigned_keys if key not in predictions]
 
 
+def assign_pending_shards(
+    items: list[dict],
+    *,
+    num_shards: int,
+    existing_predictions: Mapping[str, object] | None = None,
+) -> list[list[dict]]:
+    """Split only unfinished items into non-empty local shard batches."""
+    if num_shards <= 0:
+        raise ValueError(f"num_shards must be positive, got {num_shards}")
+    if existing_predictions is None:
+        pending = list(items)
+    else:
+        pending = [item for item in items if item.get("key") not in existing_predictions]
+    shards = [pending[index::num_shards] for index in range(num_shards)]
+    return [shard for shard in shards if shard]
+
+
 def merge_shard_payloads(
     run_metadata: dict,
     shard_assignments: list[list[str]],

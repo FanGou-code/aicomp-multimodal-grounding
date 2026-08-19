@@ -348,6 +348,8 @@ class CompletedTrainingStateTests(unittest.TestCase):
                 "best_val_loss": 0.5,
                 "best_path": str(best),
                 "last_path": str(last),
+                "best_metric": "acc_at_0_5",
+                "best_metric_value": 0.9,
             }
             self.assertIs(
                 validate_completed_training_state(completed, metadata, run_dir, **_TRAIN_PARAMS),
@@ -373,6 +375,8 @@ class CompletedTrainingStateTests(unittest.TestCase):
                 "best_val_loss": 0.5,
                 "best_path": str(best),
                 "last_path": str(last),
+                "best_metric": "acc_at_0_5",
+                "best_metric_value": 0.9,
             }
             with self.assertRaisesRegex(ValueError, "global_step"):
                 validate_completed_training_state(completed, metadata, run_dir, **_TRAIN_PARAMS)
@@ -412,6 +416,8 @@ class CompletedTrainingStateTests(unittest.TestCase):
                 "best_val_loss": 0.5,
                 "best_path": str(outside),
                 "last_path": str(last),
+                "best_metric": "acc_at_0_5",
+                "best_metric_value": 0.9,
             }
             with self.assertRaisesRegex(ValueError, "escapes"):
                 validate_completed_training_state(completed, metadata, run_dir, **_TRAIN_PARAMS)
@@ -433,6 +439,15 @@ class CompletedTrainingStateTests(unittest.TestCase):
                 "best_path": str(best),
                 "train_loss": 0.7,
                 "val_loss": 0.5,
+                "best_metric": "acc_at_0_5",
+                "best_metric_value": 0.9,
+                "epoch_metrics": {
+                    "hits": 5,
+                    "total": 6,
+                    "acc_at_0_5": 0.8333333333333333,
+                    "mean_iou": 0.7,
+                    "failures": 0,
+                },
             }
             atomic_write_json(checkpoint / "state.json", state)
             self.assertEqual(

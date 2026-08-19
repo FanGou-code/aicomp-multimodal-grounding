@@ -11,7 +11,7 @@
 │  数据层    prepare/annotate/QC (annotation_state, sharding, sequence, query, ...)   │
 │  身份层    指纹与 run id (artifacts, training_state, inference_state)                │
 │  推理核心  inference_core (items 加载 / ACC@0.5 评估 / 分片合并)                     │
-│  训练核心  training_core (Qwen 配方训练循环, 平台无关)                               │
+│  训练核心  training_core (adapter 驱动训练循环, 平台无关)                          │
 │  模型适配  models/ (qwen3vl | internvl35 | groundingdino | mock)                    │
 │  融合      fusion/wbf (多模型加权框融合)                                             │
 │  提交      submission (官方模板合同 + ZIP 构建)                                      │
@@ -70,6 +70,8 @@ adapter.predict([ModelInput(visible, infrared, depth, query, key)]) -> [Predicti
   （Qwen `<|box_start|>` 0-1000、InternVL `<box>` 0-1000、DINO cxcywh 归一化）。
 - **纯逻辑（prompt 构造/解析/坐标换算）是模块级函数**，无 GPU 也能单测；
   `load/predict` 才需要 GPU。
+- **训练能力由 `TrainableGroundingAdapter` 提供**：`load_for_training`、
+  `build_training_batch`、`collate_training_batch`、验证解码和 LoRA target 都由 adapter 实现。
 - **指纹连续性**：`qwen3vl` 的 identity 值被 `tests/test_models.py` 钉死，
   保证 Qwen 历史 run id 永不漂移。新模型接入 = 新 identity，天然隔离。
 
@@ -105,8 +107,8 @@ git clone                         # 代码 + 已批准标注集 (approved.json �
 python offline/infer.py --model internvl35 --test-json data/test.json --limit 100 ...
 python offline/infer.py --model groundingdino --test-json data/test.json --limit 100 ...
 
-# 2. 训练（各自 Modal 账号；InternVL 抄 training_core 的 Qwen 配方 + 换 adapter 接口层）
-modal run cloud/infer.py --model <name> --split val ...
+# 2. 训练（通过 --model 选择已接入训练循环的 adapter）
+modal run cloud/train.py --model <name> --annotation-run-id annot_ac72f1d926bb2d23 ...
 
 # 3. 交回 predictions_*.json（WBF 只交换预测文件，不交换权重）
 

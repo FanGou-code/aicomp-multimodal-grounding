@@ -10,10 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from aicomp_grounding.bbox import parse_bbox_from_text
+from aicomp_grounding.bbox import format_qwen_bbox, parse_bbox_from_text
+from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
 from aicomp_grounding.models.base import ModelInput, Prediction
 from aicomp_grounding.prompts import (
     GROUNDING_SYSTEM_PROMPT,
+    build_training_messages,
     build_grounding_messages,
     grounding_prompt_hash,
 )
@@ -90,6 +92,188 @@ class Qwen3VLAdapter:
         model.eval()
         self._processor = processor
         self._model = model
+
+    def training_hyperparameters(self) -> dict[str, Any]:
+        return {
+            "batch_size": 1,
+            "gradient_accumulation_steps": 16,
+            "learning_rate": 1e-4,
+            "epochs": 3,
+            "warmup_ratio": 0.05,
+            "lr_scheduler_type": "cosine",
+            "max_grad_norm": 1.0,
+            "weight_decay": 0.01,
+            "lora_rank": 16,
+            "lora_alpha": 48,
+            "lora_dropout": 0.05,
+            "compute_dtype": "bfloat16",
+            "autocast": True,
+            "eval_batch_size": 4,
+            "best_epoch_primary_metric": "acc_at_0_5",
+            "python_version": RUNTIME_PYTHON_VERSION,
+            "lora_targets": self.lora_target_modules(),
+            "min_pixels": MIN_PIXELS,
+            "max_pixels": self.max_pixels,
+        }
+
+    def lora_target_modules(self) -> list[str]:
+        return [
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ]
+
+    def load_for_training(
+        self,
+        *,
+        device: str = "cuda",
+        lora_path: Path | None = None,
+        model_path: str | None = None,
+    ):
+        self.load(device=device, lora_path=lora_path, model_path=model_path)
+        return self._model, self._processor
+
+    def build_training_batch(
+        self,
+        item: dict,
+        *,
+        data_root: Path,
+        processor,
+    ) -> dict:
+        import torch
+        from PIL import Image
+        from qwen_vl_utils import process_vision_info
+
+        images = []
+        for field in ("visible", "infrared", "depth"):
+            with Image.open(data_root / item[field]) as opened:
+                images.append(opened.convert("RGB"))
+        visible, infrared, depth = images
+        bbox_text = format_qwen_bbox(item["bbox"])
+        prompt_messages = build_grounding_messages(
+            visible, infrared, depth, item["query"]
+        )
+        messages = build_training_messages(
+            visible, infrared, depth, item["query"], bbox_text
+        )
+        text = processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=False,
+        )
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            return_tensors="pt",
+        )
+        prompt_text = processor.apply_chat_template(
+            prompt_messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        prompt_inputs = processor(
+            text=[prompt_text],
+            images=image_inputs,
+            videos=video_inputs,
+            return_tensors="pt",
+        )
+        prompt_length = int(prompt_inputs["input_ids"].shape[1])
+        if (
+            inputs["input_ids"].shape[1] <= prompt_length
+            or not bool(
+                (
+                    inputs["input_ids"][:, :prompt_length]
+                    == prompt_inputs["input_ids"]
+                ).all()
+                .item()
+            )
+        ):
+            raise ValueError(f"Training prompt is not an exact prefix for {item.get('key')}")
+        labels = inputs["input_ids"].clone()
+        labels[0, :prompt_length] = -100
+        result = {key: value.squeeze(0) for key, value in inputs.items()}
+        result["labels"] = labels.squeeze(0)
+        return result
+
+    def collate_training_batch(self, batch: list[dict], *, processor) -> dict:
+        import torch
+
+        max_length = max(item["input_ids"].size(0) for item in batch)
+        pad_id = processor.tokenizer.pad_token_id
+        if pad_id is None:
+            raise ValueError("Processor tokenizer has no pad_token_id")
+        ids, labels, attention, pixels, grids = [], [], [], [], []
+        for item in batch:
+            padding = max_length - item["input_ids"].size(0)
+            ids.append(
+                torch.cat(
+                    [item["input_ids"], torch.full((padding,), pad_id, dtype=torch.long)]
+                )
+            )
+            labels.append(
+                torch.cat(
+                    [item["labels"], torch.full((padding,), -100, dtype=torch.long)]
+                )
+            )
+            attention.append(
+                torch.cat(
+                    [item["attention_mask"], torch.zeros(padding, dtype=torch.long)]
+                )
+            )
+            pixels.append(item["pixel_values"])
+            grids.append(item["image_grid_thw"])
+        return {
+            "input_ids": torch.stack(ids),
+            "labels": torch.stack(labels),
+            "attention_mask": torch.stack(attention),
+            "pixel_values": torch.cat(pixels, dim=0),
+            "image_grid_thw": torch.cat(grids, dim=0),
+        }
+
+    def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:
+        from qwen_vl_utils import process_vision_info
+
+        messages = [
+            build_grounding_messages(
+                sample.visible,
+                sample.infrared,
+                sample.depth,
+                sample.query,
+            )
+            for sample in samples
+        ]
+        texts = [
+            processor.apply_chat_template(
+                message,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            for message in messages
+        ]
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = processor(
+            text=texts,
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        )
+        return inputs
+
+    def decode_grounding_outputs(self, processor, generated_ids, prompt_len: int) -> list[str]:
+        return processor.batch_decode(
+            generated_ids[:, prompt_len:],
+            skip_special_tokens=False,
+        )
+
+    def parse_grounding_text(self, text: str) -> list[float] | None:
+        return parse_bbox_from_text(text)
 
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:
         import torch

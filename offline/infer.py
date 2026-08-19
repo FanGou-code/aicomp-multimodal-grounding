@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from collections import OrderedDict
+import multiprocessing
 from pathlib import Path
 import sys
 import time
@@ -22,9 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.inference_state import (
+    assign_pending_shards,
+    build_shard_metadata,
     build_run_metadata,
     fingerprint_inputs,
     fingerprint_lora,
+    validate_checkpoint_payload,
 )
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.models import available_models, get_adapter
@@ -87,6 +91,12 @@ def parse_args():
         help="Number of queries predicted per adapter call.",
     )
     parser.add_argument(
+        "--num-shards",
+        type=int,
+        default=1,
+        help="Number of local processes to split inference across.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("outputs/inference"),
@@ -127,6 +137,9 @@ def parse_args():
         default=Path("."),
         help="Repository root; relative input and output paths resolve from here.",
     )
+    parser.add_argument("--shard-id", type=int, default=-1, help=argparse.SUPPRESS)
+    parser.add_argument("--shard-count", type=int, default=-1, help=argparse.SUPPRESS)
+    parser.add_argument("--shard-root", type=Path, default=None, help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -163,6 +176,126 @@ def load_scene_images(item: dict, data_dir: Path):
     infrared_img = Image.open(i_path).convert("RGB")
     depth_img = Image.open(d_path).convert("RGB")
     return visible_img, infrared_img, depth_img
+
+
+def _run_inference_loop(
+    items: list[dict],
+    adapter,
+    *,
+    adapter_dir: Path | None,
+    model_path: str | None,
+    data_dir: Path,
+    batch_size: int,
+    batch_save: int,
+    existing_predictions: dict[str, list[float] | None] | None = None,
+    device: str = "cuda",
+    checkpoint_path: Path | None = None,
+    checkpoint_metadata: dict | None = None,
+) -> dict[str, list[float] | None]:
+    """Run the existing sequential batch inference loop and return predictions."""
+    predictions: dict[str, list[float] | None] = dict(existing_predictions or {})
+    pending_items = [item for item in items if item["key"] not in predictions]
+    if pending_items:
+        pending_items.sort(key=lambda x: (x.get("visible", x["key"]), x["key"]))
+        print(f"Loading model '{adapter.model_name}' (revision {adapter.model_revision})...")
+        adapter.load(device=device, lora_path=adapter_dir, model_path=model_path)
+
+        scene_cache: OrderedDict = OrderedDict()
+        batch: list[ModelInput] = []
+
+        def flush() -> None:
+            if not batch:
+                return
+            results = adapter.predict(batch)
+            for sample, result in zip(batch, results):
+                predictions[sample.key] = result.bbox
+            batch.clear()
+
+        start_time = time.time()
+        processed_count = len(predictions)
+        for item in pending_items:
+            scene_id = (
+                item["visible"],
+                item["infrared"],
+                item["depth"],
+            )
+            if scene_id in scene_cache:
+                images = scene_cache[scene_id]
+                scene_cache.move_to_end(scene_id)
+            else:
+                images = load_scene_images(item, data_dir)
+                scene_cache[scene_id] = images
+                if len(scene_cache) > CACHE_MAX_SIZE:
+                    scene_cache.popitem(last=False)
+
+            batch.append(
+                ModelInput(
+                    visible=images[0],
+                    infrared=images[1],
+                    depth=images[2],
+                    query=item["query"],
+                    key=item["key"],
+                )
+            )
+            if len(batch) >= batch_size:
+                flush()
+
+            processed_count += 1
+            if processed_count % batch_save == 0 or processed_count == len(items):
+                flush()
+                elapsed = time.time() - start_time
+                avg_speed = elapsed / max(1, processed_count - (len(items) - len(pending_items)))
+                print(
+                    f"Progress: [{processed_count}/{len(items)}] | "
+                    f"Avg speed: {avg_speed:.2f}s/query | "
+                    f"Elapsed: {elapsed / 60:.1f}m"
+                )
+                if checkpoint_path is not None and checkpoint_metadata is not None:
+                    atomic_write_json(
+                        checkpoint_path,
+                        {"metadata": checkpoint_metadata, "predictions": predictions},
+                    )
+                if processed_count % (batch_save * 2) == 0:
+                    torch.cuda.empty_cache()
+        flush()
+    return predictions
+
+
+def _run_shard_worker(
+    payload: tuple[dict, list[dict], int, Path | None, dict],
+):
+    """Spawnable worker used by local multiprocess inference."""
+    args_dict, items, shard_id, checkpoint_dir, shard_metadata = payload
+    args = argparse.Namespace(**args_dict)
+    adapter_kwargs = {}
+    if args.model == "qwen3vl":
+        adapter_kwargs["max_pixels"] = args.max_pixels
+    adapter = get_adapter(args.model, **adapter_kwargs)
+    adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
+    if adapter_dir is not None and not adapter_dir.exists():
+        adapter_dir = None
+    if adapter_dir is not None and not adapter.supports_lora:
+        adapter_dir = None
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    device = f"cuda:{shard_id % num_gpus}" if num_gpus > 1 else "cuda"
+    checkpoint_path = (
+        Path(checkpoint_dir) / f"shard_{shard_id}.checkpoint.json"
+        if checkpoint_dir is not None
+        else None
+    )
+    predictions = _run_inference_loop(
+        items,
+        adapter,
+        adapter_dir=adapter_dir,
+        model_path=args.model_path,
+        data_dir=Path(args.data_dir),
+        batch_size=args.batch_size,
+        batch_save=args.batch_save,
+        device=device,
+        checkpoint_path=checkpoint_path,
+        checkpoint_metadata=shard_metadata,
+    )
+    return shard_id, predictions
 
 
 def main():
@@ -215,7 +348,7 @@ def main():
         selected_keys=selected_keys,
         input_fingerprint=input_fingerprint,
         image_fingerprint="local",
-        num_shards=1,
+        num_shards=args.num_shards,
     )
     run_id = metadata["run_id"]
     run_dir = args.output_dir / run_id
@@ -230,79 +363,75 @@ def main():
     if args.resume and predictions_path.is_file():
         print(f"Resuming from existing predictions file: {predictions_path}")
         predictions = load_json(predictions_path)
-
-    pending_items = [item for item in items if item["key"] not in predictions]
-    print(f"Total queries in dataset: {len(items)} | Already finished: {len(predictions)} | Pending: {len(pending_items)}")
-
-    if pending_items:
-        pending_items.sort(key=lambda x: (x.get("visible", x["key"]), x["key"]))
-
-        print(f"Loading model '{adapter.model_name}' (revision {adapter.model_revision})...")
-        adapter.load(device="cuda", lora_path=adapter_dir, model_path=args.model_path)
-
-        scene_cache: OrderedDict = OrderedDict()
-        batch: list[ModelInput] = []
-
-        def flush():
-            if not batch:
-                return
-            results = adapter.predict(batch)
-            for sample, result in zip(batch, results):
-                predictions[sample.key] = result.bbox
-            batch.clear()
-
-        start_time = time.time()
-        processed_count = len(predictions)
-
-        print("Starting single-GPU inference...")
-
-        for item in pending_items:
-            scene_id = (
-                item["visible"],
-                item["infrared"],
-                item["depth"],
+    print(f"Total queries in dataset: {len(items)} | Already finished: {len(predictions)} | Pending: {len(items) - len(predictions)}")
+    if args.num_shards > 1:
+        shard_checkpoint_dir = run_dir / "shard_checkpoints"
+        shard_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        shards = assign_pending_shards(
+            items,
+            num_shards=args.num_shards,
+            existing_predictions=predictions,
+        )
+        worker_payloads = [
+            (
+                dict(vars(args)),
+                shard,
+                shard_id,
+                shard_checkpoint_dir,
+                build_shard_metadata(
+                    metadata,
+                    shard_id,
+                    [item["key"] for item in shard],
+                ),
             )
-
-            if scene_id in scene_cache:
-                images = scene_cache[scene_id]
-                scene_cache.move_to_end(scene_id)
-            else:
-                images = load_scene_images(item, args.data_dir)
-                scene_cache[scene_id] = images
-                if len(scene_cache) > CACHE_MAX_SIZE:
-                    scene_cache.popitem(last=False)
-
-            batch.append(
-                ModelInput(
-                    visible=images[0],
-                    infrared=images[1],
-                    depth=images[2],
-                    query=item["query"],
-                    key=item["key"],
-                )
+            for shard_id, shard in enumerate(shards)
+        ]
+        context = multiprocessing.get_context("spawn")
+        with context.Pool(len(shards)) as pool:
+            shard_results = pool.map(_run_shard_worker, worker_payloads)
+        for _, shard_predictions in shard_results:
+            # Recover shard_id and metadata from the result is not necessary;
+            # validation is done below against the same shard assignments.
+            for key, value in shard_predictions.items():
+                if key in predictions:
+                    raise ValueError(f"Duplicate prediction key across shards: {key!r}")
+                predictions[key] = value
+        for shard_id, shard in enumerate(shards):
+            shard_metadata = build_shard_metadata(
+                metadata,
+                shard_id,
+                [item["key"] for item in shard],
             )
-            if len(batch) >= args.batch_size:
-                flush()
-
-            processed_count += 1
-
-            if processed_count % args.batch_save == 0 or processed_count == len(items):
-                flush()
-                elapsed = time.time() - start_time
-                avg_speed = elapsed / max(1, processed_count - (len(items) - len(pending_items)))
-                print(
-                    f"Progress: [{processed_count}/{len(items)}] | "
-                    f"Avg speed: {avg_speed:.2f}s/query | "
-                    f"Elapsed: {elapsed / 60:.1f}m"
-                )
-                atomic_write_json(predictions_path, predictions)
-                atomic_write_json(
-                    checkpoint_path,
-                    {"metadata": metadata, "predictions": predictions},
-                )
-                if processed_count % (args.batch_save * 2) == 0:
-                    torch.cuda.empty_cache()
-        flush()
+            shard_predictions = {
+                key: predictions[key]
+                for key in [item["key"] for item in shard]
+            }
+            validate_checkpoint_payload(
+                {
+                    "metadata": shard_metadata,
+                    "predictions": shard_predictions,
+                },
+                shard_metadata,
+                [item["key"] for item in shard],
+                require_complete=True,
+                label=f"local shard {shard_id}",
+            )
+    else:
+        predictions = _run_inference_loop(
+            items,
+            adapter,
+            adapter_dir=adapter_dir,
+            model_path=args.model_path,
+            data_dir=args.data_dir,
+            batch_size=args.batch_size,
+            batch_save=args.batch_save,
+            existing_predictions=predictions,
+        )
+    atomic_write_json(predictions_path, predictions)
+    atomic_write_json(
+        checkpoint_path,
+        {"metadata": metadata, "predictions": predictions},
+    )
 
     print(f"\nInference finished for {len(predictions)} queries. Saved to {predictions_path}")
 

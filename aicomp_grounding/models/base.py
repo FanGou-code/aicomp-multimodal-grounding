@@ -77,3 +77,71 @@ class GroundingAdapter(Protocol):
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:
         """Predict a batch of tri-modal inputs; order is preserved."""
         ...
+
+
+class TrainableGroundingAdapter(Protocol):
+    """Training-side contract for adapters that can drive the generic loop."""
+
+    name: str
+    model_name: str
+    model_revision: str
+    supports_lora: bool
+
+    def training_hyperparameters(self) -> dict[str, Any]:
+        """Return the model-specific training hyperparameters."""
+        ...
+
+    def lora_target_modules(self) -> list[str]:
+        """Return PEFT target module names for this model."""
+        ...
+
+    def load_for_training(
+        self,
+        *,
+        device: str = "cuda",
+        lora_path: Path | None = None,
+        model_path: str | None = None,
+    ) -> tuple[Any, Any]:
+        """Load and return ``(model, processor)`` for training."""
+        ...
+
+    def build_training_batch(
+        self,
+        item: dict,
+        *,
+        data_root: Path,
+        processor: Any,
+    ) -> dict:
+        """Build one model-ready training example with labels."""
+        ...
+
+    def collate_training_batch(
+        self,
+        batch: list[dict],
+        *,
+        processor: Any,
+    ) -> dict:
+        """Pad and stack model-specific training examples."""
+        ...
+
+    def build_grounding_batch(
+        self,
+        samples: list[ModelInput],
+        *,
+        processor: Any,
+    ) -> dict:
+        """Build model-specific generation inputs for a batch."""
+        ...
+
+    def decode_grounding_outputs(
+        self,
+        processor: Any,
+        generated_ids: Any,
+        prompt_len: int,
+    ) -> list[str]:
+        """Decode generated grounding text outputs."""
+        ...
+
+    def parse_grounding_text(self, text: str) -> list[float] | None:
+        """Parse a generated grounding text into normalized XYXY."""
+        ...

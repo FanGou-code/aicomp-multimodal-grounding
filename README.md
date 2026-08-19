@@ -3,8 +3,8 @@
 基于统一 adapter 接口的 RGB、红外与深度视觉定位项目。当前模型层支持
 `Qwen3-VL-8B-Instruct`、`InternVL3.5-8B`、`GroundingDINO-B` 与用于本地
 端到端测试的 mock 模型；推理入口通过 `--model` 选择 adapter，输出统一为归一化
-边界框，最终可由 WBF 多模型加权框融合生成结果包。当前 LoRA 训练入口以
-`Qwen3-VL` 为参考实现。
+边界框，最终可由 WBF 多模型加权框融合生成结果包。训练入口通过 `--model`
+支持 `qwen3vl` 与 `internvl35`。
 
 给定一组对齐的 RGB、Infrared、Depth 图像和英文 Query，模型输出目标的归一化边界框：
 
@@ -38,7 +38,18 @@ flowchart LR
 | `groundingdino` | `IDEA-Research/grounding-dino-base` | RGB + Query | 归一化 XYXY + score |
 | `mock` | 本地确定性模型 | 三模态接口兼容 | 归一化 XYXY + score |
 
-### Qwen3-VL 训练配置
+### 训练支持状态
+
+| Adapter | 当前训练状态 | 已记录训练参数 |
+| --- | --- | --- |
+| `qwen3vl` | 已实现 LoRA 训练 | 见下方 VLM 参数表 |
+| `internvl35` | 已接入通用 LoRA 训练路径，待 GPU 冒烟 | 以 Qwen 满配为起点 |
+| `groundingdino` | 仅 zero-shot 推理 | 仅支持推理接入 |
+| `mock` | 不参与真实训练 | 仅用于本地端到端测试 |
+
+### VLM LoRA 参数
+
+Qwen3-VL 与 InternVL3.5 当前使用同一套 LoRA 起点。Qwen3-VL 具体参数如下：
 
 | 配置 | 当前实现 |
 | --- | --- |
@@ -356,6 +367,7 @@ modal volume put --force rgbdt-dataset \
 ```bash
 modal run cloud/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
+  --model qwen3vl \
   --seed 42 \
   --run-tag exp-h100-final \
   --preflight-only
@@ -366,6 +378,7 @@ modal run cloud/train.py \
 ```bash
 modal run cloud/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
+  --model qwen3vl \
   --seed 42 \
   --run-tag exp-h100-final \
   --smoke-test
@@ -376,6 +389,7 @@ modal run cloud/train.py \
 ```bash
 modal run cloud/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
+  --model qwen3vl \
   --seed 42 \
   --run-tag exp-h100-final
 ```

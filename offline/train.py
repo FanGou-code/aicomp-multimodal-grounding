@@ -25,6 +25,13 @@ from aicomp_grounding.paths import ProjectPaths, resolve_from_root
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--annotation-run-id", type=str, required=True)
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="qwen3vl",
+        choices=["qwen3vl", "internvl35"],
+        help="Trainable grounding adapter.",
+    )
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument(
         "--annotation-root",
@@ -71,6 +78,7 @@ def main():
         annotation_root=annotation_root,
         output_root=output_root,
         annotation_run_id=args.annotation_run_id,
+        model=args.model,
         run_tag=args.run_tag,
         seed=args.seed,
         resume=args.resume,

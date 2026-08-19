@@ -3,13 +3,17 @@
 > 全仓库唯一的状态与交接记录：做到哪了、成绩、下一步。每次交接或阶段性
 > 完成时更新「当前状态」并在「交接日志」追加一条（新的写最上面）。
 > 结构与代码约定见 `architecture.md`，调研背景见 `research.md`。
+> 交接日志保留历史记录，不作为当前状态结论；当前状态以上方最新条目为准。
 
 ## 当前状态（最后更新 2026-08-19）
 
 - **基线（唯一完整成绩）**：`train_89aa55f31aee5478`（Qwen3-VL-8B + LoRA），
   测试集 ACC@0.5 = **0.7439**
 - **Iteration 02 代码全部就绪、尚未训练**：训练侧升级 + 推理引擎 + 三模型
-  adapter + WBF 融合已落地 main，测试 **173 全绿**
+  adapter + WBF 融合已落地 main，测试 **175 全绿**
+- **训练核心已适配多模型**：`training_core.py` 由 adapter 驱动，支持
+  `qwen3vl` 与 `internvl35`；每轮训练在全量验证集上计算 ACC/mIoU 并用于 best epoch。
+- **本地推理已支持多进程**：`offline/infer.py --num-shards` 可在同一张 GPU 上并行分片。
 - **本地开发环境**：`qwen_vg` conda 环境使用 Python 3.12，本地 CPU
   校验依赖按 `requirements-lock.txt` 安装；真实 GPU 训练/推理使用 `offline/`。
 - **运行边界已明确**：本仓库是唯一可移植实验单元；本地电脑只做 CPU 测试和静态检查，
@@ -21,8 +25,8 @@
   再进行正式 Iteration 02 训练；Modal 账号恢复后才执行对应的 `cloud/` 流程。
 - **待验证模型**：InternVL / GroundingDINO zero-shot 首跑——GPU 路径未冒烟，
   先 `--limit 100` 小切片验证；两者的 `model_revision` 已 pin 具体 commit。
-- **模型分工**：Qwen3-VL 单模型与统一仓库由主仓库负责；InternVL-3.5 与
-  GroundingDINO 由各自模型负责方推进，最终 WBF 加权框融合
+- **模型覆盖**：Qwen3-VL 与 InternVL3.5 已接入训练循环，GroundingDINO
+  保持 zero-shot 推理；三者预测结果最终进入 WBF 融合。
 
 ## Iteration 02 改动明细（已落地 main，尚未训练）
 
@@ -67,6 +71,14 @@
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-19（仓库，训练核心适配器化）
+
+* 新增 `TrainableGroundingAdapter` 训练协议，Qwen3-VL 与 InternVL3.5 接入统一训练循环。
+* 训练入口增加 `--model`，当前支持 `qwen3vl`、`internvl35`。
+* best epoch 改为全量验证集 `ACC@0.5` 优先，`val_loss` 平局辅助。
+* `offline/infer.py` 增加 `--num-shards` 本地多进程推理。
+* 验证：`unittest discover -s tests` 175 项通过，`compileall` 与 `git diff --check` 通过。
 
 ### 2026-08-19（仓库，审查修复与旧产物重算）
 

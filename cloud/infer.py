@@ -28,6 +28,7 @@ from aicomp_grounding.inference_core import (
     load_inference_items,
     merge_shard_results,
 )
+from aicomp_grounding.inference_state import assign_pending_shards
 from aicomp_grounding.models import available_models
 from aicomp_grounding.paths import ProjectPaths
 
@@ -288,7 +289,7 @@ def main(
 
     # Shard items across parallel workers
     if num_shards > 1:
-        shards = [items[i::num_shards] for i in range(num_shards)]
+        shards = assign_pending_shards(items, num_shards=num_shards)
         print(f"Dispatching {total_queries} queries across {num_shards} parallel H100 containers...")
         results = list(
             run_shard_inference.map(

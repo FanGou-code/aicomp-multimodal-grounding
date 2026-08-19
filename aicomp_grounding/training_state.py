@@ -15,11 +15,12 @@ Final adapter manifest:
     {metadata: TrainingMetadata, completed_epochs: int}
 
 Completed training state (completed.json):
-    {metadata, status, global_step, best_val_loss, best_path, last_path}
+    {metadata, status, global_step, best_val_loss, best_path, last_path,
+     best_metric, best_metric_value}
 
 Checkpoint state (checkpoints/epoch_N/state.json):
     {metadata, completed_epoch, global_step, best_val_loss, best_path,
-     train_loss, val_loss}
+     train_loss, val_loss, best_metric, best_metric_value, epoch_metrics}
 """
 
 from __future__ import annotations
@@ -209,6 +210,42 @@ def build_epoch_adapter_manifest(
     return validate_adapter_manifest(manifest)
 
 
+def validate_epoch_metrics(metrics: object) -> dict:
+    """Validate grounding metrics produced by an epoch validation pass."""
+    if not isinstance(metrics, dict):
+        raise ValueError("Epoch metrics must be a JSON object")
+    required = {"hits", "total", "acc_at_0_5", "mean_iou", "failures"}
+    if set(metrics) != required:
+        raise ValueError("Epoch metrics schema is invalid")
+    hits = metrics["hits"]
+    total = metrics["total"]
+    failures = metrics["failures"]
+    if (
+        isinstance(hits, bool)
+        or not isinstance(hits, int)
+        or hits < 0
+        or isinstance(total, bool)
+        or not isinstance(total, int)
+        or total <= 0
+        or isinstance(failures, bool)
+        or not isinstance(failures, int)
+        or failures < 0
+        or failures > total
+    ):
+        raise ValueError("Epoch metrics contain invalid counts")
+    for field in ("acc_at_0_5", "mean_iou"):
+        value = metrics[field]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0.0
+            or value > 1.0
+        ):
+            raise ValueError(f"Epoch metrics has invalid {field}")
+    return metrics
+
+
 def optimizer_steps_per_epoch(num_batches: int, grad_accum_steps: int) -> int:
     if num_batches <= 0 or grad_accum_steps <= 0:
         raise ValueError("num_batches and grad_accum_steps must be positive")
@@ -382,7 +419,16 @@ def validate_completed_training_state(
     grad_accum_steps: int,
     num_epochs: int,
 ) -> dict:
-    required = {"metadata", "status", "global_step", "best_val_loss", "best_path", "last_path"}
+    required = {
+        "metadata",
+        "status",
+        "global_step",
+        "best_val_loss",
+        "best_path",
+        "last_path",
+        "best_metric",
+        "best_metric_value",
+    }
     if not isinstance(completed, dict) or set(completed) != required:
         raise ValueError("Completed training state has an invalid schema")
     if completed["metadata"] != metadata or completed["status"] != "completed":
@@ -410,6 +456,15 @@ def validate_completed_training_state(
     )
     if best_manifest["val_loss"] != completed["best_val_loss"]:
         raise ValueError("Completed training state and best adapter val_loss disagree")
+    if not isinstance(completed["best_metric"], str) or not completed["best_metric"]:
+        raise ValueError("Completed training state has an invalid best_metric")
+    best_metric_value = completed["best_metric_value"]
+    if (
+        isinstance(best_metric_value, bool)
+        or not isinstance(best_metric_value, (int, float))
+        or not math.isfinite(best_metric_value)
+    ):
+        raise ValueError("Completed training state has an invalid best_metric_value")
     return completed
 
 
@@ -454,8 +509,18 @@ def validate_resume_checkpoint(
             checkpoint, run_dir=run_dir, metadata=metadata,
             expected_kind="checkpoint", num_epochs=num_epochs,
         )
-        required = {"metadata", "completed_epoch", "global_step", "best_val_loss",
-                    "best_path", "train_loss", "val_loss"}
+        required = {
+            "metadata",
+            "completed_epoch",
+            "global_step",
+            "best_val_loss",
+            "best_path",
+            "train_loss",
+            "val_loss",
+            "best_metric",
+            "best_metric_value",
+            "epoch_metrics",
+        }
         if set(state) != required:
             raise ValueError("Training checkpoint state schema does not match")
         if state["completed_epoch"] != epoch:
@@ -471,6 +536,15 @@ def validate_resume_checkpoint(
             value = state[field]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise ValueError(f"Training checkpoint has invalid {field}")
+        validate_epoch_metrics(state["epoch_metrics"])
+        if not isinstance(state["best_metric"], str) or not state["best_metric"]:
+            raise ValueError("Training checkpoint has an invalid best_metric")
+        if (
+            isinstance(state["best_metric_value"], bool)
+            or not isinstance(state["best_metric_value"], (int, float))
+            or not math.isfinite(state["best_metric_value"])
+        ):
+            raise ValueError("Training checkpoint has an invalid best_metric_value")
         if checkpoint_manifest["val_loss"] != state["val_loss"]:
             raise ValueError("Training checkpoint state and adapter manifest val_loss disagree")
         best_manifest = validate_adapter_directory(

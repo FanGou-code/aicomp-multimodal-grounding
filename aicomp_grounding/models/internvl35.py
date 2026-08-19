@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from aicomp_grounding.bbox import validate_bbox
+from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
 from aicomp_grounding.models.base import ModelInput, Prediction
 
 MODEL_NAME = "OpenGVLab/InternVL3_5-8B-HF"
@@ -146,6 +147,178 @@ class InternVL35Adapter:
         model.eval()
         self._processor = processor
         self._model = model
+
+    def training_hyperparameters(self) -> dict[str, Any]:
+        return {
+            "batch_size": 1,
+            "gradient_accumulation_steps": 16,
+            "learning_rate": 1e-4,
+            "epochs": 3,
+            "warmup_ratio": 0.05,
+            "lr_scheduler_type": "cosine",
+            "max_grad_norm": 1.0,
+            "weight_decay": 0.01,
+            "lora_rank": 16,
+            "lora_alpha": 48,
+            "lora_dropout": 0.05,
+            "compute_dtype": "bfloat16",
+            "autocast": True,
+            "eval_batch_size": 4,
+            "best_epoch_primary_metric": "acc_at_0_5",
+            "python_version": RUNTIME_PYTHON_VERSION,
+            "lora_targets": self.lora_target_modules(),
+            "max_num_tiles": self.max_num_tiles,
+        }
+
+    def lora_target_modules(self) -> list[str]:
+        return [
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ]
+
+    def load_for_training(
+        self,
+        *,
+        device: str = "cuda",
+        lora_path: Path | None = None,
+        model_path: str | None = None,
+    ):
+        self.load(device=device, lora_path=lora_path, model_path=model_path)
+        return self._model, self._processor
+
+    def build_training_batch(
+        self,
+        item: dict,
+        *,
+        data_root: Path,
+        processor,
+    ) -> dict:
+        from PIL import Image
+
+        images = []
+        for field in ("visible", "infrared", "depth"):
+            with Image.open(data_root / item[field]) as opened:
+                images.append(opened.convert("RGB"))
+        query = item["query"]
+        box = item["bbox"]
+        answer = (
+            "<box>["
+            f"[{int(box[0] * 1000)},{int(box[1] * 1000)},"
+            f"{int(box[2] * 1000)},{int(box[3] * 1000)}]"
+            "]</box>"
+        )
+        prompt_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "image"},
+                    {"type": "image"},
+                    {"type": "text", "text": build_grounding_question(query)},
+                ],
+            }
+        ]
+        training_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "image"},
+                    {"type": "image"},
+                    {"type": "text", "text": build_grounding_question(query)},
+                ],
+            },
+            {"role": "assistant", "content": answer},
+        ]
+        prompt_text = processor.apply_chat_template(
+            prompt_messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        training_text = processor.apply_chat_template(
+            training_messages,
+            tokenize=False,
+            add_generation_prompt=False,
+        )
+        prompt_inputs = processor(
+            text=[prompt_text],
+            images=images,
+            padding=True,
+            return_tensors="pt",
+        )
+        inputs = processor(
+            text=[training_text],
+            images=images,
+            padding=True,
+            return_tensors="pt",
+        )
+        prompt_length = int(prompt_inputs["input_ids"].shape[1])
+        if (
+            inputs["input_ids"].shape[1] <= prompt_length
+            or not bool(
+                (
+                    inputs["input_ids"][:, :prompt_length]
+                    == prompt_inputs["input_ids"]
+                ).all()
+                .item()
+            )
+        ):
+            raise ValueError(f"Training prompt is not an exact prefix for {item.get('key')}")
+        labels = inputs["input_ids"].clone()
+        labels[0, :prompt_length] = -100
+        result = {key: value.squeeze(0) for key, value in inputs.items()}
+        result["labels"] = labels.squeeze(0)
+        return result
+
+    def collate_training_batch(self, batch: list[dict], *, processor) -> dict:
+        padded = processor.pad(batch, padding=True, return_tensors="pt")
+        padded["labels"] = padded["labels"].long()
+        return padded
+
+    def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "image"},
+                    {"type": "image"},
+                    {
+                        "type": "text",
+                        "text": build_grounding_question(sample.query),
+                    },
+                ],
+            }
+            for sample in samples
+        ]
+        texts = [
+            processor.apply_chat_template(
+                message,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            for message in messages
+        ]
+        images = [
+            image
+            for sample in samples
+            for image in (sample.visible, sample.infrared, sample.depth)
+        ]
+        return processor(text=texts, images=images, padding=True, return_tensors="pt")
+
+    def decode_grounding_outputs(self, processor, generated_ids, prompt_len: int) -> list[str]:
+        return processor.batch_decode(
+            generated_ids[:, prompt_len:],
+            skip_special_tokens=False,
+        )
+
+    def parse_grounding_text(self, text: str) -> list[float] | None:
+        return parse_internvl_box(text)
 
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:
         import torch
