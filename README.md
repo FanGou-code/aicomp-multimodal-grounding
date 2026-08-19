@@ -29,42 +29,26 @@ flowchart LR
     I --> J["Multi-Model WBF / Submission"]
 ```
 
-### 模型适配层
+### 模型与适配层矩阵
 
-| Adapter | 模型 | 输入 | 输出 |
-| --- | --- | --- | --- |
-| `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | RGB + Infrared + Depth + Query | 归一化 XYXY |
-| `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | RGB + Infrared + Depth + Query | 归一化 XYXY |
-| `groundingdino` | `IDEA-Research/grounding-dino-base` | RGB + Query | 归一化 XYXY + score |
-| `mock` | 本地确定性模型 | 三模态接口兼容 | 归一化 XYXY + score |
+| Adapter | 基座模型 | Revision | 输入模态 | 任务支持 | 核心视觉 / 微调配置 |
+| --- | --- | --- | --- | --- | --- |
+| `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | `0c351dd` | RGB + Infrared + Depth + Query | 训练 / 推理 | 原图 1080p 无损像素预算 (`3072*28*28`)，LoRA (r=16, α=48)，BF16 (SDPA) |
+| `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | `741a7d0` | RGB + Infrared + Depth + Query | 训练 / 推理 | 动态切块 (`max_num_tiles=12`)，LoRA (r=16, α=48)，BF16 (SDPA) |
+| `groundingdino` | `IDEA-Research/grounding-dino-base` | `12bdfa3` | RGB + Query | 推理 (Zero-shot) | 原生判别式检测器，输出置信度得分供 WBF 融合 |
 
-### 训练支持状态
+> 注：另内置 `mock` 确定性桩模型，用于纯 CPU 单元测试与端到端流水线快速验证。
 
-| Adapter | 当前训练状态 | 已记录训练参数 |
-| --- | --- | --- |
-| `qwen3vl` | 已实现 LoRA 训练 | 见下方 VLM 参数表 |
-| `internvl35` | 已接入通用 LoRA 训练路径，待 GPU 冒烟 | 以 Qwen 满配为起点 |
-| `groundingdino` | 仅 zero-shot 推理 | 仅支持推理接入 |
-| `mock` | 不参与真实训练 | 仅用于本地端到端测试 |
+### VLM 训练配置
 
-### VLM LoRA 参数
+适用于所有接入 `TrainableGroundingAdapter` 的 VLM 模型（Qwen3-VL、InternVL3.5）：
 
-Qwen3-VL 与 InternVL3.5 当前使用同一套 LoRA 起点。Qwen3-VL 具体参数如下：
-
-| 配置 | 当前实现 |
-| --- | --- |
-| 基座模型 | `Qwen/Qwen3-VL-8B-Instruct` |
-| 模型 revision | `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` |
-| 输入 | RGB、Infrared、Depth 三张图像及英文 Query |
-| 图像预算 | 每个模态 `3072 * 28 * 28` pixels（原图 1920×1080 无损） |
-| 量化 | 无（原生 16-bit BF16 训练与推理） |
-| 计算精度 | BF16 (SDPA) |
-| 微调方法 | LoRA，rank 16，alpha 48，dropout 0.05 |
-| LoRA 模块 | `q/k/v/o_proj`、`gate/up/down_proj` |
-| 训练 | 3 epochs，batch size 1，gradient accumulation 16 |
-| 优化器参数 | learning rate `1e-4`，cosine scheduler，weight decay `0.01`，warmup `0.05` |
-| 训练设备 | Modal H100-80GB（32GB RAM，non-reentrant gradient checkpointing） |
-| 推理设备 | Modal H100-80GB（多进程 Batch=4 / 8 卡分片） / 离线单 GPU 环境 |
+- **微调方法**：LoRA（Rank 16, Alpha 48, Dropout 0.05，作用于注意力与 MLP 投影层）
+- **训练超参**：3 Epochs，Batch Size 1，梯度累积 16 步（等效 Batch Size 16）
+- **优化器与调度**：AdamW（学习率 `1e-4`，Cosine 调度衰减至 `1e-5` 下限，Weight Decay 0.01，Warmup 0.05）
+- **损失计算**：严格对 Prompt 与 Query 前缀做 `-100` 掩码，仅对 Target Bbox 计算 Causal LM Loss
+- **验证与选优**：每轮 Epoch 自动在全量验证集（719 样本）上运行真实推理，以 `ACC@0.5` 优先、`val_loss` 平局辅助保存 Best Checkpoint
+- **硬件与精度**：原生 BF16 混合精度，显存建议 $\ge 24\text{GB}$（支持离线实体 GPU、魔搭 DSW、AMD 实例或云端容器）
 
 ### 教师模型 (Teacher Model)
 
@@ -407,7 +391,7 @@ modal run cloud/train.py \
   completed.json
 ```
 
-训练支持按 batch 精确恢复（mid-epoch deterministic resume）。`best/` 对应最低 validation loss 的 Adapter。
+训练支持按 batch 精确恢复（mid-epoch deterministic resume）。`best/` 对应全量验证集 `ACC@0.5` 最优（`val_loss` 平局辅助）的 Adapter。
 
 ### 5. 推理与评估
 
