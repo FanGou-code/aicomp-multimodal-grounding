@@ -15,8 +15,6 @@ from pathlib import Path
 import sys
 import time
 
-import torch
-
 # This entrypoint lives in offline/; make the repository root importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -256,7 +254,12 @@ def _run_inference_loop(
                         {"metadata": checkpoint_metadata, "predictions": predictions},
                     )
                 if processed_count % (batch_save * 2) == 0:
-                    torch.cuda.empty_cache()
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
         flush()
     return predictions
 
@@ -276,7 +279,11 @@ def _run_shard_worker(
         adapter_dir = None
     if adapter_dir is not None and not adapter.supports_lora:
         adapter_dir = None
-    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    try:
+        import torch
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    except ImportError:
+        num_gpus = 0
     device = f"cuda:{shard_id % num_gpus}" if num_gpus > 1 else "cuda"
     checkpoint_path = (
         Path(checkpoint_dir) / f"shard_{shard_id}.checkpoint.json"
