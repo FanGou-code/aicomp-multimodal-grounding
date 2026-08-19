@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from cloud import train as train_modal
+from cloud import infer as infer_modal
 from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.artifacts import stable_json_hash
@@ -164,6 +165,49 @@ class AnnotationSourceGateTests(unittest.TestCase):
                 is_trusted_image_fingerprint(plan["metadata"]["image_fingerprint"])
             )
             self.assertEqual(plan["pending_shard_ids"], [0])
+
+
+class ModalInferencePathTests(unittest.TestCase):
+    def test_test_split_uses_processed_index_and_separate_template(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            index = root / "data/test.json"
+            template = root / "data/Test/queries/queries.json"
+            index.parent.mkdir(parents=True)
+            template.parent.mkdir(parents=True)
+            index.write_text("{}", encoding="utf-8")
+            template.write_text("{}", encoding="utf-8")
+
+            index_path, template_path = infer_modal.resolve_inference_paths(
+                "test", "", project_root=root
+            )
+
+            self.assertEqual(index_path, index.resolve())
+            self.assertEqual(template_path, template.resolve())
+
+    def test_val_split_uses_repository_annotation_artifact(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            approved = root / "outputs/annotations/annot_x/val/approved.json"
+            approved.parent.mkdir(parents=True)
+            approved.write_text("{}", encoding="utf-8")
+
+            index_path, template_path = infer_modal.resolve_inference_paths(
+                "val", "annot_x", project_root=root
+            )
+
+            self.assertEqual(index_path, approved.resolve())
+            self.assertIsNone(template_path)
+
+    def test_val_split_does_not_fallback_to_empty_source_index(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            data_val = root / "data/val.json"
+            data_val.parent.mkdir(parents=True)
+            data_val.write_text("{}", encoding="utf-8")
+
+            with self.assertRaises(FileNotFoundError):
+                infer_modal.resolve_inference_paths("val", "annot_missing", project_root=root)
 
 
 class TrainingEntrypointTests(unittest.TestCase):

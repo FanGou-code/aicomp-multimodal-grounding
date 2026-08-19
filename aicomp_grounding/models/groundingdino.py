@@ -21,8 +21,7 @@ from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.models.base import ModelInput, Prediction
 
 MODEL_NAME = "IDEA-Research/grounding-dino-base"
-# TODO(teammate): pin the exact commit hash before any recorded run.
-MODEL_REVISION = "main"
+MODEL_REVISION = "12bdfa3120f3e7ec7b434d90674b3396eccf88eb"
 
 BOX_THRESHOLD = 0.25
 TEXT_THRESHOLD = 0.30
@@ -129,7 +128,7 @@ class GroundingDINOAdapter:
             results = self._processor.post_process_grounded_object_detection(
                 outputs,
                 inputs.input_ids,
-                threshold=self.box_threshold,
+                box_threshold=self.box_threshold,
                 text_threshold=TEXT_THRESHOLD,
             )[0]
             bbox, score = select_top_detection(

@@ -34,13 +34,18 @@ from aicomp_grounding.artifacts import (
     stable_json_hash,
 )
 from aicomp_grounding.bbox import compute_iou, validate_bbox
-from aicomp_grounding.config import CHECKPOINT_VERSION, INFERENCE_COMPUTE_DTYPE
+from aicomp_grounding.config import (
+    CHECKPOINT_VERSION,
+    INFERENCE_COMPUTE_DTYPE,
+    RUNTIME_PYTHON_VERSION,
+)
 from aicomp_grounding.io import load_json
 from aicomp_grounding.models.qwen3vl import MAX_PIXELS, MIN_PIXELS
 from aicomp_grounding.training_state import validate_adapter_manifest, adapter_weight_path
 
 RUN_METADATA_FIELDS = (
     "version",
+    "python_version",
     "run_id",
     "mode",
     "split",
@@ -170,6 +175,7 @@ def build_run_metadata(
         raise ValueError(f"num_shards must be positive, got {num_shards}")
     identity = {
         "version": CHECKPOINT_VERSION,
+        "python_version": RUNTIME_PYTHON_VERSION,
         "mode": mode,
         "split": split,
         "annotation_run_id": annotation_run_id,
@@ -193,7 +199,12 @@ def build_run_metadata(
     }
     identity_hash = stable_json_hash(identity, length=16)
     run_id = f"infer_{split}_{mode}_{identity_hash}"
-    metadata = {"version": CHECKPOINT_VERSION, "run_id": run_id, **identity}
+    metadata = {
+        "version": CHECKPOINT_VERSION,
+        "python_version": RUNTIME_PYTHON_VERSION,
+        "run_id": run_id,
+        **identity,
+    }
     if tuple(metadata) != RUN_METADATA_FIELDS:
         raise AssertionError("Inference metadata schema is out of sync")
     return metadata

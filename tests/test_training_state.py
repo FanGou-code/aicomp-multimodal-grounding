@@ -196,6 +196,8 @@ class ApprovedDataGateTests(unittest.TestCase):
 
             plan = prepare_training_plan(
                 data_root=root,
+                annotation_root=root / "outputs" / "annotations",
+                output_root=root / "outputs",
                 annotation_run_id=run_id,
                 run_tag="qlora-r1",
                 seed=42,
@@ -204,6 +206,43 @@ class ApprovedDataGateTests(unittest.TestCase):
             )
             self.assertFalse(plan["skip_training"])
             self.assertIsNone(plan["resume_checkpoint"])
+            self.assertEqual(
+                Path(plan["run_dir"]),
+                root / "outputs" / "output_lora" / plan["metadata"]["training_run_id"],
+            )
+
+    def test_training_plan_keeps_modal_default_output_layout(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "annot_modal"
+            for split, scene in (("train", "001"), ("val", "002")):
+                artifact = _artifact(split, scene, run_id)
+                artifact["metadata"]["image_fingerprint"] = (
+                    trusted_dataset_image_fingerprint(
+                        artifact["data"],
+                        artifact["data"],
+                        require_recorded_size=True,
+                    )
+                )
+                atomic_write_json(
+                    root / "outputs" / "annotations" / run_id / split / "approved.json",
+                    artifact,
+                )
+
+            plan = prepare_training_plan(
+                data_root=root / "data",
+                annotation_root=root / "outputs" / "annotations",
+                annotation_run_id=run_id,
+                run_tag="modal-layout",
+                seed=42,
+                resume=True,
+                verify_images=False,
+            )
+
+            self.assertEqual(
+                Path(plan["run_dir"]),
+                root / "data" / "output_lora" / plan["metadata"]["training_run_id"],
+            )
 
 
 class TrainingScheduleTests(unittest.TestCase):

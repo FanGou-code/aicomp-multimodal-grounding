@@ -4,20 +4,25 @@
 > 完成时更新「当前状态」并在「交接日志」追加一条（新的写最上面）。
 > 结构与代码约定见 `architecture.md`，调研背景见 `research.md`。
 
-## 当前状态（最后更新 2026-08-18）
+## 当前状态（最后更新 2026-08-19）
 
-- **基线（唯一完整成绩）**：`train_9e468a454061153b`（Qwen3-VL-8B + LoRA），
-  官方测试集 ACC@0.5 = **0.7439**
+- **基线（唯一完整成绩）**：`train_89aa55f31aee5478`（Qwen3-VL-8B + LoRA），
+  测试集 ACC@0.5 = **0.7439**
 - **Iteration 02 代码全部就绪、尚未训练**：训练侧升级 + 推理引擎 + 三模型
-  adapter + WBF 融合已落地 main，测试 165 全绿
-- **下一步（维护者）**：新 Modal 账号就绪后
-  `modal run cloud/train.py --preflight-only` → `--smoke-test` → 正式 H100 训练
-  （预算约 $14.5 / 3.3h；超参未动，run id 与历史一致）
-- **等待队友**：InternVL / GroundingDINO zero-shot 首跑——GPU 路径未冒烟，
-  先 `--limit 100` 小切片验证；正式 run 前必须 pin `model_revision`
-  （当前为 main，adapter 内有 TODO 标记）
-- **分工**：维护者负责 Qwen3-VL 单模型与统一仓库；队友各自负责
-  InternVL-3.5 与 GroundingDINO（自筹 Modal/魔搭算力），最终 WBF 加权框融合
+  adapter + WBF 融合已落地 main，测试 **173 全绿**
+- **本地开发环境**：`qwen_vg` conda 环境使用 Python 3.12，本地 CPU
+  校验依赖按 `requirements-lock.txt` 安装；真实 GPU 训练/推理使用 `offline/`。
+- **运行边界已明确**：本仓库是唯一可移植实验单元；本地电脑只做 CPU 测试和静态检查，
+  实验室电脑/新 GPU/魔搭工作台使用 `offline/`，`cloud/` 仅保留 Modal 适配。
+- **训练产物路径已统一**：offline 默认写入 `outputs/output_lora/<id>/`，approved
+  标注位于 `outputs/annotations/<id>/`；Modal 未传输出根时继续使用历史
+  `/data/data/output_lora/<id>/` 布局，不改变 run id。
+- **下一步**：具备可用 GPU 的平台上先执行离线 `--preflight-only`、小切片/冒烟，
+  再进行正式 Iteration 02 训练；Modal 账号恢复后才执行对应的 `cloud/` 流程。
+- **待验证模型**：InternVL / GroundingDINO zero-shot 首跑——GPU 路径未冒烟，
+  先 `--limit 100` 小切片验证；两者的 `model_revision` 已 pin 具体 commit。
+- **模型分工**：Qwen3-VL 单模型与统一仓库由主仓库负责；InternVL-3.5 与
+  GroundingDINO 由各自模型负责方推进，最终 WBF 加权框融合
 
 ## Iteration 02 改动明细（已落地 main，尚未训练）
 
@@ -42,8 +47,9 @@
 * `models/` 适配层：qwen3vl（参考实现）/ internvl35 / groundingdino / mock，
   两个推理入口 `--model` 切换
 * `fusion/wbf.py`：多模型加权框融合，CLI 可直出提交包
-* 超参与 Qwen identity 一字未动 → training run id 与历史一致
-  （`tests/test_models.py` 钉死防漂移）
+* Qwen 模型 identity 与训练超参未变；运行身份增加 Python runtime 版本，
+  旧基线产物已按新环境身份重算 run id
+  （`tests/test_models.py` 继续钉死 Qwen identity 防漂移）
 
 ### 已评估并剔除的方向
 
@@ -62,7 +68,39 @@
 
 ## 交接日志（追加式，新的写最上面）
 
-### 2026-08-18（维护者）
+### 2026-08-19（仓库，审查修复与旧产物重算）
+
+* 固定 InternVL3.5 与 GroundingDINO 的模型 revision 为具体 commit。
+* 修正离线环境安装说明，并移除测试中的 Pillow `getdata()` 弃用调用。
+* 运行身份纳入 Python 3.12.13，旧 `train/infer/submission` 产物按新身份重算并迁移：
+  `train_89aa55f31aee5478`、`infer_val_base_cf21ef82acde823b`、
+  `infer_test_base_d1b8b06e5e1985e8`。
+* 重建测试集提交包 `outputs/submission/infer_test_base_d1b8b06e5e1985e8/submission.zip`。
+
+### 2026-08-19（仓库，本地环境迁移）
+
+* 本地 `qwen_vg` conda 环境迁移到 Python 3.12，开发/CPU 校验依赖按
+  `requirements-lock.txt` 安装；未执行 Modal 命令。
+* 同步 README、offline/README、cloud/README 与配置注释中的 Python 版本和环境边界说明。
+* 验证：`unittest discover -s tests` 共 **173 tests，全部通过**；
+  `compileall` 与 `git diff --check` 通过。
+
+### 2026-08-18（仓库，仓库可移植性与路径修复）
+
+* 明确 portable repo / offline 主入口 / Modal adapter 边界：整个仓库作为唯一实验单元复制到
+  实验室电脑、GPU 工作台或云端环境，安装依赖后使用 `offline/` 训练和推理。
+* 新增 `aicomp_grounding.paths.ProjectPaths`，统一项目根、数据、approved 标注、推理/融合和提交模板路径。
+* 修复 `cloud/infer.py` 的 Val/Test 路径：`data/test.json` 仅作为 worker 索引，官方
+  `data/Test/queries/queries.json` 仅用于 submission；Val 不再静默 fallback 到空 query 索引。
+* 修复 GroundingDINO 后处理参数名、WBF 得分文件重复读盘和得分指纹缺失，并修正文案中的历史硬件名称。
+* `offline/train.py` 增加 `--project-root`、`--annotation-root`、`--output-root`；训练核心显式支持
+  仓库级输出根，同时保留 Modal 历史默认布局。
+* 验证：`unittest discover -s tests` 共 **173 tests，全部通过**；`compileall` 与 `git diff --check`
+  通过；未执行任何 Modal 命令。
+* 残余风险：未在真实 GPU 上验证 Qwen/InternVL/GroundingDINO 前向；AMD ROCm 尚未冒烟；InternVL
+  与 GroundingDINO 的 `model_revision="main"` 仍待正式运行前根据最终模型源 pin 具体 commit。
+
+### 2026-08-18（仓库）
 
 * 剔除未验证启发式（`calibrate_bbox` / `standardize_query` / selective retry）
 * 仓库重构完成：双端布局 + 核心下沉 + `models/` 适配层 + `fusion/wbf.py`
@@ -70,8 +108,8 @@
 * 文档体系定型：README（用法）/ architecture（结构约定）/ handoff（本文，
   状态与交接）/ research（调研）；删除 `offline/dsw/` 预设目录，
   DSW 环境安装命令内联进 `offline/README.md`
-* 待办：Iteration 02 训练（等新 Modal 账号）；队友模型首跑冒烟
+* 待办：Iteration 02 训练（等新 Modal 账号）；其他模型首跑冒烟
 
 ### 2026-08 前期（基线，追记）
 
-* `train_9e468a454061153b` 完整训练 + 推理，官方测试集 ACC@0.5 = 0.7439
+* `train_89aa55f31aee5478` 完整训练 + 推理，测试集 ACC@0.5 = 0.7439

@@ -33,8 +33,9 @@ class AnnotationViewTests(unittest.TestCase):
 
         self.assertEqual(image.tobytes(), before)
         self.assertEqual(marked.size, image.size)
-        self.assertTrue(any(pixel == MARK_COLOR for pixel in marked.getdata()))
-        self.assertTrue(any(pixel[2] > pixel[0] for pixel in marked.getdata()))
+        flattened = list(marked.get_flattened_data())
+        self.assertTrue(any(pixel == MARK_COLOR for pixel in flattened))
+        self.assertTrue(any(pixel[2] > pixel[0] for pixel in flattened))
         self.assertTrue(jpeg_data_url(marked).startswith("data:image/jpeg;base64,"))
 
 

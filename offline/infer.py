@@ -30,6 +30,7 @@ from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.models import available_models, get_adapter
 from aicomp_grounding.models.base import ModelInput
 from aicomp_grounding.models.qwen3vl import MAX_PIXELS
+from aicomp_grounding.paths import ProjectPaths, resolve_from_root
 from aicomp_grounding.submission import build_submission
 
 CACHE_MAX_SIZE = 32
@@ -120,6 +121,12 @@ def parse_args():
         default=50,
         help="Save predictions.json checkpoint every N queries.",
     )
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path("."),
+        help="Repository root; relative input and output paths resolve from here.",
+    )
     return parser.parse_args()
 
 
@@ -160,6 +167,13 @@ def load_scene_images(item: dict, data_dir: Path):
 
 def main():
     args = parse_args()
+
+    paths = ProjectPaths.from_root(args.project_root)
+    args.data_dir = resolve_from_root(args.data_dir, paths.root)
+    args.test_json = resolve_from_root(args.test_json, paths.root)
+    args.output_dir = resolve_from_root(args.output_dir, paths.root)
+    if args.lora_path is not None:
+        args.lora_path = resolve_from_root(args.lora_path, paths.root)
 
     if not args.test_json.is_file():
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
@@ -329,7 +343,7 @@ def main():
     print(f"Summary saved to: {run_dir / 'summary.json'}")
 
     # If this is a full test run without ground truth, package submission.zip
-    official_template_path = args.data_dir / "Test/queries/queries.json"
+    official_template_path = paths.submission_template
     if (
         not has_ground_truth
         and args.limit == 0

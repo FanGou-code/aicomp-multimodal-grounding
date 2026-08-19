@@ -249,7 +249,9 @@ def assert_single_cuda_device_map(device_map: dict | None) -> None:
         if str(device).lower() in {"cpu", "disk"}
     }
     if invalid:
-        raise RuntimeError(f"Model was offloaded outside the L4 GPU: {sorted(invalid)}")
+        raise RuntimeError(
+            f"Model was offloaded outside the primary CUDA GPU: {sorted(invalid)}"
+        )
 
 
 # ---------------------------------------------------------------------------

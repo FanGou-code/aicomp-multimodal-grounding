@@ -18,7 +18,7 @@ from pathlib import Path
 
 from aicomp_grounding.artifacts import require_exact_metadata
 from aicomp_grounding.bbox import format_qwen_bbox, parse_bbox_from_text
-from aicomp_grounding.config import MODAL_GPU_PACKAGES
+from aicomp_grounding.config import MODAL_GPU_PACKAGES, RUNTIME_PYTHON_VERSION
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.images import (
     is_trusted_image_fingerprint,
@@ -77,6 +77,7 @@ HYPERPARAMETERS = {
     "lora_dropout": 0.05,
     "compute_dtype": "bfloat16",
     "autocast": True,
+    "python_version": RUNTIME_PYTHON_VERSION,
     "runtime_packages": list(MODAL_GPU_PACKAGES),
     "lora_targets": [
         "q_proj",
@@ -148,6 +149,8 @@ def _latest_resume_checkpoint(run_dir: Path) -> Path | None:
 def prepare_training_plan(
     *,
     data_root: str | Path,
+    annotation_root: str | Path | None = None,
+    output_root: str | Path | None = None,
     annotation_run_id: str,
     run_tag: str,
     seed: int,
@@ -162,9 +165,17 @@ def prepare_training_plan(
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id or ""):
         raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
     root = Path(data_root).resolve()
-    annotation_root = root / "outputs" / "annotations" / annotation_run_id
-    train_path = annotation_root / "train" / "approved.json"
-    val_path = annotation_root / "val" / "approved.json"
+    # Keep the historical Modal layout as the implicit default.  Portable
+    # entrypoints pass the repository-level outputs/annotations explicitly so
+    # data_root remains responsible only for dataset images and indexes.
+    annotation_base = (
+        Path(annotation_root).resolve()
+        if annotation_root is not None
+        else root / "outputs" / "annotations"
+    )
+    annotation_run_root = annotation_base / annotation_run_id
+    train_path = annotation_run_root / "train" / "approved.json"
+    val_path = annotation_run_root / "val" / "approved.json"
     if not train_path.is_file() or not val_path.is_file():
         raise FileNotFoundError(
             "Training requires approved train and val artifacts from the same annotation run: "
@@ -257,7 +268,15 @@ def prepare_training_plan(
         seed=seed,
         run_tag=run_tag,
     )
-    run_dir = root / "output_lora" / metadata["training_run_id"]
+    # Keep the historical Modal layout as the implicit default.  Portable
+    # entrypoints pass the repository-level outputs directory explicitly so
+    # training artifacts do not get mixed into the dataset tree.
+    output_base = (
+        Path(output_root).resolve()
+        if output_root is not None
+        else root
+    )
+    run_dir = output_base / "output_lora" / metadata["training_run_id"]
 
     if use_all_data:
         run_dir.mkdir(parents=True, exist_ok=True)

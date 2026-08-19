@@ -1,4 +1,4 @@
-"""InternVL3.5-8B grounding adapter (zero-shot skeleton for teammates).
+"""InternVL3.5-8B grounding adapter (zero-shot skeleton for contributors).
 
 Verification status
 -------------------
@@ -21,9 +21,7 @@ from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.models.base import ModelInput, Prediction
 
 MODEL_NAME = "OpenGVLab/InternVL3_5-8B-HF"
-# TODO(teammate): pin the exact commit hash before any recorded run; "main"
-# is intentionally unpinned and must not be used for fingerprinted artifacts.
-MODEL_REVISION = "main"
+MODEL_REVISION = "741a7d03020411e666c6109218ab71e08151ef86"
 
 MAX_NEW_TOKENS = 64
 

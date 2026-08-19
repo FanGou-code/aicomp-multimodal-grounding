@@ -1,4 +1,4 @@
-# 仓库架构与队友接入指南
+# 仓库架构与协作接入指南
 
 > 本文是三模型仓库的架构约定。数据、成绩等实际状态见 `handoff.md`，
 > 本文件只描述**结构不变量**：改代码前先读这里。
@@ -19,9 +19,30 @@
 ├────────── cloud/ (Modal 壳) ──────────┬────────── offline/ (离线壳) ────────────────┤
 │  train.py   H100 训练                  │  train.py   单机训练 (同一 training_core) │
 │  infer.py   分片推理 (--model)         │  infer.py   单卡推理 (--model)             │
-│                                        │  run.sh     通用启动器 (平台无关)         │
 └────────────────────────────────────────┴─────────────────────────────────────────────┘
 ```
+
+## Portable Repository Path Contract
+
+The repository is the portable experiment unit copied to a lab workstation,
+cloud workspace, or Modal-backed job. The platform-independent entrypoints in
+`offline/` use these roots:
+
+```text
+PROJECT_ROOT/                 repository root
+PROJECT_ROOT/data/             dataset files and generated indexes
+PROJECT_ROOT/outputs/annotations/  approved query artifacts
+PROJECT_ROOT/outputs/          training, inference, fusion, submission outputs
+```
+
+`data_root` is only the dataset root. It must not be used to derive
+`data/outputs/annotations`; portable callers pass the repository-level
+annotation root explicitly. The historical `data/outputs/annotations` layout
+is retained only as a compatibility path inside the Modal adapter.
+
+`data/test.json` is the processed test inference index. The official
+`data/Test/queries/queries.json` is a submission template and must not be sent
+to model workers as their image index.
 
 两条铁律：
 
@@ -66,22 +87,21 @@ adapter.predict([ModelInput(visible, infrared, depth, query, key)]) -> [Predicti
 - `qwen3vl`：GPU 路径与历史产出 0.7439 的代码同源，行为等价搬运。
 - `internvl35` / `groundingdino`：**纯逻辑有单测，GPU 路径未冒烟**。首次使用
   必须先跑 val 小切片：InternVL 对照官方 `evaluate_grounding.py` 钉坐标序，
-  DINO 验证 `post_process` 输出形状。两者的 `model_revision` 目前是 `main`，
-  **记录任何正式 run 前必须 pin 具体 commit**（adapter 内有 TODO 标记）。
+  DINO 验证 `post_process` 输出形状。两者的 `model_revision` 已 pin 具体 commit。
 
 ## 指纹与溯源
 
 一切 run（训练/推理/融合）的 id = hash(数据指纹 + 模型 identity + prompt 协议 +
-参数 + seed)。三模型经 `adapter.identity()` 注入，互不污染；融合 run id =
+参数 + seed + Python runtime 版本)。三模型经 `adapter.identity()` 注入，互不污染；融合 run id =
 hash(输入 predictions 文件字节 + 权重 + 阈值)，可回溯到每一次推理。
 
-## 队友工作流
+## 协作工作流
 
 ```bash
-git pull                          # 代码 + 黄金标注集 (approved.json 白名单入库)
-# 大数据 (data/ 43G) 与权重自行获取，见 offline/README.md 缺失清单
+git clone                         # 代码 + 已批准标注集 (approved.json 白名单入库)
+# 大数据 (data/ 43G) 与权重自行获取，见 offline/README.md 外部数据清单
 
-# 1. zero-shot 跑通（免费 A10 即可）
+# 1. zero-shot 跑通（单张 24GB GPU 即可）
 python offline/infer.py --model internvl35 --test-json data/test.json --limit 100 ...
 python offline/infer.py --model groundingdino --test-json data/test.json --limit 100 ...
 
@@ -90,9 +110,9 @@ modal run cloud/infer.py --model <name> --split val ...
 
 # 3. 交回 predictions_*.json（WBF 只交换预测文件，不交换权重）
 
-# 4. 融合（维护者执行）
+# 4. 融合
 python -m aicomp_grounding.fusion.wbf --predictions qwen.json internvl.json dino.json \
     --weights 1 1 1 --scores '' '' dino_scores.json --test-json data/Test/queries/queries.json
 ```
 
-分支约定：fork → 特性分支 → PR 回主仓库，维护者 review 合并（决定权集中）。
+分支约定：fork → 特性分支 → PR 回主仓库，由仓库管理员 review 合并。

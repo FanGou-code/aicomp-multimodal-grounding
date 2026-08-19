@@ -3,7 +3,7 @@
 Design notes
 ------------
 - Input units are per-model ``predictions.json`` files (``{key: bbox|None}``),
-  i.e. exactly what the cloud/offline inference entries emit, so teammates
+  i.e. exactly what the cloud/offline inference entries emit, so contributors
   can exchange prediction files without any new contract.
 - Weights are **model-level** (per input file). VLMs emit no calibrated
   confidence, so equal weights are the honest default; calibrate on val if
@@ -97,6 +97,10 @@ def fuse_predictions(
         raise ValueError("score files must align with prediction files")
 
     loaded = [load_json(path) for path in prediction_files]
+    loaded_scores = [
+        None if path is None else load_json(path)
+        for path in (score_files or [None] * len(prediction_files))
+    ]
     all_keys: set[str] = set()
     for predictions in loaded:
         all_keys.update(predictions)
@@ -109,8 +113,8 @@ def fuse_predictions(
             if box is None:
                 continue
             weight = float(weights[index])
-            if score_files is not None and score_files[index] is not None:
-                score = load_json(score_files[index]).get(key)
+            if loaded_scores[index] is not None:
+                score = loaded_scores[index].get(key)
                 if score is not None:
                     weight *= float(score)
             pairs.append((box, weight))
@@ -135,7 +139,9 @@ def build_fusion_metadata(
         "weights": [float(weight) for weight in weights],
         "iou_threshold": float(iou_threshold),
         "scores": [
-            None if score is None else Path(score).name
+            None
+            if score is None
+            else {"path": Path(score).name, "sha256": _file_sha256(score)}
             for score in (score_files or [None] * len(prediction_files))
         ],
     }

@@ -1,6 +1,6 @@
 # RGBDT Visual Grounding with Qwen3-VL
 
-基于 `Qwen3-VL-8B-Instruct` 的 RGB、红外与深度三模态视觉定位方案。项目覆盖数据预处理、训练 Query 自动生成、LoRA 微调、离线/并行推理、失败重试与竞赛提交构建。
+基于 `Qwen3-VL-8B-Instruct` 的 RGB、红外与深度三模态视觉定位方案。项目覆盖数据预处理、训练 Query 自动生成、LoRA 微调、离线/并行推理、失败重试与结果包构建。
 
 给定一组对齐的 RGB、Infrared、Depth 图像和英文 Query，模型输出目标的归一化边界框：
 
@@ -8,7 +8,7 @@
 [x1, y1, x2, y2],  0 <= x1 < x2 <= 1,  0 <= y1 < y2 <= 1
 ```
 
-竞赛评价指标为 `ACC@0.5`，即预测框与真实框的 IoU 不低于 0.5 时计为命中。
+评价指标为 `ACC@0.5`，即预测框与真实框的 IoU 不低于 0.5 时计为命中。
 
 ## 方法概览
 
@@ -40,7 +40,7 @@ flowchart LR
 | 训练 | 3 epochs，batch size 1，gradient accumulation 16 |
 | 优化器参数 | learning rate `1e-4`，cosine scheduler，weight decay `0.01`，warmup `0.05` |
 | 训练设备 | Modal H100-80GB（32GB RAM，non-reentrant gradient checkpointing） |
-| 推理设备 | Modal H100-80GB（多进程 Batch=4 / 8 卡分片） / ModelScope DSW A10-24GB |
+| 推理设备 | Modal H100-80GB（多进程 Batch=4 / 8 卡分片） / 离线单 GPU 环境 |
 
 ### 教师模型 (Teacher Model)
 
@@ -94,12 +94,11 @@ cloud/
 offline/
   train.py              离线端：单机训练入口（与云端共用 training_core）
   infer.py              离线端：通用单 GPU 推理与评估入口（--model 选适配器）
-  run.sh                通用启动器（默认参数 + 数据存在性检查）
 
 docs/
-  architecture.md       仓库架构、adapter 约定与队友接入指南
+  architecture.md       仓库架构、adapter 约定与协作接入指南
   handoff.md            交接文档：当前状态、成绩与交接日志（唯一状态记录）
-  research.md           赛题规则、数据统计与多模态基准调研
+  research.md           任务规则、数据统计与多模态基准调研
 
 scripts/
   prepare_rgbdt.py      RGBDT 检查、场景划分和 Depth JET 转换
@@ -112,16 +111,16 @@ tests/                  离线单元测试与工作流契约测试
 ## 环境要求
 
 - Linux bash/zsh（或兼容 Shell）
-- Python 3.10
+- Python 3.12
 - 可访问的 Modal 账户（仅训练与云端推理需要）
 - Zhipu AI API Key，仅用于训练 Query 生成
 - [RGBDT500](https://github.com/xuefeng-zhu5/RGBDT500) 数据集
-- 单张 24GB+ 显存 GPU 用于推理
 
-本地依赖由 `requirements-lock.txt` 固定。GPU 容器依赖固定在 `aicomp_grounding/config.py`，由 Modal 构建远端镜像。
+本地开发与 CPU 校验依赖由 `requirements-lock.txt` 固定。Modal GPU 运行时依赖由
+`aicomp_grounding/config.py` 中的 `MODAL_GPU_PACKAGES` 提供，并由 Modal 构建远端镜像。
 
 ```bash
-conda create -n qwen_vg python=3.10 -y
+conda create -n qwen_vg python=3.12 -y
 conda activate qwen_vg
 python -m pip install -r requirements-lock.txt
 
@@ -130,11 +129,11 @@ modal volume create rgbdt-dataset
 modal volume create hf-model-cache
 ```
 
-### 魔搭 DSW 推理环境
+### 离线 GPU 环境
 
-Test 推理支持在 ModelScope DSW（A10-24GB，离线）执行。DSW 镜像已预装
-torch / torchvision / pillow，只需补齐四个推理库（与云端 `MODAL_GPU_PACKAGES`
-同版本锁定），走阿里云镜像：
+离线推理可在预装 PyTorch 的 NVIDIA CUDA 或 AMD ROCm GPU 环境中执行。若平台镜像已提供
+torch / torchvision / pillow，应优先沿用平台版本，避免覆盖镜像自带依赖；再按需补齐
+VLM 适配层依赖。版本以 `aicomp_grounding/config.py` 中的 `MODAL_GPU_PACKAGES` 为基准：
 
 ```bash
 pip install transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 \
@@ -302,9 +301,9 @@ outputs/annotations/<ANNOTATION_RUN_ID>/<split>/
   approved.json
 ```
 
-> 黄金标注集 `annot_ac72f1d926bb2d23` 的 `train/val approved.json` 已通过 `.gitignore`
-> 白名单随仓库分发——队友 `git pull` 即得字节级一致的标注，指纹校验天然通过。
-> 其余产物（shards / merged 等）仍在本地生成、不入库。
+> 仓库通过 `.gitignore` 白名单分发 `annot_ac72f1d926bb2d23` 的
+> `train/val approved.json`；这些文件保持字节级一致并纳入指纹校验。
+> 其余生成中间文件（shards / merged 等）仍在本地生成，不入库。
 
 默认开启 Resume。若存在失败项，保持原参数并增加 `--retry-failed --publish`，只重新请求失败帧。
 
@@ -407,7 +406,7 @@ modal run cloud/infer.py \
 将训练产物下载到本地（默认 `outputs/output_lora/<id>/`）：
 
 ```bash
-TRAINING_RUN_ID="train_9e468a454061153b"
+TRAINING_RUN_ID="train_89aa55f31aee5478"
 
 modal volume get --force rgbdt-dataset \
   "data/output_lora/$TRAINING_RUN_ID" \
@@ -421,12 +420,17 @@ BEST_ADAPTER="outputs/output_lora/$TRAINING_RUN_ID/best/epoch_03"
 
 python offline/infer.py \
   --model-path Qwen/Qwen3-VL-8B-Instruct \
-  --test-json data/Test/queries/queries.json \
+  --test-json data/test.json \
   --data-dir data \
   --lora-path "$BEST_ADAPTER" \
   --output-dir outputs/inference \
   --run-tag final-test
 ```
+
+模型实际读取的是处理后的 `data/test.json`。`data/Test/queries/queries.json`
+是官方提交模板，只在构建 `submission.zip` 时使用，不能作为 worker 的图像索引。
+在验证集上运行时，应将 `--test-json` 指向对应的
+`outputs/annotations/<ANNOTATION_RUN_ID>/val/approved.json`。
 
 ### 6. 构建提交包
 
@@ -462,7 +466,7 @@ python -m aicomp_grounding.submission \
 | 阶段 | 本地或 Volume 路径 | 恢复单位 |
 | --- | --- | --- |
 | Query 生成 | `outputs/annotations/<id>/<split>/` | 场景/帧 |
-| LoRA 训练 | `/data/data/output_lora/<id>/` | Batch / Epoch |
+| LoRA 训练 | `outputs/output_lora/<id>/`（Modal 中为 `/data/data/output_lora/<id>/`） | Batch / Epoch |
 | 推理 | `outputs/inference/<id>/` | 增量预测 checkpoint |
 | 提交 | `outputs/submission/<id>/` | 完整 ZIP |
 
@@ -491,4 +495,4 @@ python -m compileall aicomp_grounding scripts cloud offline
 - Annotation API: [Zhipu AI](https://open.bigmodel.cn/)
 - GPU runtime: [Modal](https://modal.com/)
 
-模型、数据集及第三方服务分别遵循其原始许可证和使用条款。本仓库不分发竞赛数据、模型权重或 API 凭据。
+模型、数据集及第三方服务分别遵循其原始许可证和使用条款。本仓库不分发评估数据、模型权重或 API 凭据。

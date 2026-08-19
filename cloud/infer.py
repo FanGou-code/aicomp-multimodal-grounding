@@ -29,6 +29,7 @@ from aicomp_grounding.inference_core import (
     merge_shard_results,
 )
 from aicomp_grounding.models import available_models
+from aicomp_grounding.paths import ProjectPaths
 
 image = (
     modal.Image.debian_slim(python_version="3.10")
@@ -40,6 +41,51 @@ app = modal.App("rgbdt-modal-inference", image=image)
 
 dataset_volume = modal.Volume.from_name("rgbdt-dataset")
 model_volume = modal.Volume.from_name("hf-model-cache")
+
+
+def resolve_inference_paths(
+    split: str,
+    annotation_run_id: str,
+    *,
+    project_root: str | Path = ".",
+) -> tuple[Path, Path | None]:
+    """Resolve local Modal-entrypoint inputs without hiding bad fallbacks.
+
+    Returns ``(index_path, official_template_path)``.  The template is only
+    needed for test submission packaging; workers always receive the processed
+    test index or the approved validation artifact.
+    """
+
+    paths = ProjectPaths.from_root(project_root)
+    if split == "val":
+        index_path = paths.annotation_artifact(annotation_run_id, "val")
+        if not index_path.is_file():
+            # Compatibility with the historical Modal Volume layout.
+            index_path = (
+                paths.data
+                / "outputs"
+                / "annotations"
+                / annotation_run_id
+                / "val"
+                / "approved.json"
+            )
+        if not index_path.is_file():
+            raise FileNotFoundError(
+                "Approved val annotation artifact not found at either "
+                f"{paths.annotation_artifact(annotation_run_id, 'val')} or {index_path}"
+            )
+        return index_path, None
+
+    if split != "test":
+        raise ValueError(f"Unsupported Modal inference split: {split!r}")
+
+    index_path = paths.dataset_index("test")
+    template_path = paths.submission_template
+    if not index_path.is_file():
+        raise FileNotFoundError(f"Processed test index not found at {index_path}")
+    if not template_path.is_file():
+        raise FileNotFoundError(f"Official test template not found at {template_path}")
+    return index_path, template_path
 
 
 @app.function(
@@ -203,7 +249,7 @@ def run_shard_inference(
 @app.local_entrypoint()
 def main(
     split: str = "val",
-    adapter_path: str = f"{DATA_ROOT}/output_lora/train_9e468a454061153b/best/epoch_02",
+    adapter_path: str = f"{DATA_ROOT}/output_lora/train_89aa55f31aee5478/best/epoch_02",
     annotation_run_id: str = "annot_ac72f1d926bb2d23",
     batch_size: int = 4,
     num_workers: int = 4,
@@ -226,31 +272,14 @@ def main(
     print(f"  Parallel Shards:    {num_shards}")
     print(f"=================================================================")
 
-    # Load dataset index from local data dir; path policy stays platform
-    # specific, item normalization is shared via the inference core.
-    if split == "val":
-        data_root = Path("data")
-        val_approved_path = (
-            data_root
-            / "outputs"
-            / "annotations"
-            / annotation_run_id
-            / "val"
-            / "approved.json"
-        )
-        if not val_approved_path.exists():
-            # Fallback to standard val.json
-            val_approved_path = data_root / "val.json"
-        if not val_approved_path.exists():
-            raise FileNotFoundError(f"Val dataset not found at {val_approved_path}")
-        index_path = val_approved_path
-    else:  # test split
-        test_template_path = Path("data/Test/queries/queries.json")
-        if not test_template_path.exists():
-            test_template_path = Path("data/test.json")
-        if not test_template_path.exists():
-            raise FileNotFoundError(f"Test queries not found at {test_template_path}")
-        index_path = test_template_path
+    # Resolve local files before dispatching items to Modal workers.  The
+    # official test template is intentionally kept separate from the worker
+    # index because its image paths describe the submission contract, not the
+    # processed files mounted in the worker.
+    index_path, test_template_path = resolve_inference_paths(
+        split,
+        annotation_run_id,
+    )
 
     items, _ = load_inference_items(index_path)
 

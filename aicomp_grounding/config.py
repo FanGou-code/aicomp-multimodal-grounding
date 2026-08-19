@@ -25,8 +25,10 @@ ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST = 1_800
 
 DATA_ROOT = "/data/data"
 INFERENCE_COMPUTE_DTYPE = "bfloat16"
+RUNTIME_PYTHON_VERSION = "3.12.13"
 
-# Keep in sync with requirements-lock.txt when adding or upgrading packages.
+# Local development/validation dependencies are pinned in requirements-lock.txt.
+# MODAL_GPU_PACKAGES is the separate Modal GPU runtime package set.
 MODAL_GPU_PACKAGES = (
     "transformers==4.57.3",
     "accelerate==1.14.0",
