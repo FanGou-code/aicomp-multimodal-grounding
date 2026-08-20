@@ -112,9 +112,11 @@ docs/
   research.md           任务规则、数据统计与多模态基准调研
 
 scripts/
-  prepare_rgbdt.py      RGBDT 检查、场景划分和 Depth JET 转换
+  prepare_rgbdt.py      RGBDT 图像检查与 Depth JET 伪彩转换
+  build_indexes.py      构建 5 个切分 JSON 索引并执行 SHA-256 去重审计
   filter_overlap.py     SHA-256 剔除与 Test 同源的 Train/Val 样本
   generate_queries.py   自动 Query 生成与 approved 发布
+  upload_dataset.py     ModelScope 数据集上传工具
 
 tests/                  离线单元测试与工作流契约测试
 ```
@@ -214,53 +216,17 @@ Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使
 
 ## 完整复现流程
 
-### 1. 数据预处理
-
-先进行不写文件的完整检查：
+### 1. 数据预处理与切分
 
 ```bash
-python scripts/prepare_rgbdt.py \
-  --dataset-root data \
-  --depth-scaling fixed \
-  --dry-run
+# 1. 批量生成本地 Depth-JET 伪彩图
+python scripts/prepare_rgbdt.py --dataset-root data --skip-test-validation
+
+# 2. 一键构建 5 个切分 JSON 索引并执行 SHA-256 去重审计（耗时 1 秒）
+python scripts/build_indexes.py --data-dir data
 ```
 
-通过后执行正式预处理：
-
-```bash
-python scripts/prepare_rgbdt.py \
-  --dataset-root data \
-  --depth-scaling fixed \
-  --overwrite-depth \
-  --overwrite-indexes
-```
-
-当前数据的预期统计为：
-
-```text
-sequences=400
-groundtruth_rows=4000
-valid_samples=3903
-excluded_invalid_bbox=97
-```
-
-官方 Test 模板包含 9,555 条 Query。项目固定校验其 canonical SHA-256：
-
-```text
-8fae701890bbbf05099e11ac8b2a3ead18990a496449355c9f09825d88ccfbbf
-```
-
-#### 1.1 剔除与 Test 同源的数据（哈希查重）
-
-训练/验证样本若与 Test 图像字节相同（同源帧），会在训练前被剔除，避免数据泄漏——Test 里见过的帧绝不允许进训练。
-
-```bash
-python scripts/filter_overlap.py \
-  --dataset-root data \
-  --overwrite-indexes
-```
-
-`filter_overlap.py` 对 `data/Train/*/color/*.png` 与 `data/Test/Images/visible/*.png` 做 SHA-256 字节级匹配，从 `train.json` / `val.json` 删除命中样本，并将剔除记录写入 `data/excluded_overlap.json`（审计日志）。
+`build_indexes.py` 会对 `data/Train/*/color/*.png` 与 `data/Test/Images/visible/*.png` 做 SHA-256 字节级匹配，自动剔除与 Test 重叠的样本，并输出 `train.json`、`val.json`、`test.json`、`split_manifest.json` 与 `overlap_report.json`。
 
 > 当前 `annot_ac72f1d926bb2d23` 标注集已核查：Train 2,875 条、Val 719 条与 Test 的 SHA-256 匹配均为 **0**，无同源帧进入训练。
 
@@ -415,36 +381,49 @@ modal run cloud/infer.py \
   --adapter-path "/data/data/output_lora/<TRAINING_RUN_ID>/best/epoch_03"
 ```
 
-#### 5.2 本地/离线单 GPU 推理（通用）
-
-将训练产物下载到本地（默认 `outputs/output_lora/<id>/`）：
+#### 5.2 离线 / 魔搭 DSW 单机与多卡推理
 
 ```bash
-TRAINING_RUN_ID="train_89aa55f31aee5478"
-
-modal volume get --force rgbdt-dataset \
-  "data/output_lora/$TRAINING_RUN_ID" \
-  "outputs/output_lora/$TRAINING_RUN_ID"
-```
-
-使用 `offline/infer.py` 进行离线推理：
-
-```bash
-BEST_ADAPTER="outputs/output_lora/$TRAINING_RUN_ID/best/epoch_03"
-
+# 1. Qwen3-VL 推理
 python offline/infer.py \
-  --model-path Qwen/Qwen3-VL-8B-Instruct \
+  --model qwen3vl \
   --test-json data/test.json \
   --data-dir data \
-  --lora-path "$BEST_ADAPTER" \
-  --output-dir outputs/inference \
-  --run-tag final-test
+  --lora-path outputs/output_lora/<QWEN_RUN_ID>/best/epoch_03 \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
+  --num-shards 2 \
+  --run-tag qwen-infer
+
+# 2. InternVL3.5 推理
+python offline/infer.py \
+  --model internvl35 \
+  --test-json data/test.json \
+  --data-dir data \
+  --lora-path outputs/output_lora/<INTERNVL_RUN_ID>/best/epoch_03 \
+  --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
+  --num-shards 2 \
+  --run-tag internvl-infer
+
+# 3. GroundingDINO 推理 (Zero-shot)
+python offline/infer.py \
+  --model groundingdino \
+  --test-json data/test.json \
+  --data-dir data \
+  --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base \
+  --num-shards 2 \
+  --run-tag dino-infer
 ```
 
-模型实际读取的是处理后的 `data/test.json`。`data/Test/queries/queries.json`
-是官方提交模板，只在构建 `submission.zip` 时使用，不能作为 worker 的图像索引。
-在验证集上运行时，应将 `--test-json` 指向对应的
-`outputs/annotations/<ANNOTATION_RUN_ID>/val/approved.json`。
+#### 5.3 多模型加权框融合 (WBF)
+
+```bash
+python -m aicomp_grounding.fusion.wbf \
+  --predictions outputs/inference/<QWEN_INFER>/predictions.json outputs/inference/<INTERNVL_INFER>/predictions.json outputs/inference/<DINO_INFER>/predictions.json \
+  --weights 1.0 1.0 0.8 \
+  --scores "" "" outputs/inference/<DINO_INFER>/scores.json \
+  --test-json data/Test/queries/queries.json \
+  --output-dir outputs/fusion
+```
 
 ### 6. 构建提交包
 
@@ -453,8 +432,8 @@ python offline/infer.py \
 ```bash
 python -m aicomp_grounding.submission \
   --test-json data/Test/queries/queries.json \
-  --predictions "outputs/inference/<RUN_ID>/predictions.json" \
-  --output-dir "outputs/submission/<RUN_ID>"
+  --predictions outputs/fusion/<FUSION_ID>/fused_predictions.json \
+  --output-dir outputs/submission/final_submit
 ```
 
 严格模式要求：
