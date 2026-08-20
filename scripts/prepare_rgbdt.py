@@ -635,6 +635,23 @@ def prepare_dataset(
     stats["test_depth_reused"] = test_stats.get("reused", 0)
     if stats["valid_samples"] + stats["excluded_invalid_bbox"] != stats["groundtruth_rows"]:
         raise AssertionError("Prepared sample counts do not reconcile with ground-truth rows")
+    # Ensure test.json is generated from official queries.json if official test exists
+    official_test_path = args.dataset_root / "Test" / "queries" / "queries.json"
+    test_json_path = args.dataset_root / "test.json"
+    if official_test_path.is_file() and (not test_json_path.is_file() or args.overwrite_indexes):
+        official_data = load_json(official_test_path)
+        generated_test = {}
+        for qid, source in official_data.items():
+            depth_name = PurePosixPath(source["depth"]).name
+            generated_test[qid] = {
+                "visible": f"Test/{source['visible']}",
+                "infrared": f"Test/{source['infrared']}",
+                "depth": f"Processed/Test/depth_jet/{depth_name}",
+                "query": source["query"],
+            }
+        if not args.dry_run:
+            atomic_write_json(test_json_path, generated_test)
+
     if not args.skip_test_validation:
         test_errors = validate_test_depth_references(
             args.dataset_root,
