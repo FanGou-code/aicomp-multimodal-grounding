@@ -22,8 +22,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Set
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.artifacts import stable_json_hash
