@@ -14,6 +14,8 @@ import math
 import os
 import re
 import tempfile
+import time
+from datetime import datetime
 from pathlib import Path
 
 from aicomp_grounding.artifacts import require_exact_metadata
@@ -697,6 +699,9 @@ def run_training(
             "val_loss": smoke_val_loss.item(),
         }
 
+    last_log_time = time.monotonic()
+    last_log_step = global_step
+
     for epoch in range(start_epoch, num_epochs):
         train_loader = make_train_loader(epoch)
         # When resuming mid-epoch from a step checkpoint, skip
@@ -740,11 +745,23 @@ def run_training(
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
                 if global_step % 20 == 0:
+                    now_str = datetime.now().strftime("%H:%M:%S")
+                    now_mono = time.monotonic()
+                    elapsed_since_log = max(now_mono - last_log_time, 1e-4)
+                    steps_since_log = max(global_step - last_log_step, 1)
+                    sec_per_step = elapsed_since_log / steps_since_log
+                    remaining_steps = max(total_steps - global_step, 0)
+                    eta_sec = int(remaining_steps * sec_per_step)
+                    eta_min, eta_s = divmod(eta_sec, 60)
+                    eta_hr, eta_min = divmod(eta_min, 60)
+                    eta_str = f"{eta_hr}h{eta_min:02d}m" if eta_hr > 0 else f"{eta_min}m{eta_s:02d}s"
                     print(
-                        f"Epoch {epoch + 1}/{num_epochs} | step {global_step}/{total_steps} | "
-                        f"loss {epoch_loss / (batch_index + 1):.4f}",
+                        f"[{now_str}] Epoch {epoch + 1}/{num_epochs} | step {global_step}/{total_steps} | "
+                        f"loss {epoch_loss / (batch_index + 1):.4f} | {sec_per_step:.2f}s/step | ETA: {eta_str}",
                         flush=True,
                     )
+                    last_log_time = now_mono
+                    last_log_step = global_step
                     step_dir = run_dir / "checkpoints" / f"step_{global_step:04d}"
                     model.save_pretrained(step_dir)
                     processor.save_pretrained(step_dir)
