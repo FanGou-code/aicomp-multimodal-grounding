@@ -722,6 +722,8 @@ def run_training(
         # value stored in the step checkpoint so the loss printout is not
         # distorted by dividing a fresh accumulator by a large batch index.
         epoch_loss = resume_epoch_loss if (epoch == start_epoch and skip_batches > 0) else 0.0
+        last_log_time = time.monotonic()
+        last_log_step = global_step
         for batch_index, cpu_batch in enumerate(train_iter, start=skip_batches):
             batch = move_batch_to_device(cpu_batch, device)
             with torch.autocast(device_type="cuda", dtype=compute_dtype):
