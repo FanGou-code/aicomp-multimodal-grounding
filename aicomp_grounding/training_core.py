@@ -514,11 +514,11 @@ def run_training(
     device = torch.device("cuda:0")
     compute_dtype = torch.bfloat16
 
-    model_path = plan.get("model_path")
+    model_path = training_plan.get("model_path")
     if model_path is None:
         rel_subpath = (
             "Qwen/Qwen3-VL-8B-Instruct"
-            if plan["model"] == "qwen3vl"
+            if model_name == "qwen3vl"
             else "OpenGVLab/InternVL3_5-8B-HF"
         )
         for candidate in [
