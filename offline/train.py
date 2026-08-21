@@ -32,6 +32,12 @@ def parse_args():
         choices=["qwen3vl", "internvl35"],
         help="Trainable grounding adapter.",
     )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default=None,
+        help="Optional local base-model directory override (e.g. /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct).",
+    )
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument(
         "--annotation-root",
@@ -79,6 +85,7 @@ def main():
         output_root=output_root,
         annotation_run_id=args.annotation_run_id,
         model=args.model,
+        model_path=args.model_path,
         run_tag=args.run_tag,
         seed=args.seed,
         resume=args.resume,

@@ -187,6 +187,7 @@ def prepare_training_plan(
     output_root: str | Path | None = None,
     annotation_run_id: str,
     model: str = "qwen3vl",
+    model_path: str | None = None,
     run_tag: str,
     seed: int,
     resume: bool,
@@ -344,6 +345,7 @@ def prepare_training_plan(
         return {
             "metadata": metadata,
             "model": model,
+            "model_path": str(model_path) if model_path is not None else None,
             "train_artifact_path": str(train_path),
             "val_artifact_path": str(val_path),
             "run_dir": str(run_dir),
@@ -366,6 +368,7 @@ def prepare_training_plan(
     return {
         "metadata": metadata,
         "model": model,
+        "model_path": str(model_path) if model_path is not None else None,
         "train_artifact_path": str(train_path),
         "val_artifact_path": str(val_path),
         "run_dir": str(run_dir),
@@ -511,7 +514,22 @@ def run_training(
     device = torch.device("cuda:0")
     compute_dtype = torch.bfloat16
 
-    base_model, processor = adapter.load_for_training(device=device)
+    model_path = plan.get("model_path")
+    if model_path is None:
+        rel_subpath = (
+            "Qwen/Qwen3-VL-8B-Instruct"
+            if plan["model"] == "qwen3vl"
+            else "OpenGVLab/InternVL3_5-8B-HF"
+        )
+        for candidate in [
+            Path("/mnt/workspace/models") / rel_subpath,
+            Path("models") / rel_subpath,
+        ]:
+            if candidate.is_dir():
+                model_path = str(candidate)
+                break
+
+    base_model, processor = adapter.load_for_training(device=device, model_path=model_path)
 
     class RGBDTGroundingDataset(Dataset):
         def __init__(self, data: dict):
