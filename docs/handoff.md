@@ -5,15 +5,29 @@
 > 结构与代码约定见 `architecture.md`，调研背景见 `research.md`。
 > 交接日志保留历史记录，不作为当前状态结论；当前状态以上方最新条目为准。
 
-## 当前状态（最后更新 2026-08-19）
+## 当前状态（最后更新 2026-08-22）
 
-- **基线（唯一完整成绩）**：`train_89aa55f31aee5478`（Qwen3-VL-8B + LoRA），
+- **最新进展**：魔搭 AMD MI300X 192G 已完成一轮训练，当前进入测试集推理阶段；
+  离线推理与训练 I/O 已做单卡优化并推送（175 测试全绿）。
+- **离线推理推荐**：单卡固定 `--num-shards 1 --num-workers 4`，由 DataLoader
+  预取图像与 GPU 推理并行；192GB 首轮 Qwen/InternVL 用 `--batch-size 8`，
+  GroundingDINO 用 `--batch-size 32`。冒烟与全量同参数，`--limit 100` 通过后
+  去掉 limit 直接全量，OOM 时回退到 batch 4 / 16。
+- **训练 I/O 调优**：DataLoader `num_workers=4`、`persistent_workers=True`，
+  step checkpoint 从每 20 步改为每 50 步；不影响训练指标、随机性或 run id。
+- **GPU 检测**：推理期间用 `watch -n 1 rocm-smi --showuse --showmemuse`
+  观察利用率和显存，判断是否还有提升空间。
+- **Obsidian SOP 已同步**：推理命令、WBF 输出文件名、`scores.json` 说明、
+  单卡 batch 推荐均已与当前仓库代码对齐。
+
+- **基线（完整成绩）**：`train_89aa55f31aee5478`（Qwen3-VL-8B + LoRA），
   测试集 ACC@0.5 = **0.7439**
-- **Iteration 02 代码全部就绪、尚未训练**：训练侧升级 + 推理引擎 + 三模型
-  adapter + WBF 融合已落地 main，测试 **175 全绿**
+- **Iteration 02 训练已推进**：训练侧升级 + 推理引擎 + 三模型 adapter +
+  WBF 融合已落地 main；当前在魔搭单卡 MI300X 上执行训练/推理。
 - **训练核心已适配多模型**：`training_core.py` 由 adapter 驱动，支持
   `qwen3vl` 与 `internvl35`；每轮训练在全量验证集上计算 ACC/mIoU 并用于 best epoch。
-- **本地推理已支持多进程**：`offline/infer.py --num-shards` 可在同一张 GPU 上并行分片。
+- **离线推理已支持 DataLoader 预取**：`offline/infer.py --num-workers` 默认 4；
+  多卡场景仍支持 `--num-shards`，单卡不建议使用多进程副本。
 - **本地开发环境**：`qwen_vg` conda 环境使用 Python 3.12，本地 CPU
   校验依赖按 `requirements-lock.txt` 安装；真实 GPU 训练/推理使用 `offline/`。
 - **运行边界已明确**：本仓库是唯一可移植实验单元；本地电脑只做 CPU 测试和静态检查，
@@ -21,8 +35,8 @@
 - **训练产物路径已统一**：offline 默认写入 `outputs/output_lora/<id>/`，approved
   标注位于 `outputs/annotations/<id>/`；Modal 未传输出根时继续使用历史
   `/data/data/output_lora/<id>/` 布局，不改变 run id。
-- **下一步**：具备可用 GPU 的平台上先执行离线 `--preflight-only`、小切片/冒烟，
-  再进行正式 Iteration 02 训练；Modal 账号恢复后才执行对应的 `cloud/` 流程。
+- **下一步**：在 MI300X 上按最新 SOP 执行 Qwen/InternVL/DINO `--limit 100`
+  冒烟，通过后跑全量推理，再执行 WBF 与提交；Modal 账号恢复后才执行 `cloud/`。
 - **待验证模型**：InternVL / GroundingDINO zero-shot 首跑——GPU 路径未冒烟，
   先 `--limit 100` 小切片验证；两者的 `model_revision` 已 pin 具体 commit。
 - **模型覆盖**：Qwen3-VL 与 InternVL3.5 已接入训练循环，GroundingDINO
