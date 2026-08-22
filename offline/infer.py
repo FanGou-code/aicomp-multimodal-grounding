@@ -130,6 +130,12 @@ def parse_args():
         help="Save predictions.json checkpoint every N queries.",
     )
     parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="DataLoader workers for CPU/GPU overlap. 0 = sequential (legacy).",
+    )
+    parser.add_argument(
         "--project-root",
         type=Path,
         default=Path("."),
@@ -253,14 +259,101 @@ def _run_inference_loop(
                         checkpoint_path,
                         {"metadata": checkpoint_metadata, "predictions": predictions},
                     )
-                if processed_count % (batch_save * 2) == 0:
-                    try:
-                        import torch
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                    except ImportError:
-                        pass
         flush()
+    return predictions
+
+
+def _run_dataloader_inference_loop(
+    items: list[dict],
+    adapter,
+    *,
+    adapter_dir: Path | None,
+    model_path: str | None,
+    data_dir: Path,
+    batch_size: int,
+    batch_save: int,
+    num_workers: int,
+    existing_predictions: dict[str, list[float] | None] | None = None,
+    device: str = "cuda",
+    checkpoint_path: Path | None = None,
+    checkpoint_metadata: dict | None = None,
+) -> dict[str, list[float] | None]:
+    """DataLoader-based inference loop for CPU/GPU overlap."""
+    from torch.utils.data import DataLoader, Dataset
+
+    predictions: dict[str, list[float] | None] = dict(existing_predictions or {})
+    pending_items = [item for item in items if item["key"] not in predictions]
+    if not pending_items:
+        return predictions
+
+    pending_items.sort(key=lambda x: (x.get("visible", x["key"]), x["key"]))
+    print(f"Loading model '{adapter.model_name}' (revision {adapter.model_revision})...")
+    adapter.load(device=device, lora_path=adapter_dir, model_path=model_path)
+
+    class _Dataset(Dataset):
+        def __init__(self, items):
+            self.items = items
+        def __len__(self):
+            return len(self.items)
+        def __getitem__(self, idx):
+            item = self.items[idx]
+            visible_img, infrared_img, depth_img = load_scene_images(item, data_dir)
+            return {
+                "key": item["key"],
+                "visible": visible_img,
+                "infrared": infrared_img,
+                "depth": depth_img,
+                "query": item["query"],
+            }
+
+    def _collate(batch):
+        return [
+            ModelInput(
+                visible=item["visible"],
+                infrared=item["infrared"],
+                depth=item["depth"],
+                query=item["query"],
+                key=item["key"],
+            )
+            for item in batch
+        ]
+
+    dataset = _Dataset(pending_items)
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        prefetch_factor=2 if num_workers > 0 else None,
+        collate_fn=_collate,
+    )
+
+    start_time = time.time()
+    processed_count = len(predictions)
+    since_last_save = 0
+
+    for batch in loader:
+        results = adapter.predict(batch)
+        for sample, result in zip(batch, results):
+            predictions[sample.key] = result.bbox
+        processed_count += len(batch)
+        since_last_save += len(batch)
+
+        if since_last_save >= batch_save or processed_count == len(items):
+            elapsed = time.time() - start_time
+            speed = processed_count / max(1e-5, elapsed)
+            print(
+                f"Progress: [{processed_count}/{len(items)}] | "
+                f"Speed: {speed:.2f} samples/s | "
+                f"Elapsed: {elapsed / 60:.1f}m"
+            )
+            if checkpoint_path is not None and checkpoint_metadata is not None:
+                atomic_write_json(
+                    checkpoint_path,
+                    {"metadata": checkpoint_metadata, "predictions": predictions},
+                )
+            since_last_save = 0
+
     return predictions
 
 
@@ -290,18 +383,33 @@ def _run_shard_worker(
         if checkpoint_dir is not None
         else None
     )
-    predictions = _run_inference_loop(
-        items,
-        adapter,
-        adapter_dir=adapter_dir,
-        model_path=args.model_path,
-        data_dir=Path(args.data_dir),
-        batch_size=args.batch_size,
-        batch_save=args.batch_save,
-        device=device,
-        checkpoint_path=checkpoint_path,
-        checkpoint_metadata=shard_metadata,
-    )
+    if getattr(args, "num_workers", 0) > 0:
+        predictions = _run_dataloader_inference_loop(
+            items,
+            adapter,
+            adapter_dir=adapter_dir,
+            model_path=args.model_path,
+            data_dir=Path(args.data_dir),
+            batch_size=args.batch_size,
+            batch_save=args.batch_save,
+            num_workers=args.num_workers,
+            device=device,
+            checkpoint_path=checkpoint_path,
+            checkpoint_metadata=shard_metadata,
+        )
+    else:
+        predictions = _run_inference_loop(
+            items,
+            adapter,
+            adapter_dir=adapter_dir,
+            model_path=args.model_path,
+            data_dir=Path(args.data_dir),
+            batch_size=args.batch_size,
+            batch_save=args.batch_save,
+            device=device,
+            checkpoint_path=checkpoint_path,
+            checkpoint_metadata=shard_metadata,
+        )
     return shard_id, predictions
 
 
@@ -424,16 +532,31 @@ def main():
                 label=f"local shard {shard_id}",
             )
     else:
-        predictions = _run_inference_loop(
-            items,
-            adapter,
-            adapter_dir=adapter_dir,
-            model_path=args.model_path,
-            data_dir=args.data_dir,
-            batch_size=args.batch_size,
-            batch_save=args.batch_save,
-            existing_predictions=predictions,
-        )
+        if args.num_workers > 0:
+            predictions = _run_dataloader_inference_loop(
+                items,
+                adapter,
+                adapter_dir=adapter_dir,
+                model_path=args.model_path,
+                data_dir=args.data_dir,
+                batch_size=args.batch_size,
+                batch_save=args.batch_save,
+                num_workers=args.num_workers,
+                existing_predictions=predictions,
+                checkpoint_path=checkpoint_path,
+                checkpoint_metadata=metadata,
+            )
+        else:
+            predictions = _run_inference_loop(
+                items,
+                adapter,
+                adapter_dir=adapter_dir,
+                model_path=args.model_path,
+                data_dir=args.data_dir,
+                batch_size=args.batch_size,
+                batch_save=args.batch_save,
+                existing_predictions=predictions,
+            )
     atomic_write_json(predictions_path, predictions)
     atomic_write_json(
         checkpoint_path,

@@ -588,9 +588,9 @@ def run_training(
             shuffle=True,
             generator=generator,
             collate_fn=collate_cpu,
-            num_workers=2,
+            num_workers=4,
             pin_memory=True,
-            persistent_workers=False,
+            persistent_workers=True,
         )
 
     val_loader = DataLoader(
@@ -598,9 +598,9 @@ def run_training(
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_cpu,
-        num_workers=2,
+        num_workers=4,
         pin_memory=True,
-        persistent_workers=False,
+        persistent_workers=True,
     )
     batches_per_epoch = math.ceil(len(train_dataset) / batch_size)
     steps_per_epoch = optimizer_steps_per_epoch(batches_per_epoch, grad_accum_steps)
@@ -746,7 +746,7 @@ def run_training(
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
-                if global_step % 20 == 0:
+                if global_step % 50 == 0:
                     now_str = datetime.now().strftime("%H:%M:%S")
                     now_mono = time.monotonic()
                     elapsed_since_log = max(now_mono - last_log_time, 1e-4)
