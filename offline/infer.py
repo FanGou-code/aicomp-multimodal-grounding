@@ -619,6 +619,7 @@ def main():
             test_json_path=official_template_path,
             predictions_path=predictions_path,
             output_dir=run_dir,
+            allow_fallback=True,
         )
 
 
