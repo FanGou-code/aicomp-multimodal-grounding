@@ -383,6 +383,9 @@ modal run cloud/infer.py \
 
 #### 5.2 离线 / 魔搭 DSW 单机与多卡推理
 
+单卡 MI300X 推荐 `--num-shards 1` + `--num-workers 4`，DataLoader 会预取图像
+与 GPU 推理并行；单卡上不要用 `--num-shards >1`。
+
 ```bash
 # 1. Qwen3-VL 推理
 python offline/infer.py \
@@ -391,7 +394,9 @@ python offline/infer.py \
   --data-dir data \
   --lora-path outputs/output_lora/<QWEN_RUN_ID>/best/epoch_03 \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
-  --num-shards 2 \
+  --num-shards 1 \
+  --num-workers 4 \
+  --batch-size 4 \
   --run-tag qwen-infer
 
 # 2. InternVL3.5 推理
@@ -401,7 +406,9 @@ python offline/infer.py \
   --data-dir data \
   --lora-path outputs/output_lora/<INTERNVL_RUN_ID>/best/epoch_03 \
   --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
-  --num-shards 2 \
+  --num-shards 1 \
+  --num-workers 4 \
+  --batch-size 4 \
   --run-tag internvl-infer
 
 # 3. GroundingDINO 推理 (Zero-shot)
@@ -410,7 +417,9 @@ python offline/infer.py \
   --test-json data/test.json \
   --data-dir data \
   --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base \
-  --num-shards 2 \
+  --num-shards 1 \
+  --num-workers 4 \
+  --batch-size 8 \
   --run-tag dino-infer
 ```
 

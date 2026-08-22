@@ -72,6 +72,16 @@
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-08-22（仓库，单卡 MI300X 推理与训练 I/O 优化）
+
+* `offline/infer.py` 增加 `--num-workers`（默认 4）DataLoader 预取路径，
+  单卡推理可与 GPU 并行加载图像；单卡不再建议 `--num-shards >1`。
+* 删除推理循环中的 `torch.cuda.empty_cache()`，单卡路径补上中间 checkpoint。
+* 训练 DataLoader 调整为 `num_workers=4`、`persistent_workers=True`，
+  step checkpoint 从每 20 步调整为每 50 步；不影响训练指标与随机性。
+* README / offline README / Obsidian SOP 已同步单卡 MI300X 推荐参数；
+  验证 175 项测试通过。
+
 ### 2026-08-19（仓库，训练核心适配器化）
 
 * 新增 `TrainableGroundingAdapter` 训练协议，Qwen3-VL 与 InternVL3.5 接入统一训练循环。

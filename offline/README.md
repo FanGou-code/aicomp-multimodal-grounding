@@ -33,6 +33,8 @@ python offline/train.py \
 `--output-root` 指定新的仓库级输出根。
 
 直接调推理本体（`--model` 选适配器：qwen3vl / internvl35 / groundingdino / mock）：
+单卡推理推荐用 DataLoader 预取（`--num-workers 4`），不要用
+`--num-shards >1` 在单卡上拉起多个模型副本：
 
 ```bash
 python offline/infer.py \
@@ -41,6 +43,8 @@ python offline/infer.py \
   --data-dir data \
   --lora-path <下载到本地的 LoRA 目录> \
   --output-dir outputs/inference \
+  --num-workers 4 \
+  --batch-size 4 \
   --run-tag offline-test
 
 # 其他模型示例（zero-shot，无需 LoRA）：
@@ -69,9 +73,13 @@ used when a platform starts the process from another working directory.
 `aicomp_grounding/models/`；InternVL / GroundingDINO 的 GPU 路径尚未冒烟，
 首次使用先跑小切片验证。
 
-本地多进程推理可使用 `--num-shards N`。开启后每个 worker 会写入独立的
-`shard_checkpoints/shard_<id>.checkpoint.json`，主进程在合并时进行严格 payload
-校验；`--resume` 只重新处理未完成的 pending query。
+单机多卡推理才使用 `--num-shards N`，且 N 应等于可见 GPU 数；单卡 MI300X
+固定为 `--num-shards 1`。多进程路径会写入独立的
+`shard_checkpoints/shard_<id>.checkpoint.json`，但当前恢复以最终
+`predictions.json` 为准，中断后请保持稳定会话完整跑完。
+
+`--num-workers 4` 是单卡推荐默认值，通过 DataLoader 预取图像与 GPU 推理
+并行；`--num-workers 0` 保留旧的串行加载行为。
 
 ## 仓库内容与外部数据清单
 
