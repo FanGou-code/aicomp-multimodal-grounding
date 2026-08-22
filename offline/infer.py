@@ -475,9 +475,14 @@ def main():
     print(f"Output dir: {run_dir}")
 
     predictions: dict[str, list[float] | None] = {}
-    if args.resume and predictions_path.is_file():
-        print(f"Resuming from existing predictions file: {predictions_path}")
-        predictions = load_json(predictions_path)
+    if args.resume:
+        if predictions_path.is_file():
+            print(f"Resuming from existing predictions file: {predictions_path}")
+            predictions = load_json(predictions_path)
+        elif checkpoint_path.is_file():
+            print(f"Resuming from existing checkpoint file: {checkpoint_path}")
+            ckpt_data = load_json(checkpoint_path)
+            predictions = ckpt_data.get("predictions", {}) if isinstance(ckpt_data, dict) else {}
     print(f"Total queries in dataset: {len(items)} | Already finished: {len(predictions)} | Pending: {len(items) - len(predictions)}")
     if args.num_shards > 1:
         shard_checkpoint_dir = run_dir / "shard_checkpoints"

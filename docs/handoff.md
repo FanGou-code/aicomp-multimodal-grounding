@@ -86,6 +86,11 @@
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-08-23（仓库，离线推理断点续跑支持 checkpoint.json 自动恢复）
+
+* 修复 `offline/infer.py`：开启 `--resume` 时，若未生成全量 `predictions.json` 但存在阶段性 `checkpoint.json`，自动从中恢复已完成预测，实现单命令无缝断点续跑。
+* 单元测试 175 项全绿。
+
 ### 2026-08-22（仓库，单卡 MI300X 推理与训练 I/O 优化）
 
 * `offline/infer.py` 增加 `--num-workers`（默认 4）DataLoader 预取路径，
