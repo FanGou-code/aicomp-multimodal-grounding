@@ -131,6 +131,7 @@ python -u scripts/generate_queries.py \
 
 | 模型代号 (`--model`) | ModelScope 模型 ID | 本地落盘路径 (`--model-path`) | 技术类型 |
 | :--- | :--- | :--- | :--- |
+| `qwen3vl32` | `Qwen/Qwen3-VL-32B-Instruct` | `/root/models/Qwen/Qwen3-VL-32B-Instruct`（临时盘，非持久） | 多模态 VLM (LoRA 微调，二代主力，33B dense) |
 | `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | `/mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct` | 多模态 VLM (LoRA 微调) |
 | `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | `/mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF` | 多模态 VLM (LoRA 微调) |
 | `groundingdino` | `AI-ModelScope/GroundingDINO` | `/mnt/workspace/models/AI-ModelScope/grounding-dino-base` | 开放词表检测 (Zero-shot 推理) |
@@ -167,7 +168,7 @@ python scripts/prepare_rgbdt.py --dataset-root data --skip-test-validation
 python scripts/build_indexes.py --data-dir data --test-only
 ```
 
-#### 3. 下载基座模型（落盘至 /mnt/workspace/models/）
+#### 3. 下载基座模型（8B / InternVL / DINO 落 `/mnt/workspace/models/`；32B 落临时盘）
 ```bash
 # 1. Qwen3-VL-8B (负责 Qwen 分支执行)
 modelscope download --model Qwen/Qwen3-VL-8B-Instruct --local_dir /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct
@@ -177,6 +178,13 @@ modelscope download --model OpenGVLab/InternVL3_5-8B-HF --local_dir /mnt/workspa
 
 # 3. GroundingDINO (负责 DINO 分支执行)
 modelscope download --model AI-ModelScope/GroundingDINO --local_dir /mnt/workspace/models/AI-ModelScope/grounding-dino-base
+
+# 4. Qwen3-VL-32B (二代主力 VLM。约 66G，远超持久盘可用配额，因此下载到实例本地
+#    临时盘 /root/models——非持久、关机即失，每次开机重新拉取（魔搭内网快，约
+#    6-15 分钟）。临时盘需约 ≥80G 空位。若实例临时盘路径不是 /root/models，改
+#    后面所有 --model-path 中的同名路径即可。)
+mkdir -p /root/models/Qwen
+modelscope download --model Qwen/Qwen3-VL-32B-Instruct --local_dir /root/models/Qwen/Qwen3-VL-32B-Instruct
 ```
 
 > **资产准备完毕后，在控制台停止该 CPU 实例。**
@@ -251,6 +259,21 @@ python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model inter
 ```
 产物位置：`outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX/`
 
+#### 5. 训练 Qwen3-VL-32B（二代主力）
+
+> 前置：GPU 实例开机后先重下 32B 权重到临时盘 `/root/models`（阶段 2.1 第 4 条，
+> 非持久、关机即失）。训练超参沿用 8B 适配器继承配置（LoRA r16/α48、batch 1 +
+> 梯度累积 16、1080p 满像素预算）——batch 已是 1，无需再降，冒烟先行确认显存。
+
+```bash
+# 冒烟测试（1 batch，确认 33B dense + 三图 1080p 满像素预算在 192G 上可跑通）
+python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --data-dir data --smoke-test
+
+# 正式启动 3 轮 LoRA 训练
+python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --data-dir data --run-tag exp-qwen32-01
+```
+产物位置：`outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX/`
+
 ---
 
 ### 阶段 2.3：官方测试集单卡 MI300X 批量推理
@@ -277,8 +300,9 @@ cd /mnt/workspace/aicomp-multimodal-grounding
 # 推荐固定 --num-shards 1 --num-workers 4：DataLoader worker 进程内完成图像
 # 解码与 processor 预处理，与 GPU 生成完全并行（Qwen/InternVL 已适配）。
 
-# 冒烟命令与实际推理使用同一 batch size；192GB 显存富余，Qwen/InternVL 建议
+# 冒烟命令与实际推理使用同一 batch size；192GB 显存富余，Qwen3-VL-8B/InternVL 建议
 # batch 16（此前 8 偏保守，实测 0.3 samples/s），GroundingDINO 建议 32。
+# Qwen3-VL-32B 例外：33B dense 显存约为 8B 的 4 倍，batch 固定 1（可试 2）。
 # 冒烟通过后去掉 --limit 100 即可全量；OOM 时按 8/16 退一档。
 
 # 冒烟 1/3：Qwen3-VL
@@ -290,6 +314,9 @@ python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/Op
 # 冒烟 3/3：GroundingDINO
 python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-smoke
 
+# 冒烟 4/4：Qwen3-VL-32B（权重在临时盘；batch 从 1 起步，OOM 需降 max_pixels 而非扩 batch）
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 1 --batch-save 100 --run-tag qwen32-smoke
+
 # 全量推理：以下只是去掉 --limit 100，其余参数与冒烟保持一致。
 # 1. Qwen3-VL
 python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-infer
@@ -299,10 +326,15 @@ python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/Op
 
 # 3. GroundingDINO
 python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-infer
+
+# 4. Qwen3-VL-32B（先重下权重到 /root/models 再跑；batch 1）
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 1 --batch-save 100 --run-tag qwen32-infer
 ```
 
 > 冒烟只需确认“有显示输出、无 OOM、无解析异常”；通过后直接跑全量。
 > 若 Qwen/InternVL batch 16 或 DINO batch 32 出现 OOM，请退一档（batch 8/16）再冒烟。
+> 32B 例外：batch 已是 1，若仍 OOM，用 `--max-pixels 1505280`（= 1920*28*28）下调
+> 像素预算换显存（代价是损失小目标精度，非不得已不降）。
 > 全量 Test 跑完后，`offline/infer.py` 会在推理目录自动生成 `submission.zip`。
 
 ---
@@ -381,3 +413,8 @@ modal volume get --force rgbdt-dataset "data/outputs/submission/YOUR_INFER_ID/su
    - **答**：虚拟环境保存在 `/mnt/workspace/aicomp_env` 持久化目录下。换卡或重启后，无需重新创建或下载依赖，只需执行单行指令 `source /mnt/workspace/aicomp_env/bin/activate` 即可直接复用。
 3. **问：GroundingDINO 分支需要执行预处理或训练吗？**
    - **答**：不需要。GroundingDINO 是纯 Zero-shot 开放词表检测模型（无需微调），不使用深度图，因此无需生成 Depth-JET 伪彩图，也无需生成训练切分索引。直接在测试集上运行推理以供后续 WBF 框融合使用。
+4. **问：为什么 Qwen3-VL-32B 权重不放在 `/mnt/workspace/models`？**
+   - **答**：32B 权重约 66G，超过持久盘可用配额（100G 留给 venv/代码/标注/断点/输出）。
+     因此下载到实例本地临时盘 `/root/models`（非持久、关机即失），每次开机从魔搭内网
+     重新拉取（同机房内网快，约 6-15 分钟）。注意训练断点/标注/提交仍在
+     `/mnt/workspace`——模型可失，断点不可失。

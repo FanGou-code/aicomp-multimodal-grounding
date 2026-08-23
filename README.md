@@ -1,10 +1,10 @@
 # RGBDT Multimodal Visual Grounding
 
 基于统一 adapter 接口的 RGB、红外与深度视觉定位项目。当前模型层支持
-`Qwen3-VL-8B-Instruct`、`InternVL3.5-8B`、`GroundingDINO-B` 与用于本地
-端到端测试的 mock 模型；推理入口通过 `--model` 选择 adapter，输出统一为归一化
-边界框，最终可由 WBF 多模型加权框融合生成结果包。训练入口通过 `--model`
-支持 `qwen3vl` 与 `internvl35`。
+`Qwen3-VL-8B-Instruct`、`Qwen3-VL-32B-Instruct`、`InternVL3.5-8B`、`GroundingDINO-B`
+与用于本地端到端测试的 mock 模型；推理入口通过 `--model` 选择 adapter，输出统一为
+归一化边界框，最终可由 WBF 多模型加权框融合生成结果包。训练入口通过 `--model`
+支持 `qwen3vl`、`qwen3vl32` 与 `internvl35`。
 
 给定一组对齐的 RGB、Infrared、Depth 图像和英文 Query，模型输出目标的归一化边界框：
 
@@ -33,6 +33,7 @@ flowchart LR
 
 | Adapter | 基座模型 | Revision | 输入模态 | 任务支持 | 核心视觉 / 微调配置 |
 | --- | --- | --- | --- | --- | --- |
+| `qwen3vl32` | `Qwen/Qwen3-VL-32B-Instruct` | `0cfaf481` | RGB + Infrared + Depth + Query | 训练 / 推理 | 同 8B：原图 1080p 无损像素预算 (`3072*28*28`)，LoRA (r=16, α=48)，BF16 (SDPA)；权重不落持久盘 |
 | `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | `0c351dd` | RGB + Infrared + Depth + Query | 训练 / 推理 | 原图 1080p 无损像素预算 (`3072*28*28`)，LoRA (r=16, α=48)，BF16 (SDPA) |
 | `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | `741a7d0` | RGB + Infrared + Depth + Query | 训练 / 推理 | 动态切块 (`max_num_tiles=12`)，LoRA (r=16, α=48)，BF16 (SDPA) |
 | `groundingdino` | `IDEA-Research/grounding-dino-base` | `12bdfa3` | RGB + Query | 推理 (Zero-shot) | 原生判别式检测器，输出置信度得分供 WBF 融合 |
@@ -421,6 +422,20 @@ python offline/infer.py \
   --num-workers 4 \
   --batch-size 8 \
   --run-tag dino-infer
+
+# 4. Qwen3-VL-32B 推理 (二代主力；权重在实例临时盘 /root/models，非持久、非关机即失，
+#    每次开机先重新下载，见 docs/SOP 阶段 2.1。33B dense 显存占用约为 8B 的 4 倍，
+#    batch 固定 1，OOM 时下调 --max-pixels 而非扩 batch)
+python offline/infer.py \
+  --model qwen3vl32 \
+  --test-json data/test.json \
+  --data-dir data \
+  --lora-path outputs/output_lora/<QWEN32_RUN_ID>/best/epoch_03 \
+  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
+  --num-shards 1 \
+  --num-workers 4 \
+  --batch-size 1 \
+  --run-tag qwen32-infer
 ```
 
 #### 5.3 多模型加权框融合 (WBF)
@@ -493,7 +508,8 @@ python -m compileall aicomp_grounding scripts cloud offline
 ## 模型与服务
 
 - Student models:
-  - [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
+  - [Qwen3-VL-32B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-32B-Instruct)
+- [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
   - [InternVL3.5-8B](https://huggingface.co/OpenGVLab/InternVL3_5-8B-HF)
   - [GroundingDINO-B](https://huggingface.co/IDEA-Research/grounding-dino-base)
 - Query annotator: [GLM-4.6V](https://huggingface.co/zai-org/GLM-4.6V)
