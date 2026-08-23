@@ -12,7 +12,7 @@ GPU 机器装好依赖即可运行，各平台差异只体现在"怎么装环境
 | 平台 | 训练 | 推理 | 环境怎么装 |
 | --- | --- | --- | --- |
 | 云端 GPU 工作台（预装 PyTorch） | 依据实际显存与像素预算决定 | `infer.py` / `train.py` | 沿用平台 PyTorch，按下方「云端 GPU 工作台环境」补齐 VLM 依赖 |
-| **实体 GPU / 任意 GPU 机** | `train.py`（≥48GB 满血 / 24GB 需降像素预算） | `infer.py` | `pip install -r requirements-lock.txt`，并按下方说明补齐 VLM 依赖 |
+| **实体 GPU / 任意 GPU 机** | `train.py`（显存 ≥48GB / 24GB 需下调像素预算） | `infer.py` | `pip install -r requirements-lock.txt`，并按下方说明补齐 VLM 依赖 |
 
 ## 通用用法（仓库根目录执行）
 
@@ -41,7 +41,7 @@ python offline/infer.py \
   --model qwen3vl \
   --test-json data/test.json \
   --data-dir data \
-  --lora-path <下载到本地的 LoRA 目录> \
+  --lora-path YOUR_LORA_PATH \
   --output-dir outputs/inference \
   --num-workers 4 \
   --batch-size 4 \
@@ -63,7 +63,7 @@ python offline/infer.py \
   --test-json outputs/annotations/annot_ac72f1d926bb2d23/val/approved.json \
   --annotation-run-id annot_ac72f1d926bb2d23 \
   --data-dir data \
-  --lora-path <下载到本地的 LoRA 目录>
+  --lora-path YOUR_LORA_PATH
 ```
 
 All relative paths resolve from the repository root. `--project-root` can be

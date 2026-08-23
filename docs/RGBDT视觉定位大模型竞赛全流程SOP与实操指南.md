@@ -82,7 +82,7 @@ python scripts/upload_dataset.py --repo-id Fang001/rgbdt-grounding-dataset --tok
 > 测试集成绩瓶颈。生成 prompt 已重写为官方风格导向，重生成即为此目的。
 
 ```bash
-export API_KEY="<your API key>"
+export API_KEY="YOUR_API_KEY"
 
 # a. Pilot：先跑 10 个序列验证新 prompt 的产出风格
 python -u scripts/generate_queries.py \
@@ -91,7 +91,7 @@ python -u scripts/generate_queries.py \
 
 # b. 审计风格分布是否对齐官方测试集（目标：均值 ≈10 词、either ≥ 60%）
 python scripts/audit_query_style.py \
-  --queries outputs/annotations/<PILOT_RUN_ID>/train/merged.json \
+  --queries outputs/annotations/YOUR_PILOT_RUN_ID/train/merged.json \
   --reference data/Test/queries/queries.json
 
 # c. 审计达标并人工抽检空间关系无幻觉后，全量生成并发布
@@ -329,6 +329,13 @@ python offline/infer.py --model groundingdino --model-path /mnt/workspace/models
 
 # 4. Qwen3-VL-32B（先重下权重到 /root/models 再跑；batch 1）
 python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 1 --batch-save 100 --run-tag qwen32-infer
+
+# 5. Qwen3-VL-32B 零样本基线推理（Zero-shot，无需 LoRA 权重）
+# a. 冒烟测试（100 条）
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 1 --batch-save 100 --run-tag qwen32-zeroshot-smoke
+
+# b. 全量测试集推理（直接自动构建 submission.zip）
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 1 --batch-save 100 --run-tag qwen32-zeroshot-full
 ```
 
 > 冒烟只需确认“有显示输出、无 OOM、无解析异常”；通过后直接跑全量。
