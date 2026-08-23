@@ -5,7 +5,7 @@
 > 结构与代码约定见 `architecture.md`，调研背景见 `research-v2.md`。
 > 交接日志保留历史记录，不作为当前状态结论；当前状态以上方最新条目为准。
 
-## 当前状态（最后更新 2026-08-23，交接）
+## 当前状态（最后更新 2026-08-23，二代目接入）
 
 ### 成绩一览
 
@@ -45,8 +45,7 @@
 
 ### 下一步（执行顺序已定案，替代旧"三模型 WBF 优先"排序）
 
-**总路线**：标注对齐+数据扩展 → 32B/38B 训练 → 后期融合（WBF 与 DINO
-替换均属后期，不阻塞主线）。
+**总路线**：标注对齐+数据扩展 → 32B 训练 → 后期融合（WBF 与 DINO 替换均属后期）
 
 **阶段一：标注对齐 + 数据扩展（共享地基，零 GPU，只花 GLM-4.6V API）**
 - 风格对齐：`--verify-queries` pilot（10 序列）→ `audit_query_style.py` 对齐官方
@@ -55,21 +54,29 @@
 - 帧扩展：GT 插值把每序列 10 帧扩到数百帧（gap ≤15 帧，`--verify-queries` 门控）。
 - 序列全量：500 序列（现 400）+ SHA-256 同源审计。
 
-**阶段二：二代目训练与选型（定案）**
-| 槽位 | 模型 | 参数/权重 | 理由 |
+**阶段二：二代目训练与选型（32B 代码已接入，范围暂缩为只新增 32B）**
+- **代码侧已落地**（`feat/qwen32b` 分支，commit `5dcd791`）：新增 `qwen3vl32`
+  薄适配器（同 family，`qwen3_vl` / `Qwen3VLForConditionalGeneration`），纯兼容
+  接入，旧适配器未动、8B 指纹零漂移（详见交接日志 2026-08-23）。
+- **范围决策**：当前只新增 32B 一个二代目；InternVL3-38B 与 GroundingDINO 1.5
+  替换**暂缓**（队友在 main 并行做 DINO/InternVL 既有方向的训练推理，不阻塞）。
+
+| 槽位 | 模型 | 状态 | 参数/权重 |
 | --- | --- | --- | --- |
-| 1 主力 VLM | `Qwen3-VL-32B-Instruct` | 33B dense / ~66G | 网格范式 + 全图余量，`qwen3vl` 适配器直接放大 |
-| 2 切片 VLM | `InternVL3-38B-Instruct` | 38B dense / ~76G | 切片范式与槽位 1 错误去相关；78B 放弃（静态 156G + 全图 KV ~20G ≈ 180G+，batch=1 训练顶爆且单卡过慢） |
-| 3 辅助定位 | `GroundingDINO`（锚定） | 0.2B | 唯一 confidence 来源，WBF 打分；**后期替换更强定位器**（候选 GroundingDINO 1.5-Open-Set） |
+| 1 主力 VLM | `Qwen3-VL-32B-Instruct` | **代码已接入**，待 GPU 冒烟 | 33B dense / ~66G |
+| 2 切片 VLM | `InternVL3-38B-Instruct` | 暂缓 | 38B dense / ~76G |
+| 3 辅助定位 | `GroundingDINO`（锚定，已有适配器） | 维持 | 0.2B（唯一 confidence 来源） |
 
 **阶段三：WBF（非常后期）**
-- 强模型（32B + 38B + 替换后的定位器）出框后，Val 网格标定权重融合；DINO 上车需先过
-  "出框率体检 + Val 消融 ΔACC"两关（新标注 Val 719 带真值，可逐样本判定放行/剔除）。
+- 32B（出框后）在 Val 网格标定权重；DINO 上车需先过"出框率体检 + Val 消融 ΔACC"
+  两关（新标注 Val 719 带真值，可逐样本判定放行/剔除），全过才加权进 WBF。
 
 **存储策略（定案）**
 - 模型权重**不落持久盘**（100G 配额留给 venv/代码/标注/断点/输出）；每次 GPU 启动从
   魔搭内网拉取模型到临时工作区（同机房内网快，66G 约 6-15 分钟）。
-- 前提：实例临时盘空位 ≥ ~80G（32B 轮次；38B 轮次需求更大）。
+- **32B 具体落点**：权重约 66G 超出持久盘配额 → 下载到实例本地**临时盘 `/root/models`**
+  （非持久、关机即失，每次开机重拉）；训练/推理 `--model-path` 指向它。
+- 前提：实例临时盘空位 ≥ ~80G（32B 轮次）。
 - 边界：`checkpoint.json` + `outputs/output_lora` + `outputs/annotations` 与提交包
   必须留 `/mnt/workspace`（持久）——模型可失，断点不可失。
 - 权衡：每次启动烧数分钟 GPU 墙钟用于下载，对 100h 免费额度占比可忽略。
@@ -126,6 +133,28 @@
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-23（仓库，Qwen3-VL-32B 适配器接入与指南落地）
+
+* **代码**：新增 `qwen3vl32` 薄适配器（`models/qwen3vl32.py`，子类化 `qwen3vl`
+  仅覆写 name/model_name/model_revision），注册进 `ADAPTERS`；`offline/infer.py`、
+  `offline/train.py` 的 `--model` 与 `training_core.py` 训练/续跑/默认路径三处接线。
+  **纯兼容接入**：旧适配器一个字符未动，8B 指纹零漂移（`QwenIdentityContinuityTests`
+  继续钉死）；新增 `Qwen32BIdentityTests` 钉死 32B identity。`cloud/` 走
+  `get_adapter(model)` 自动识别，无需改。验证：211 测试全绿（4 跳过）。
+* **模型 identity**：`Qwen/Qwen3-VL-32B-Instruct` @ `0cfaf481`（HF 主分支 HEAD；
+  若魔搭 pin 不同 revision，改 `qwen3vl32.py` 常量后再记录 run）。
+* **范围收窄**：当前只新增 32B 一个二代目；InternVL3-38B 与 GroundingDINO 1.5 替换
+  暂缓（队友并行 DINO/InternVL 既有方向，不阻塞）。
+* **存储（32B）**：~66G 超出持久盘配额 → 下载到实例本地临时盘 `/root/models`
+  （非持久、关机即失），每次开机从魔搭内网重拉（~6-15 分钟）；`--model-path`
+  指向临时盘；checkpoint/标注/提交留 `/mnt/workspace`。
+* **参数适配**：推理 batch 固定 1（33B dense 显存 ≈ 8B 的 4 倍），仍 OOM 降
+  `--max-pixels 1505280` 而非扩 batch；训练沿用继承配置（batch 1 + 梯度累积 16）。
+* **文档**：SOP 阶段 2.1-2.3 + README + offline/README 补 32B 训练/推理命令与临时盘
+  下载说明（commit `5d298b4`）。
+* **下一步**：GPU 实例 `--model qwen3vl32 --smoke-test` 冒烟（66G 下载 + 33B
+  满载像素过显存验证）→ 通过后接 32B 训练。
 
 ### 2026-08-23（交接，二代目选型与执行策略定案）
 
