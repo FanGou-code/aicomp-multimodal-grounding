@@ -66,20 +66,28 @@ Return exactly:
 {"query":"natural noun phrase or clause","alternate_query":"equally valid alternative or null","uncertain":false}
 
 Core principle:
-- Describe the marked object in the most natural way that lets someone find it immediately in this scene.
-- Match your level of detail to the scene complexity.
+- Describe the marked object so that someone scanning the whole scene can single it out immediately.
+- Ground the object in the scene: identify it through its position among the other objects or inside the image, not as an isolated label.
+- Aim for roughly 6 to 15 words. A bare label such as "A bus" or "White hat" is not acceptable.
 
-How to pick the right approach (let the scene guide you):
-- If the object is unique in the scene: use a short, direct description (e.g., "A bus", "White hat", "The house"). One to three words is fine.
-- If multiple same-category objects are present: disambiguate with ordinals or spatial relations. Ordinals like "first/second/third from left to right" or "the leftmost/rightmost X" are preferred when they clearly identify the target.
-- When the target's position relative to other objects is unambiguous: use spatial verbs (mounted on, attached to, hanging from, standing beside) or positional phrases (to the right of, immediately below, in the foreground).
-- In cluttered scenes: nesting several spatial clues into a longer description is acceptable. Word count has no fixed limit — be as concise or as detailed as the scene demands.
+Preferred patterns, in order of preference:
+- Ordinal among same-category objects: "The third traffic cone from left to right in the front row", "The leftmost window on the second floor".
+- Position relative to a landmark: "The red sedan parked to the right of the silver van", "The bird standing on the rock nearest the water".
+- Location inside the image or scene: "The deer in the middle of the image", "The air conditioner mounted in the top-right corner".
+- Attributes plus position: "The gray artificial rock speaker on the lawn near the fence", "Person in a light blue shirt sitting on the right concrete ledge".
+
+When multiple same-category objects are present, always disambiguate with an ordinal or a spatial relation; attributes alone are not enough in that case.
+When the object is unique, still add a positional or contextual cue when one is clearly visible (foreground, middle of the image, near a landmark, closest to the camera); otherwise a purely descriptive clause is acceptable.
+
+Grounding discipline:
+- Only reference objects, directions, and positions that are clearly visible in the scene.
+- Use spatial verbs (mounted on, attached to, hanging from, standing beside) or positional phrases (to the right of, immediately below, in the foreground).
+- Never force a variant, invent an attribute, or mention images, crops, modalities, coordinates, targets, annotations, or boxes.
 
 Article and case:
-- Use "The" for a specific identifiable instance; "A"/"An" for an instance among several; omit the article only where natural for the description.
+- Use "The" for a specific identifiable instance; "A"/"An" for an instance among several.
 - Sentence case: capitalize only the first letter. Do not end with a period. Commas for separating clauses are allowed.
 
-Never force a variant, invent an attribute, or mention images, crops, modalities, coordinates, targets, annotations, or boxes.
 Set alternate_query to null unless a second phrase is equally grounded and meaningfully different.
 Set uncertain to true when the category or identifying evidence remains genuinely ambiguous.
 Output JSON only."""

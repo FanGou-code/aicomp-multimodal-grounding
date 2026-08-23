@@ -26,8 +26,10 @@ class AnnotationEntrypointTests(unittest.TestCase):
         self.assertIn("enclosed by the red rectangle", query_prompt)
         self.assertIn("never mention the rectangle", query_prompt)
         self.assertIn("multiple same-category objects", query_prompt)
-        self.assertIn("spatial relations", query_prompt)
-        self.assertIn("leftmost/rightmost X", query_prompt)
+        self.assertIn("ordinal or a spatial relation", query_prompt)
+        self.assertIn("leftmost window", query_prompt)
+        self.assertIn("roughly 6 to 15 words", query_prompt)
+        self.assertIn("is not acceptable", query_prompt)
         self.assertIn("Never force a variant", query_prompt)
 
     def test_test_split_is_rejected_before_preflight(self):
