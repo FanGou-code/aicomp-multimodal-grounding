@@ -7,13 +7,14 @@
 
 ## 当前状态（最后更新 2026-08-23）
 
-- **核心结论（Iteration 02 复盘）**：Iteration 02（`train_d77d5c244d3df58c`，α=48/3ep）
-  测试集 ACC@0.5 = **0.7322**，低于基线 0.7439。根因是**标注 Query 风格与官方测试集
-  分布漂移**：官方 Test 平均 10.3 词、66.3% 含空间关系词、33.5% 含序数词；
-  GLM 生成的 Train/Val 平均仅 6 词、约 26% 空间词、4.3% 序数词。Val（同分布）
-  ACC 0.9235 与 Test 0.73 之间约 19 点的差距即分布差距；α 拉大 + 3 epochs +
-  min_lr 下限 + 按 Val ACC 选 best 全部在加大训练分布拟合，导致 Val 涨、Test 跌。
-  分歧样本集中于超小目标与含 "left" 的 Query，且新模型框系统性偏大（中位数 1.23 倍）。
+- **当前最佳成绩：双模型 WBF = 0.7453**（基线 + Iter02 融合，`fusion_wbf_25a172a22c9e1e61`，
+  领先基线 0.7439，验证了融合管线）。基线 0.7439 / Iter02 0.7322 / WBF 0.7453。
+- **核心结论（Iteration 02 复盘，两层区分）**：
+  ① 静态层——Train/Val Query 风格与测试集漂移（官方 10.3 词/66.3% 空间/33.5%
+  序数 vs 旧标注 6 词/26%/4.3%），explains 为何 Val 0.92 / Test 0.73 之间差 19 分。
+  ② 动态层——两次训练用**同一套标注**，drop 纯粹是 α48+3ep+min_lr 训练加深
+  造成的过拟合（Val 涨 0.903→0.9235、Test 跌 0.7439→0.7322）。"更偏"来自训
+  练程度，不是标注换了。
 - **已落地标注侧修复**：`generate_queries.py` 的 FRAME_QUERY_PROMPT 重写为
   官方风格导向（6-15 词、优先序数/空间关系定位、禁止短标签捷径、相机距离
   句式、计数安全阀、左右自检）；
@@ -22,9 +23,7 @@
 - **新增标注质量门控（--verify-queries）**：① 风格门控——短 Query（<5 词）
   且无空间/序数/多目标词时判失败进重试队列；② 自定位验证——每帧生成后
   用无红框原图让 GLM 复定位，IoU<0.5 判失败重写。验证参数进 run id 哈希，
-  开启即产生新 annotation run id。
-- **零成本候选提交**：基线与 Iteration 02 两份测试预测（88.5% 一致、错误部分
-  去相关）可先跑 WBF 融合打榜，两份 predictions.json 均在本地。
+  开启即产生新 annotation run id。旧标注过门控实测拦截 27.4%（986 条短标签）。
 - **已落地训练断点保留策略**（解决魔搭 outputs 单 run 16G 问题）：
   step 断点只保留最近 2 个、epoch 断点只保留最新 1 个、每个 epoch 结束清空
   全部 step 断点、训练完成后清空整个 `checkpoints/`。续跑语义不变
@@ -32,8 +31,8 @@
   （best/ + last/ + plan/completed）。既有 run 需手动 `rm -rf checkpoints`。
 - **下一步（按序）**：① 用新 prompt 跑 `--limit-sequences 10` pilot，
   `audit_query_style.py` 核对分布对齐后人工抽检语义；② 全量重生成 Train/Val
-  标注（新 annotation run id）；③ 用基线超参（α=32、2 epochs）重训，
-  隔离标注变量；④ 新标注下 Val ACC 恢复选优意义后再评估测试集。
+  标注（新 annotation run id）；③ 在新标注上用**保守超参**（α=32、2 epochs；
+  深训已证实是同数据下 Test 下降的直接原因）重训；④ 新标注 + 三模型 WBF 冲榜。
 - **最新进展**：魔搭 AMD MI300X 192G 已完成一轮训练，当前进入测试集推理阶段；
   离线推理与训练 I/O 已做单卡优化并推送（175 测试全绿）。
 - **离线推理推荐**：单卡固定 `--num-shards 1 --num-workers 4`，由 DataLoader
