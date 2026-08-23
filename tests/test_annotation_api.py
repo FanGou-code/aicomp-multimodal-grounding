@@ -66,7 +66,7 @@ class SiliconFlowClientTests(unittest.TestCase):
             return _FakeResponse(
                 {
                     "id": "response-1",
-                    "model": "Qwen/Qwen3.5-27B",
+                    "model": "glm-4.6v",
                     "choices": [
                         {
                             "message": {"content": '{"query":"test"}'},
@@ -83,7 +83,7 @@ class SiliconFlowClientTests(unittest.TestCase):
 
         client = OpenAIProtocolClient(
             api_key="secret-test-key",
-            model="Qwen/Qwen3.5-27B",
+            model="glm-4.6v",
             base_url="https://api.siliconflow.cn/v1",
             opener=opener,
         )
@@ -153,7 +153,7 @@ class FrameGenerationTests(unittest.TestCase):
                 "alternate_query": None,
                 "uncertain": False,
             })],
-            "Qwen/Qwen3.5-27B",
+            "glm-4.6v",
         )
         result = generate_queries._annotate_frame(
             client,
@@ -191,7 +191,7 @@ class FrameGenerationTests(unittest.TestCase):
                     "uncertain": False,
                 }),
             ],
-            "Qwen/Qwen3.5-27B",
+            "glm-4.6v",
         )
         result = generate_queries._annotate_frame(
             client,
@@ -215,7 +215,7 @@ class FrameGenerationTests(unittest.TestCase):
                 json.dumps({"query": "thing", "alternate_query": None, "uncertain": False}),
                 json.dumps({"query": "item", "alternate_query": None, "uncertain": False}),
             ],
-            "Qwen/Qwen3.5-27B",
+            "glm-4.6v",
         )
         result = generate_queries._annotate_frame(
             client,
@@ -241,6 +241,90 @@ class FrameGenerationTests(unittest.TestCase):
         })
         self.assertEqual(progress.update("001_2", "completed"), (2, 2, 0))
         self.assertEqual(progress.update("001_3", "failed"), (3, 2, 1))
+
+    def test_style_gate_retries_bare_label_and_accepts_annotated_query(self):
+        marked = self._marked()
+        client = self.FakeClient(
+            [
+                # first attempt: 1-word label → style gate rejects
+                json.dumps({"query": "cone", "alternate_query": None, "uncertain": False}),
+                # second attempt: passes style gate
+                json.dumps({"query": "The third cone from left to right in the row", "alternate_query": None, "uncertain": False}),
+            ],
+            "glm-4.6v",
+        )
+        result = generate_queries._annotate_frame(
+            client,
+            marked,
+            previous=None,
+            retry_failed=False,
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["attempts"], 2)
+        self.assertIn("cone", result["query"])
+        self.assertEqual(len(client.calls), 2)
+
+    def test_verify_rejects_low_iou_and_retries(self):
+        plain = Image.new("RGB", (320, 180), "gray")
+        marked = build_marked_annotation_view(plain, [0.1, 0.1, 0.4, 0.6])
+        gt_bbox = [0.1, 0.1, 0.4, 0.6]
+
+        # Both generation responses pass the style gate (>=5 words, with
+        # spatial cues), so both attempts reach the verification step.
+        client = self.FakeClient(
+            [
+                # attempt 1 gen: valid, verify will fail (box far from GT)
+                json.dumps({"query": "The dark gray patch beside the wall", "alternate_query": None, "uncertain": False}),
+                # attempt 1 verify: returns a box far from GT → IoU below threshold
+                '{"bbox":[0.8,0.8,0.95,0.95]}',
+                # attempt 2 gen: valid
+                json.dumps({"query": "The gray rectangle in the top-left corner", "alternate_query": None, "uncertain": False}),
+                # attempt 2 verify: box near GT → passes
+                '{"bbox":[0.12,0.12,0.38,0.58]}',
+            ],
+            "glm-4.6v",
+        )
+        result = generate_queries._annotate_frame(
+            client,
+            marked,
+            previous=None,
+            retry_failed=False,
+            plain_rgb=plain,
+            gt_bbox=gt_bbox,
+            verify=True,
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["attempts"], 2)
+        # 2 gen calls + 2 verify calls = 4 total
+        self.assertEqual(len(client.calls), 4)
+        self.assertEqual(len(result["api_calls"]), 4)
+
+    def test_verify_passes_with_valid_box_on_first_try(self):
+        plain = Image.new("RGB", (320, 180), "gray")
+        marked = build_marked_annotation_view(plain, [0.1, 0.1, 0.4, 0.6])
+        gt_bbox = [0.1, 0.1, 0.4, 0.6]
+
+        client = self.FakeClient(
+            [
+                json.dumps({"query": "The gray rectangle in the top-left corner", "alternate_query": None, "uncertain": False}),
+                '{"bbox":[0.11,0.11,0.39,0.59]}',  # verify → IoU ~ 0.86
+            ],
+            "glm-4.6v",
+        )
+        result = generate_queries._annotate_frame(
+            client,
+            marked,
+            previous=None,
+            retry_failed=False,
+            plain_rgb=plain,
+            gt_bbox=gt_bbox,
+            verify=True,
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["attempts"], 1)
+        # 1 gen + 1 verify = 2 api_calls
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(len(result["api_calls"]), 2)
 
 
 if __name__ == "__main__":

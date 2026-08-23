@@ -15,9 +15,14 @@
   min_lr 下限 + 按 Val ACC 选 best 全部在加大训练分布拟合，导致 Val 涨、Test 跌。
   分歧样本集中于超小目标与含 "left" 的 Query，且新模型框系统性偏大（中位数 1.23 倍）。
 - **已落地标注侧修复**：`generate_queries.py` 的 FRAME_QUERY_PROMPT 重写为
-  官方风格导向（6-15 词、优先序数/空间关系定位、禁止短标签捷径）；
+  官方风格导向（6-15 词、优先序数/空间关系定位、禁止短标签捷径、相机距离
+  句式、计数安全阀、左右自检）；
   新增 `scripts/audit_query_style.py` 量化审计 Query 风格分布（词数/空间词/
   序数词占比，可对照官方模板），配套单元测试。
+- **新增标注质量门控（--verify-queries）**：① 风格门控——短 Query（<5 词）
+  且无空间/序数/多目标词时判失败进重试队列；② 自定位验证——每帧生成后
+  用无红框原图让 GLM 复定位，IoU<0.5 判失败重写。验证参数进 run id 哈希，
+  开启即产生新 annotation run id。
 - **零成本候选提交**：基线与 Iteration 02 两份测试预测（88.5% 一致、错误部分
   去相关）可先跑 WBF 融合打榜，两份 predictions.json 均在本地。
 - **已落地训练断点保留策略**（解决魔搭 outputs 单 run 16G 问题）：
@@ -134,6 +139,11 @@
   MI300X 实测 0.3 samples/s，GPU 利用率低）；加载时打印 image processor
   类型用于 fast/slow 诊断。新增 `tests/test_dataloader_inference.py`
   （本地无 torch 跳过，GPU 环境执行）。
+* 标注质量门控：`query.py` 新增 `validate_query_style`（<5 词且无空间/序数/
+  多目标词拒绝）；`sequence.py` 新增 `parse_verification_bbox`；`generate_queries.py`
+  新增 `--verify-queries`（生成后用无红框原图复定位，IoU<0.5 重写，验证参数进
+  run id）。mock 模型名从占位符统一为 `glm-4.6v`。新增用例覆盖风格门控/验证/bbox
+  解析。
 * 下一步：新 prompt pilot（10 序列）→ 全量重生成标注 → 基线超参重训。
 
 ### 2026-08-23（仓库，离线推理断点续跑支持 checkpoint.json 自动恢复）

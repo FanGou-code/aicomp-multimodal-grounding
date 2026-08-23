@@ -9,6 +9,21 @@ _COORDINATES = re.compile(r"[\[(]\s*[+-]?\d+(?:\.\d+)?\s*,\s*[+-]?\d+(?:\.\d+)?"
 _CONTROL_TOKEN = re.compile(r"<\|[^<>\r\n]*\|>")
 _FORBIDDEN = ("red rectangle", "red outline", "bounding box", "image 1", "image 2", "first image", "second image")
 
+# Words that signal the query disambiguates the target spatially or ordinally
+# among scene objects, rather than relying on a bare attribute label. Queries
+# shorter than STYLE_MIN_WORDS must contain at least one of these to pass.
+_DISAMBIGUATION_RE = re.compile(
+    r"\b("
+    r"left|right|far|near|behind|front|foreground|background|top|bottom|"
+    r"middle|center|centre|corner|beside|below|above|under|between|"
+    r"first|second|third|fourth|fifth|last|leftmost|rightmost|topmost|"
+    r"bottommost|nearest|closest|farthest|other|another|larger|smaller|"
+    r"bigger|largest|smallest|group|crowd|row|line|flock|herd|pair|both"
+    r")\b",
+    re.IGNORECASE,
+)
+STYLE_MIN_WORDS = 5
+
 
 def clean_query_text(text: str) -> str:
     if not isinstance(text, str):
@@ -38,6 +53,29 @@ def validate_generated_query(text: str, *, min_words: int = 1, max_words: int = 
     if sum(character.isascii() for character in cleaned) / len(cleaned) < 0.9:
         return False, "query is not predominantly English/ASCII"
     return True, ""
+
+
+def validate_query_style(text: str) -> tuple[bool, str]:
+    """Reject bare-label queries that lack positional disambiguation.
+
+    Short queries (below ``STYLE_MIN_WORDS``) must carry at least one spatial,
+    ordinal, or multi-object cue so the target is grounded in the scene rather
+    than described by an isolated label. Longer queries pass unconditionally;
+    they already carry enough context by length.
+    """
+    cleaned = clean_query_text(text)
+    if not cleaned:
+        return False, "empty query"
+    words = _WORD.findall(cleaned)
+    if len(words) >= STYLE_MIN_WORDS:
+        return True, ""
+    if _DISAMBIGUATION_RE.search(cleaned):
+        return True, ""
+    return (
+        False,
+        "query is too short and lacks a positional/spatial/ordinal cue; "
+        "add a spatial relation, ordinal, or landmark reference",
+    )
 
 
 def preflight_check_dataset(data: dict, *, split_name: str = "dataset") -> list[str]:

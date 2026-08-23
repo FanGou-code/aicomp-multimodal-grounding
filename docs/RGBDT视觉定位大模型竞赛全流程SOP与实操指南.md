@@ -94,12 +94,19 @@ python scripts/audit_query_style.py \
   --queries outputs/annotations/<PILOT_RUN_ID>/train/merged.json \
   --reference data/Test/queries/queries.json
 
-# c. 审计达标并人工抽检空间关系无幻觉后，全量生成并发布 Train/Val
+# c. 审计达标并人工抽检空间关系无幻觉后，全量生成并发布
+#    （--verify-queries 开启质量门控：短标签自动重试 + 无红框复定位 IoU<0.5 重写）
 python -u scripts/generate_queries.py \
-  --split train --seed 42 --concurrency 4 --run-tag glm46v-gen-r2 --publish
+  --split train --seed 42 --concurrency 4 --run-tag glm46v-gen-r2 --publish --verify-queries
 python -u scripts/generate_queries.py \
-  --split val --seed 42 --concurrency 4 --run-tag glm46v-gen-r2 --publish
+  --split val --seed 42 --concurrency 4 --run-tag glm46v-gen-r2 --publish --verify-queries
 ```
+
+> 质量门控说明：`--verify-queries` 让每帧生成后追加一次无红框原图复定位，
+> GLM 根据刚生成的 Query 反查目标框，与 GT 框 IoU<0.5 判失败并自动重写。
+> 同时短 Query（<5 词且无空间词）在 QC 时被拒。开启后 API 调用量约为
+> 未开启的 1.5~2 倍，但显著提升标注可信度。验证参数计入 run id，
+> 开启与不开启是不同标注 run。
 
 **发布后必做的分发动作**：
 1. 从 `outputs/annotations/` 目录名获取新标注 run id（后续所有训练命令中的
