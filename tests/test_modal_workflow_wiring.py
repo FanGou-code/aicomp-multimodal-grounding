@@ -30,6 +30,9 @@ class AnnotationEntrypointTests(unittest.TestCase):
         self.assertIn("leftmost window", query_prompt)
         self.assertIn("roughly 6 to 15 words", query_prompt)
         self.assertIn("is not acceptable", query_prompt)
+        self.assertIn("Distance from the camera", query_prompt)
+        self.assertIn("confidently count", query_prompt)
+        self.assertIn("viewer's perspective", query_prompt)
         self.assertIn("Never force a variant", query_prompt)
 
     def test_test_split_is_rejected_before_preflight(self):

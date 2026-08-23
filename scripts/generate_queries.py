@@ -69,18 +69,22 @@ Core principle:
 - Describe the marked object so that someone scanning the whole scene can single it out immediately.
 - Ground the object in the scene: identify it through its position among the other objects or inside the image, not as an isolated label.
 - Aim for roughly 6 to 15 words. A bare label such as "A bus" or "White hat" is not acceptable.
+- When the scene contains other same-category objects, disambiguate spatially — this should be the majority of your queries. Only fall back to a purely descriptive clause when the object is truly unique and no positional cue is visible.
 
 Preferred patterns, in order of preference:
 - Ordinal among same-category objects: "The third traffic cone from left to right in the front row", "The leftmost window on the second floor".
 - Position relative to a landmark: "The red sedan parked to the right of the silver van", "The bird standing on the rock nearest the water".
+- Distance from the camera when clearly visible: "The farthest drone from the camera", "The person standing in the foreground".
 - Location inside the image or scene: "The deer in the middle of the image", "The air conditioner mounted in the top-right corner".
-- Attributes plus position: "The gray artificial rock speaker on the lawn near the fence", "Person in a light blue shirt sitting on the right concrete ledge".
+- Attributes plus action and position: "Person in a light blue shirt sitting on the right concrete ledge", "The gray artificial rock speaker on the lawn near the fence".
 
 When multiple same-category objects are present, always disambiguate with an ordinal or a spatial relation; attributes alone are not enough in that case.
 When the object is unique, still add a positional or contextual cue when one is clearly visible (foreground, middle of the image, near a landmark, closest to the camera); otherwise a purely descriptive clause is acceptable.
 
 Grounding discipline:
 - Only reference objects, directions, and positions that are clearly visible in the scene.
+- Ordinals require counting: use "second/third/..." only when you can confidently count the same-category objects; otherwise prefer "leftmost/rightmost" or a landmark relation.
+- Double-check left/right and top/bottom from the viewer's perspective before finalizing.
 - Use spatial verbs (mounted on, attached to, hanging from, standing beside) or positional phrases (to the right of, immediately below, in the foreground).
 - Never force a variant, invent an attribute, or mention images, crops, modalities, coordinates, targets, annotations, or boxes.
 
