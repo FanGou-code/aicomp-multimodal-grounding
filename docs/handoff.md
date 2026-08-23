@@ -5,71 +5,70 @@
 > 结构与代码约定见 `architecture.md`，调研背景见 `research-v2.md`。
 > 交接日志保留历史记录，不作为当前状态结论；当前状态以上方最新条目为准。
 
-## 当前状态（最后更新 2026-08-23）
+## 当前状态（最后更新 2026-08-23，交接）
 
-- **当前最佳成绩：双模型 WBF = 0.7453**（基线 + Iter02 融合，`fusion_wbf_25a172a22c9e1e61`，
-  领先基线 0.7439，验证了融合管线）。基线 0.7439 / Iter02 0.7322 / WBF 0.7453。
-- **核心结论（Iteration 02 复盘，两层区分）**：
-  ① 静态层——Train/Val Query 风格与测试集漂移（官方 10.3 词/66.3% 空间/33.5%
-  序数 vs 旧标注 6 词/26%/4.3%），explains 为何 Val 0.92 / Test 0.73 之间差 19 分。
-  ② 动态层——两次训练用**同一套标注**，drop 纯粹是 α48+3ep+min_lr 训练加深
-  造成的过拟合（Val 涨 0.903→0.9235、Test 跌 0.7439→0.7322）。"更偏"来自训
-  练程度，不是标注换了。
-- **已落地标注侧修复**：`generate_queries.py` 的 FRAME_QUERY_PROMPT 重写为
-  官方风格导向（6-15 词、优先序数/空间关系定位、禁止短标签捷径、相机距离
-  句式、计数安全阀、左右自检）；
-  新增 `scripts/audit_query_style.py` 量化审计 Query 风格分布（词数/空间词/
-  序数词占比，可对照官方模板），配套单元测试。
-- **新增标注质量门控（--verify-queries）**：① 风格门控——短 Query（<5 词）
-  且无空间/序数/多目标词时判失败进重试队列；② 自定位验证——每帧生成后
-  用无红框原图让 GLM 复定位，IoU<0.5 判失败重写。验证参数进 run id 哈希，
-  开启即产生新 annotation run id。旧标注过门控实测拦截 27.4%（986 条短标签）。
-- **已落地训练断点保留策略**（解决魔搭 outputs 单 run 16G 问题）：
-  step 断点只保留最近 2 个、epoch 断点只保留最新 1 个、每个 epoch 结束清空
-  全部 step 断点、训练完成后清空整个 `checkpoints/`。续跑语义不变
-  （resume 只读 global_step 最大的断点）；每个 run 最终落盘约 0.6G
-  （best/ + last/ + plan/completed）。既有 run 需手动 `rm -rf checkpoints`。
-- **下一步（按序）**：① 用新 prompt 跑 `--limit-sequences 10` pilot，
-  `audit_query_style.py` 核对分布对齐后人工抽检语义；② 全量重生成 Train/Val
-  标注（新 annotation run id）；③ 在新标注上用**保守超参**（α=32、2 epochs；
-  深训已证实是同数据下 Test 下降的直接原因）重训；④ 新标注 + 三模型 WBF 冲榜。
-- **最新进展**：魔搭 AMD MI300X 192G 已完成一轮训练，当前进入测试集推理阶段；
-  离线推理与训练 I/O 已做单卡优化并推送（175 测试全绿）。
-- **离线推理推荐**：单卡固定 `--num-shards 1 --num-workers 4`，由 DataLoader
-  预取图像与 GPU 推理并行；192GB 首轮 Qwen/InternVL 用 `--batch-size 8`，
-  GroundingDINO 用 `--batch-size 32`。冒烟与全量同参数，`--limit 100` 通过后
-  去掉 limit 直接全量，OOM 时回退到 batch 4 / 16。
-- **训练 I/O 调优**：DataLoader `num_workers=4`、`persistent_workers=True`，
-  step checkpoint 从每 20 步改为每 50 步；不影响训练指标、随机性或 run id。
-- **GPU 检测**：推理期间用 `watch -n 1 rocm-smi --showuse --showmemuse`
-  观察利用率和显存，判断是否还有提升空间。
-- **Obsidian SOP 已同步**：推理命令、WBF 输出文件名、`scores.json` 说明、
-  单卡 batch 推荐均已与当前仓库代码对齐。
+### 成绩一览
 
-- **基线（完整成绩）**：`train_89aa55f31aee5478`（Qwen3-VL-8B + LoRA），
-  测试集 ACC@0.5 = **0.7439**
-- **Iteration 02 训练已推进**：训练侧升级 + 推理引擎 + 三模型 adapter +
-  WBF 融合已落地 main；当前在魔搭单卡 MI300X 上执行训练/推理。
-- **训练核心已适配多模型**：`training_core.py` 由 adapter 驱动，支持
-  `qwen3vl` 与 `internvl35`；每轮训练在全量验证集上计算 ACC/mIoU 并用于 best epoch。
-- **离线推理已支持预处理进 worker**：Qwen/InternVL 的 `predict` 拆分为
-  `prepare_inputs`（CPU 预处理，在 DataLoader worker 进程执行）+
-  `predict_from_inputs`（GPU 生成），prompt 构造与图像处理和 GPU 前向完全
-  并行；DINO/mock 走原路径。魔搭上冒烟建议 `--batch-size 16`（192G 显存
-  富余），吞吐预期从 0.3 提升到 1.5+ samples/s。
-- **本地开发环境**：`qwen_vg` conda 环境使用 Python 3.12，本地 CPU
-  校验依赖按 `requirements-lock.txt` 安装；真实 GPU 训练/推理使用 `offline/`。
-- **运行边界已明确**：本仓库是唯一可移植实验单元；本地电脑只做 CPU 测试和静态检查，
-  实验室电脑/新 GPU/魔搭工作台使用 `offline/`，`cloud/` 仅保留 Modal 适配。
-- **训练产物路径已统一**：offline 默认写入 `outputs/output_lora/<id>/`，approved
-  标注位于 `outputs/annotations/<id>/`；Modal 未传输出根时继续使用历史
-  `/data/data/output_lora/<id>/` 布局，不改变 run id。
-- **下一步**：在 MI300X 上按最新 SOP 执行 Qwen/InternVL/DINO `--limit 100`
-  冒烟，通过后跑全量推理，再执行 WBF 与提交；Modal 账号恢复后才执行 `cloud/`。
-- **待验证模型**：InternVL / GroundingDINO zero-shot 首跑——GPU 路径未冒烟，
-  先 `--limit 100` 小切片验证；两者的 `model_revision` 已 pin 具体 commit。
-- **模型覆盖**：Qwen3-VL 与 InternVL3.5 已接入训练循环，GroundingDINO
-  保持 zero-shot 推理；三者预测结果最终进入 WBF 融合。
+| 项目 | 成绩 |
+| --- | --- |
+| **基线**（Qwen3-VL-8B + LoRA，α32/2ep） | Test **0.7439** |
+| **Iteration 02**（α48/3ep/min_lr，同标注） | Test **0.7322** |
+| **双模型 WBF**（基线+Iter02 融合） | Test **0.7453** ← 当前最佳 |
+
+### 核心诊断（两层，缺一不可）
+
+1. **静态层（数据天花板）**：标注 Query 风格与测试集漂移——官方 Test 平均 10.3 词 /
+   66.3% 空间词 / 33.5% 序数，旧标注仅 6 词 / 26% / 4.3%。这是 Val（同分布）0.92 与
+   Test 0.73 之间 19 分鸿沟的根因。
+2. **动态层（超参加深）**：两次训练用**同一套标注**，drop（0.7439→0.7322）纯粹是
+   α48+3ep+min_lr 加深造成的过拟合（Val 0.903→0.9235、Test 反降）。→ 结论：**在标注
+   未对齐前，"向深调参"是负收益**；但注意这是同分布下的交互效应，不能外推"新标注下
+   深训也无用"（详见下一步的 A/B 实验设计）。
+
+### Qwen3-VL-8B 触顶判断
+
+- **当前标注下：基本触顶**。浅训 / 深训 / 融合已覆盖 0.7322 ~ 0.7453，超参再折腾仅
+  ±0.01 量级；Val 0.92 说明已对数据饱和拟合。
+- **是数据天花板，不是模型天花板**。8B 预训练自含空间推理能力，只是当前标注 74% 的
+  样本不练它。换对齐标注 → 8B 可望 0.76-0.78；换更大模型（32B/72B）→ 叠加更强预训练
+  空间知识，属"降维打击"，**合规**（官方明列 Qwen-VL 为允许模型）。
+
+### 本会话已落地（全部推送 main）
+
+- 标注侧：prompt 重写（官方风格 5 大缺口补齐）+ `audit_query_style.py` + 风格门控
+  （`validate_query_style`，实测拦截旧标注 27.4% 短标签）+ `--verify-queries` 自定位
+  验证（无红框复定位 IoU<0.5 重写）。
+- 训练侧：断点保留策略（step 留 2 / epoch 留 1 / 完成后清空，run 从 16G 降到 ~0.6G）。
+- 推理侧：`prepare_inputs`/`predict_from_inputs` 拆分进 DataLoader worker（MI300X
+  吞吐预期 0.3 → 1.5+ samples/s），VLM 冒烟 batch 建议 **16**。
+- 测试侧：209 全绿（4 跳过，torch 环境执行）。mock 模型名统一 `glm-4.6v`。
+
+### 下一步（优先级排序）
+
+1. **三模型 WBF 冲当前数据上限**（确定性收益，零风险）：
+   - 魔搭跑 InternVL（同旧标注训练）推理 + GroundingDINO zero-shot 推理（各
+     `--limit 100` 冒烟 → 全量）。
+   - 本地用 Qwen / InternVL / DINO 三份 predictions 做 WBF（`fusion/wbf.py`），
+     权重在新标注 Val 上网格标定（721 样本，CPU 秒级）。预期 **0.755-0.765**。
+2. **新标注轮次**（用户明确：只要提分就做）：
+   - 用 `--verify-queries` 跑 pilot（10 序列）→ `audit_query_style.py` 审计对齐 →
+     人工抽检 → 全量重生成 Train/Val，更新 `.gitignore` 白名单分发。
+3. **两配置 A/B 实验**（分离标注与超参交互效应，不再盲猜）：
+   - A：α32 / 3ep / 去 min_lr（保守容量 + 新标注）
+   - B：α48 / 3ep / 保 min_lr（Iter02 容量 + 新标注）
+   - 双开对比 Val/Test 差距：B 的差距若明显收窄且 Test 更高 → 之前确为分布问题，
+     深训可留；若仍宽 → 深训确实是过拟合源。一个对比约 1.5-2 天 GPU。
+4. **更大模型探测**（并行，不阻塞上面）：
+   - `modelscope search --model "Qwen3-VL"` 查 32B / 72B 变体；若存在，CPU 实例下载，
+     `--limit 100` 冒烟验证显存/延迟/效果。72B 需精确算显存（LoRA+grad_ckpt+8bit
+     opt 约 149-155G，192G 可挤）；32B 更从容。若 zero-shot 即显著优于 8B → 直接升级。
+
+### 环境与运行边界（沿用）
+
+- 本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU 训练推理用 `offline/`。
+- 推理推荐单卡 `--num-shards 1 --num-workers 4`，VLM batch 16 / DINO 32，OOM 退 8/16。
+- 本仓库是唯一可移植实验单元；`cloud/`（Modal）账号恢复后才启用。
+- 断点续跑语义、run id 指纹连续性均未破坏；`tests/test_models.py` 钉死 Qwen identity。
 
 ## Iteration 02 改动明细（已落地 main，尚未训练）
 
@@ -114,6 +113,21 @@
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-23（交接，最终成绩与策略定案）
+
+* **成绩定格**：基线 0.7439 / Iter02 0.7322 / **双模型 WBF 0.7453（当前最佳）**。
+  融合结果已提交打榜验证，确认双 checkpoint 融合管线可用。
+* **触顶判断**：Qwen3-VL-8B 在当前标注下基本触顶（±0.01 量级）；但属数据天花板而非
+  模型天花板——8B 预训练含空间推理知识，当前标注 74% 不练它。换对齐标注 8B 可望
+  0.76-0.78；32B/72B 属"降维打击"，合规（官方允许 Qwen-VL）。
+* **策略定案（下次执行时以此为准，替代早先"基线超参重训"的旧结论）**：
+  ① 先做三模型 WBF（InternVL+DINO 推理 + fusion/wbf.py，权重新标注 Val 网格标定，
+  预期 0.755-0.765）；② 新标注轮次照跑（pilot→审计→全量）；③ 新标注上跑 **A/B
+  两配置**（A: α32/3ep/去min_lr vs B: α48/3ep/保min_lr）分离"分布错配"与"深训过拟合"
+  的交互效应，不再盲猜单一超参方向；④ 并行探测 Qwen3-VL 更大变体。
+* 早先"在新标注上直接回落基线超参"的建议已被 A/B 实验设计取代（理由：迭代 02 的
+  drop 是同分布下的交互效应，不能外推新标注情境，A/B 才是对其主效应的诚实测定）。
 
 ### 2026-08-23（仓库，Iteration 02 复盘与标注风格修复）
 
