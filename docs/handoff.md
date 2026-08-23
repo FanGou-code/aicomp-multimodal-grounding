@@ -38,7 +38,7 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 每次开机从魔搭内网拉到实例临时盘 `/root/models`；`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-23，二代目接入）
+## 当前状态（最后更新 2026-08-23，32B 冒烟跑通与标注韧性加固）
 
 ### 成绩一览
 
@@ -47,36 +47,6 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 | **基线**（Qwen3-VL-8B + LoRA，α32/2ep） | Test **0.7439** |
 | **Iteration 02**（α48/3ep/min_lr，同标注） | Test **0.7322** |
 | **双模型 WBF**（基线+Iter02 融合） | Test **0.7453** ← 当前最佳 |
-
-### 核心诊断（两层，缺一不可）
-
-1. **静态层（数据天花板）**：标注 Query 风格与测试集漂移——官方 Test 平均 10.3 词 /
-   66.3% 空间词 / 33.5% 序数，旧标注仅 6 词 / 26% / 4.3%。这是 Val（同分布）0.92 与
-   Test 0.73 之间 19 分鸿沟的根因。
-2. **动态层（超参加深）**：两次训练用**同一套标注**，drop（0.7439→0.7322）纯粹是
-   α48+3ep+min_lr 加深造成的过拟合（Val 0.903→0.9235、Test 反降）。→ 结论：**在标注
-   未对齐前，"向深调参"是负收益**；但注意这是同分布下的交互效应，不能外推"新标注下
-   深训也无用"（详见下一步的 A/B 实验设计）。
-
-### Qwen3-VL-8B 触顶判断
-
-- **当前标注下：基本触顶**。浅训 / 深训 / 融合已覆盖 0.7322 ~ 0.7453，超参再折腾仅
-  ±0.01 量级；Val 0.92 说明已对数据饱和拟合。
-- **是数据天花板，不是模型天花板**。8B 预训练自含空间推理能力，只是当前标注 74% 的
-  样本不练它。换对齐标注 → 8B 可望 0.76-0.78；换更大模型（32B/72B）→ 叠加更强预训练
-  空间知识，属"降维打击"，**合规**（官方明列 Qwen-VL 为允许模型）。
-
-### 本会话已落地（全部推送 main）
-
-- 标注侧：prompt 重写（官方风格 5 大缺口补齐）+ `audit_query_style.py` + 风格门控
-  （`validate_query_style`，实测拦截旧标注 27.4% 短标签）+ `--verify-queries` 自定位
-  验证（无红框复定位 IoU<0.5 重写）。
-- 训练侧：断点保留策略（step 留 2 / epoch 留 1 / 完成后清空，run 从 16G 降到 ~0.6G）。
-- 推理侧：`prepare_inputs`/`predict_from_inputs` 拆分进 DataLoader worker（MI300X
-  吞吐预期 0.3 → 1.5+ samples/s），VLM 冒烟 batch 建议 **16**。
-- 测试侧：211 全绿（4 跳过，torch 环境执行）。mock 模型名统一 `glm-4.6v`。
-
-### 下一步（执行顺序已定案，替代旧"三模型 WBF 优先"排序）
 
 **总路线**：标注对齐+数据扩展 → 32B 训练 → 后期融合（WBF 与 DINO 替换均属后期）
 
@@ -166,6 +136,17 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-23（32B 冒烟验证通过、标注生成韧性加固与推理策略定案）
+
+* **32B GPU 冒烟验证完成**：在魔搭 AMD MI300X 实例临时盘（`/root/models`）拉取 32B 权重后，成功完成 100 样本前向推理（`infer_test_base_c2dbf985d0c38646`），零 OOM、坐标解析 100% 合规。
+* **推理参数收敛定案**：质量第一前提下，确立 `--batch-size 2 --batch-save 100 --num-workers 4` 为满分辨率（9,216 Token）下的最优算力配置，同步更新 SOP 指南与代码契约。
+* **标注脚本严密加固**：
+  * [`aicomp_grounding/api_client.py`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/aicomp_grounding/api_client.py)：将空响应纳入 3 次自动重试；
+  * [`scripts/generate_queries.py`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/scripts/generate_queries.py)：补齐 `group_keys_by_scene` 与 `APIError` 导入，在 `_verify_query` 中增加异常捕获，优化提示词示例中的空间表述。
+* **下一步即时可执行动作**：
+  1. **本地轨**：执行 10 序列 Pilot 生成（`--limit-sequences 10 --verify-queries`）$\rightarrow$ 运行 `audit_query_style.py` 风格审计 $\rightarrow$ 启动全量 Train/Val 新标注重生成并发布；
+  2. **魔搭轨**：在 `tmux` 后台启动 32B 全量 2000 条零样本推理（`--batch-size 2 --batch-save 100`），挂机产出高分打榜包 `submission.zip`。
 
 ### 2026-08-23（仓库，交接总览补全）
 
