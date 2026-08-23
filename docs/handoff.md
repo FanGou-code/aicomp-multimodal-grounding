@@ -2,11 +2,33 @@
 
 > 全仓库唯一的状态与交接记录：做到哪了、成绩、下一步。每次交接或阶段性
 > 完成时更新「当前状态」并在「交接日志」追加一条（新的写最上面）。
-> 结构与代码约定见 `architecture.md`，调研背景见 `research.md`。
+> 结构与代码约定见 `architecture.md`，调研背景见 `research-v2.md`。
 > 交接日志保留历史记录，不作为当前状态结论；当前状态以上方最新条目为准。
 
-## 当前状态（最后更新 2026-08-22）
+## 当前状态（最后更新 2026-08-23）
 
+- **核心结论（Iteration 02 复盘）**：Iteration 02（`train_d77d5c244d3df58c`，α=48/3ep）
+  测试集 ACC@0.5 = **0.7322**，低于基线 0.7439。根因是**标注 Query 风格与官方测试集
+  分布漂移**：官方 Test 平均 10.3 词、66.3% 含空间关系词、33.5% 含序数词；
+  GLM 生成的 Train/Val 平均仅 6 词、约 26% 空间词、4.3% 序数词。Val（同分布）
+  ACC 0.9235 与 Test 0.73 之间约 19 点的差距即分布差距；α 拉大 + 3 epochs +
+  min_lr 下限 + 按 Val ACC 选 best 全部在加大训练分布拟合，导致 Val 涨、Test 跌。
+  分歧样本集中于超小目标与含 "left" 的 Query，且新模型框系统性偏大（中位数 1.23 倍）。
+- **已落地标注侧修复**：`generate_queries.py` 的 FRAME_QUERY_PROMPT 重写为
+  官方风格导向（6-15 词、优先序数/空间关系定位、禁止短标签捷径）；
+  新增 `scripts/audit_query_style.py` 量化审计 Query 风格分布（词数/空间词/
+  序数词占比，可对照官方模板），配套单元测试。
+- **零成本候选提交**：基线与 Iteration 02 两份测试预测（88.5% 一致、错误部分
+  去相关）可先跑 WBF 融合打榜，两份 predictions.json 均在本地。
+- **已落地训练断点保留策略**（解决魔搭 outputs 单 run 16G 问题）：
+  step 断点只保留最近 2 个、epoch 断点只保留最新 1 个、每个 epoch 结束清空
+  全部 step 断点、训练完成后清空整个 `checkpoints/`。续跑语义不变
+  （resume 只读 global_step 最大的断点）；每个 run 最终落盘约 0.6G
+  （best/ + last/ + plan/completed）。既有 run 需手动 `rm -rf checkpoints`。
+- **下一步（按序）**：① 用新 prompt 跑 `--limit-sequences 10` pilot，
+  `audit_query_style.py` 核对分布对齐后人工抽检语义；② 全量重生成 Train/Val
+  标注（新 annotation run id）；③ 用基线超参（α=32、2 epochs）重训，
+  隔离标注变量；④ 新标注下 Val ACC 恢复选优意义后再评估测试集。
 - **最新进展**：魔搭 AMD MI300X 192G 已完成一轮训练，当前进入测试集推理阶段；
   离线推理与训练 I/O 已做单卡优化并推送（175 测试全绿）。
 - **离线推理推荐**：单卡固定 `--num-shards 1 --num-workers 4`，由 DataLoader
@@ -85,6 +107,25 @@
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-23（仓库，Iteration 02 复盘与标注风格修复）
+
+* 复盘 Iteration 02 测试集退步（0.7439 → 0.7322）：确认根因为标注 Query 风格
+  与官方测试集分布漂移（详见「当前状态」），超参改动本身执行无误但优化了失真的
+  Val 信号。
+* 重写 `FRAME_QUERY_PROMPT` 为官方风格导向（序数/空间关系优先、6-15 词、
+  禁止短标签）；更新 `tests/test_modal_workflow_wiring.py` 的 prompt 合同断言。
+* 新增 `scripts/audit_query_style.py` 与 `tests/test_audit_query_style.py`：
+  量化审计 Query 风格分布，实测当前标注（6.0 词 / 26% 空间 / 4.3% 序数）与
+  官方测试模板（10.3 词 / 66.3% 空间 / 33.5% 序数）的差距。
+* 补算基线 adapter Val ACC ≈ 0.903（300 条子集），与 Iteration 02 的 0.9235
+  对照，确认「Val 涨、Test 跌」的分布过拟合结论。
+* 新增训练断点保留策略：`training_core.py` 增加 `_prune_checkpoints`，
+  step 断点保留最近 2 个（`_STEP_CHECKPOINT_RETENTION`）、epoch 断点保留最新
+  1 个、epoch 结束清空 step 断点、completed.json 写入后清空 `checkpoints/`；
+  单 run 断点占用从约 12G 降至训练中峰值约 1.8G、完成后 0。续跑语义与
+  run id 均不变；新增 `tests/test_training_checkpoint_retention.py`。
+* 下一步：新 prompt pilot（10 序列）→ 全量重生成标注 → 基线超参重训。
 
 ### 2026-08-23（仓库，离线推理断点续跑支持 checkpoint.json 自动恢复）
 

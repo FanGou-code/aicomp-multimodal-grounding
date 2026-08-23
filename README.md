@@ -109,7 +109,7 @@ offline/
 docs/
   architecture.md       仓库架构、adapter 约定与协作接入指南
   handoff.md            交接文档：当前状态、成绩与交接日志（唯一状态记录）
-  research.md           任务规则、数据统计与多模态基准调研
+  research-v2.md        任务规则、数据统计与多模态基准调研
 
 scripts/
   prepare_rgbdt.py      RGBDT 图像检查与 Depth JET 伪彩转换
