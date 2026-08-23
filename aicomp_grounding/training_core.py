@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import shutil
 import tempfile
 import time
 from datetime import datetime
@@ -153,6 +154,28 @@ def _evaluate_grounding_metrics(
             "failures": failures,
         }
     )
+
+
+# Resume only ever reads the checkpoint with the highest global_step, so older
+# checkpoints are dead weight.  Retention keeps step checkpoints for the
+# split-session resume scenario (instance time limits) while bounding disk use.
+_STEP_CHECKPOINT_RETENTION = 2
+_EPOCH_CHECKPOINT_RETENTION = 1
+
+
+def _prune_checkpoints(checkpoint_root: Path, prefix: str, keep: int) -> None:
+    """Delete the oldest ``prefix_*`` checkpoint dirs beyond the newest ``keep``."""
+    if keep < 0:
+        raise ValueError("keep must be >= 0")
+    if not checkpoint_root.is_dir():
+        return
+    dirs = sorted(
+        path
+        for path in checkpoint_root.iterdir()
+        if path.is_dir() and path.name.startswith(prefix)
+    )
+    for path in dirs[: max(len(dirs) - keep, 0)]:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _latest_resume_checkpoint(run_dir: Path) -> Path | None:
@@ -793,6 +816,11 @@ def run_training(
                         },
                         step_dir / "training_state.pt",
                     )
+                    _prune_checkpoints(
+                        run_dir / "checkpoints",
+                        "step_",
+                        _STEP_CHECKPOINT_RETENTION,
+                    )
                     _commit()
 
         model.eval()
@@ -889,6 +917,13 @@ def run_training(
             },
             checkpoint_dir / "training_state.pt",
         )
+        # The epoch checkpoint supersedes every step checkpoint of the
+        # completed epoch, and older epoch checkpoints can no longer be
+        # selected for resume (resume picks the highest global_step).
+        _prune_checkpoints(run_dir / "checkpoints", "step_", 0)
+        _prune_checkpoints(
+            run_dir / "checkpoints", "epoch_", _EPOCH_CHECKPOINT_RETENTION
+        )
         _commit()
 
     last_dir = run_dir / "last"
@@ -911,5 +946,8 @@ def run_training(
     validate_completed_training_state(completed, metadata, run_dir,
         batch_size=batch_size, grad_accum_steps=grad_accum_steps, num_epochs=num_epochs)
     atomic_write_json(run_dir / "completed.json", completed)
+    # A completed run short-circuits before resume probing, so its resume
+    # checkpoints are pure disk weight; keep only best/ and last/.
+    shutil.rmtree(run_dir / "checkpoints", ignore_errors=True)
     _commit()
     return completed
