@@ -48,8 +48,11 @@
   WBF 融合已落地 main；当前在魔搭单卡 MI300X 上执行训练/推理。
 - **训练核心已适配多模型**：`training_core.py` 由 adapter 驱动，支持
   `qwen3vl` 与 `internvl35`；每轮训练在全量验证集上计算 ACC/mIoU 并用于 best epoch。
-- **离线推理已支持 DataLoader 预取**：`offline/infer.py --num-workers` 默认 4；
-  多卡场景仍支持 `--num-shards`，单卡不建议使用多进程副本。
+- **离线推理已支持预处理进 worker**：Qwen/InternVL 的 `predict` 拆分为
+  `prepare_inputs`（CPU 预处理，在 DataLoader worker 进程执行）+
+  `predict_from_inputs`（GPU 生成），prompt 构造与图像处理和 GPU 前向完全
+  并行；DINO/mock 走原路径。魔搭上冒烟建议 `--batch-size 16`（192G 显存
+  富余），吞吐预期从 0.3 提升到 1.5+ samples/s。
 - **本地开发环境**：`qwen_vg` conda 环境使用 Python 3.12，本地 CPU
   校验依赖按 `requirements-lock.txt` 安装；真实 GPU 训练/推理使用 `offline/`。
 - **运行边界已明确**：本仓库是唯一可移植实验单元；本地电脑只做 CPU 测试和静态检查，
@@ -125,6 +128,12 @@
   1 个、epoch 结束清空 step 断点、completed.json 写入后清空 `checkpoints/`；
   单 run 断点占用从约 12G 降至训练中峰值约 1.8G、完成后 0。续跑语义与
   run id 均不变；新增 `tests/test_training_checkpoint_retention.py`。
+* 推理提速：VLM adapter 拆分 `prepare_inputs`/`predict_from_inputs`
+  （`base.py` 协议新增 `supports_prepared_inputs`），DataLoader 的 collate 在
+  worker 进程内完成 processor 预处理，消除主进程串行 CPU 瓶颈（此前
+  MI300X 实测 0.3 samples/s，GPU 利用率低）；加载时打印 image processor
+  类型用于 fast/slow 诊断。新增 `tests/test_dataloader_inference.py`
+  （本地无 torch 跳过，GPU 环境执行）。
 * 下一步：新 prompt pilot（10 序列）→ 全量重生成标注 → 基线超参重训。
 
 ### 2026-08-23（仓库，离线推理断点续跑支持 checkpoint.json 自动恢复）

@@ -82,6 +82,7 @@ class InternVL35Adapter:
     model_name = MODEL_NAME
     model_revision = MODEL_REVISION
     supports_lora = True
+    supports_prepared_inputs = True
 
     def __init__(self, *, max_num_tiles: int = 12):
         self.max_num_tiles = max_num_tiles
@@ -320,10 +321,8 @@ class InternVL35Adapter:
     def parse_grounding_text(self, text: str) -> list[float] | None:
         return parse_internvl_box(text)
 
-    def predict(self, samples: list[ModelInput]) -> list[Prediction]:
-        import torch
-
-        if self._model is None or self._processor is None:
+    def prepare_inputs(self, samples: list[ModelInput]) -> dict:
+        if self._processor is None:
             raise RuntimeError("InternVL35Adapter.load() must run before predict()")
 
         processor = self._processor
@@ -348,7 +347,17 @@ class InternVL35Adapter:
             for sample in samples
             for image in (sample.visible, sample.infrared, sample.depth)
         ]
-        inputs = processor(text=texts, images=images, padding=True, return_tensors="pt")
+        return dict(
+            processor(text=texts, images=images, padding=True, return_tensors="pt")
+        )
+
+    def predict_from_inputs(self, inputs: dict) -> list[Prediction]:
+        import torch
+
+        if self._model is None or self._processor is None:
+            raise RuntimeError("InternVL35Adapter.load() must run before predict()")
+
+        processor = self._processor
         inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
 
         with torch.no_grad(), torch.autocast(
@@ -369,3 +378,6 @@ class InternVL35Adapter:
             Prediction(bbox=parse_internvl_box(text), score=None)
             for text in text_outputs
         ]
+
+    def predict(self, samples: list[ModelInput]) -> list[Prediction]:
+        return self.predict_from_inputs(self.prepare_inputs(samples))

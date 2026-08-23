@@ -289,6 +289,7 @@ def _run_dataloader_inference_loop(
     pending_items.sort(key=lambda x: (x.get("visible", x["key"]), x["key"]))
     print(f"Loading model '{adapter.model_name}' (revision {adapter.model_revision})...")
     adapter.load(device=device, lora_path=adapter_dir, model_path=model_path)
+    use_prepared = getattr(adapter, "supports_prepared_inputs", False)
 
     class _Dataset(Dataset):
         def __init__(self, items):
@@ -307,7 +308,7 @@ def _run_dataloader_inference_loop(
             }
 
     def _collate(batch):
-        return [
+        samples = [
             ModelInput(
                 visible=item["visible"],
                 infrared=item["infrared"],
@@ -317,6 +318,12 @@ def _run_dataloader_inference_loop(
             )
             for item in batch
         ]
+        if use_prepared:
+            # collate_fn runs inside the DataLoader worker processes, so this
+            # moves CPU-side prompt building and image processing off the
+            # main loop, overlapping them with GPU generation.
+            return [s.key for s in samples], adapter.prepare_inputs(samples)
+        return [s.key for s in samples], samples
 
     dataset = _Dataset(pending_items)
     loader = DataLoader(
@@ -332,12 +339,16 @@ def _run_dataloader_inference_loop(
     processed_count = len(predictions)
     since_last_save = 0
 
-    for batch in loader:
-        results = adapter.predict(batch)
-        for sample, result in zip(batch, results):
-            predictions[sample.key] = result.bbox
-        processed_count += len(batch)
-        since_last_save += len(batch)
+    for keys, payload in loader:
+        results = (
+            adapter.predict_from_inputs(payload)
+            if use_prepared
+            else adapter.predict(payload)
+        )
+        for key, result in zip(keys, results):
+            predictions[key] = result.bbox
+        processed_count += len(keys)
+        since_last_save += len(keys)
 
         if since_last_save >= batch_save or processed_count == len(items):
             elapsed = time.time() - start_time

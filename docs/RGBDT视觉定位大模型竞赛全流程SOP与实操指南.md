@@ -267,33 +267,35 @@ cd /mnt/workspace/aicomp-multimodal-grounding
 #    watch -n 1 rocm-smi --showuse --showmemuse
 
 # 单卡 MI300X 不要使用 --num-shards >1；每子进程会重复加载模型并抢同一张卡。
-# 推荐固定 --num-shards 1 --num-workers 4，由 DataLoader 预取图像与 GPU 推理并行。
+# 推荐固定 --num-shards 1 --num-workers 4：DataLoader worker 进程内完成图像
+# 解码与 processor 预处理，与 GPU 生成完全并行（Qwen/InternVL 已适配）。
 
-# 冒烟命令与实际推理使用同一 batch size；192GB 首轮直接选：
-# Qwen/InternVL = 8，GroundingDINO = 32。冒烟通过后去掉 --limit 100 即可全量。
+# 冒烟命令与实际推理使用同一 batch size；192GB 显存富余，Qwen/InternVL 建议
+# batch 16（此前 8 偏保守，实测 0.3 samples/s），GroundingDINO 建议 32。
+# 冒烟通过后去掉 --limit 100 即可全量；OOM 时按 8/16 退一档。
 
 # 冒烟 1/3：Qwen3-VL
-python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 8 --batch-save 100 --run-tag qwen-smoke
+python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-smoke
 
 # 冒烟 2/3：InternVL3.5
-python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 8 --batch-save 100 --run-tag internvl-smoke
+python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-smoke
 
 # 冒烟 3/3：GroundingDINO
 python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-smoke
 
 # 全量推理：以下只是去掉 --limit 100，其余参数与冒烟保持一致。
 # 1. Qwen3-VL
-python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 8 --batch-save 100 --run-tag qwen-infer
+python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-infer
 
 # 2. InternVL3.5
-python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 8 --batch-save 100 --run-tag internvl-infer
+python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-infer
 
 # 3. GroundingDINO
 python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-infer
 ```
 
 > 冒烟只需确认“有显示输出、无 OOM、无解析异常”；通过后直接跑全量。
-> 若 batch 8（DINO 为 32）OOM，请先退回 batch 4（DINO 16）再冒烟。
+> 若 Qwen/InternVL batch 16 或 DINO batch 32 出现 OOM，请退一档（batch 8/16）再冒烟。
 > 全量 Test 跑完后，`offline/infer.py` 会在推理目录自动生成 `submission.zip`。
 
 ---

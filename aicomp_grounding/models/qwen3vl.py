@@ -36,6 +36,7 @@ class Qwen3VLAdapter:
     model_name = MODEL_NAME
     model_revision = MODEL_REVISION
     supports_lora = True
+    supports_prepared_inputs = True
 
     def __init__(self, *, max_pixels: int = MAX_PIXELS):
         self.max_pixels = max_pixels
@@ -78,6 +79,10 @@ class Qwen3VLAdapter:
         )
         # Left padding keeps batched generation aligned for parsing.
         processor.tokenizer.padding_side = "left"
+        print(
+            f"[qwen3vl] image processor: {type(processor.image_processor).__name__}",
+            flush=True,
+        )
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             source,
@@ -275,11 +280,10 @@ class Qwen3VLAdapter:
     def parse_grounding_text(self, text: str) -> list[float] | None:
         return parse_bbox_from_text(text)
 
-    def predict(self, samples: list[ModelInput]) -> list[Prediction]:
-        import torch
+    def prepare_inputs(self, samples: list[ModelInput]) -> dict:
         from qwen_vl_utils import process_vision_info
 
-        if self._model is None or self._processor is None:
+        if self._processor is None:
             raise RuntimeError("Qwen3VLAdapter.load() must run before predict()")
 
         processor = self._processor
@@ -294,13 +298,23 @@ class Qwen3VLAdapter:
             for m in messages_list
         ]
         image_inputs, video_inputs = process_vision_info(messages_list)
-        inputs = processor(
-            text=texts,
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
+        return dict(
+            processor(
+                text=texts,
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt",
+            )
         )
+
+    def predict_from_inputs(self, inputs: dict) -> list[Prediction]:
+        import torch
+
+        if self._model is None or self._processor is None:
+            raise RuntimeError("Qwen3VLAdapter.load() must run before predict()")
+
+        processor = self._processor
         inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
 
         with torch.no_grad(), torch.autocast(
@@ -321,3 +335,6 @@ class Qwen3VLAdapter:
             Prediction(bbox=parse_bbox_from_text(text), score=None)
             for text in text_outputs
         ]
+
+    def predict(self, samples: list[ModelInput]) -> list[Prediction]:
+        return self.predict_from_inputs(self.prepare_inputs(samples))

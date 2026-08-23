@@ -78,6 +78,23 @@ class GroundingAdapter(Protocol):
         """Predict a batch of tri-modal inputs; order is preserved."""
         ...
 
+    #: Adapters that split preprocessing from generation set this True so the
+    #: DataLoader can run ``prepare_inputs`` inside worker processes.
+    supports_prepared_inputs: bool
+
+    def prepare_inputs(self, samples: list[ModelInput]) -> dict:
+        """CPU-only batch preprocessing (prompt + processor tensors).
+
+        Must not touch the loaded model.  Runs in DataLoader workers when
+        ``supports_prepared_inputs`` is True, overlapping image preprocessing
+        with GPU generation.
+        """
+        ...
+
+    def predict_from_inputs(self, inputs: dict) -> list[Prediction]:
+        """GPU-side generation from ``prepare_inputs`` output; order kept."""
+        ...
+
 
 class TrainableGroundingAdapter(Protocol):
     """Training-side contract for adapters that can drive the generic loop."""
