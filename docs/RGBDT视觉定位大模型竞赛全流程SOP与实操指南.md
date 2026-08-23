@@ -300,10 +300,11 @@ cd /mnt/workspace/aicomp-multimodal-grounding
 # 推荐固定 --num-shards 1 --num-workers 4：DataLoader worker 进程内完成图像
 # 解码与 processor 预处理，与 GPU 生成完全并行（Qwen/InternVL 已适配）。
 
-# 冒烟命令与实际推理使用同一 batch size；192GB 显存富余，Qwen3-VL-8B/InternVL 建议
-# batch 16（此前 8 偏保守，实测 0.3 samples/s），GroundingDINO 建议 32。
-# Qwen3-VL-32B 例外：33B dense 显存约为 8B 的 4 倍，batch 固定 1（可试 2）。
-# 冒烟通过后去掉 --limit 100 即可全量；OOM 时按 8/16 退一档。
+# 冒烟命令与实际推理使用同一 batch size；192GB 显存富余：
+# - Qwen3-VL-8B / InternVL3.5-8B 建议 batch 16
+# - GroundingDINO 建议 batch 32
+# - Qwen3-VL-32B 推荐 batch 4（稳健占用 ~96GB 显存，吞吐高；极速可选 batch 8，占用 ~130GB 显存）
+# 冒烟通过后去掉 --limit 100 即可全量；OOM 时按半折退档。
 
 # 冒烟 1/3：Qwen3-VL
 python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-smoke
@@ -311,37 +312,35 @@ python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/
 # 冒烟 2/3：InternVL3.5
 python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-smoke
 
-# 冒烟 3/3：GroundingDINO
+# 3. GroundingDINO 冒烟
 python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-smoke
 
-# 冒烟 4/4：Qwen3-VL-32B（权重在临时盘；batch 从 1 起步，OOM 需降 max_pixels 而非扩 batch）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 1 --batch-save 100 --run-tag qwen32-smoke
+# 4. Qwen3-VL-32B 冒烟（权重在临时盘；推荐 batch 4）
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 4 --batch-save 100 --run-tag qwen32-smoke
 
 # 全量推理：以下只是去掉 --limit 100，其余参数与冒烟保持一致。
-# 1. Qwen3-VL
+# 1. Qwen3-VL (8B)
 python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-infer
 
-# 2. InternVL3.5
+# 2. InternVL3.5 (8B)
 python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-infer
 
 # 3. GroundingDINO
 python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-infer
 
-# 4. Qwen3-VL-32B（先重下权重到 /root/models 再跑；batch 1）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 1 --batch-save 100 --run-tag qwen32-infer
+# 4. Qwen3-VL-32B（带 LoRA 微调全量推理；推荐 batch 4）
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 4 --batch-save 100 --run-tag qwen32-infer
 
 # 5. Qwen3-VL-32B 零样本基线推理（Zero-shot，无需 LoRA 权重）
-# a. 冒烟测试（100 条）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 1 --batch-save 100 --run-tag qwen32-zeroshot-smoke
+# a. 冒烟测试（100 条，推荐 batch 4）
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 4 --batch-save 100 --run-tag qwen32-zeroshot-smoke
 
-# b. 全量测试集推理（直接自动构建 submission.zip）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 1 --batch-save 100 --run-tag qwen32-zeroshot-full
+# b. 全量测试集推理（直接自动构建 submission.zip；推荐 batch 4）
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 4 --batch-save 100 --run-tag qwen32-zeroshot-full
 ```
 
 > 冒烟只需确认“有显示输出、无 OOM、无解析异常”；通过后直接跑全量。
-> 若 Qwen/InternVL batch 16 或 DINO batch 32 出现 OOM，请退一档（batch 8/16）再冒烟。
-> 32B 例外：batch 已是 1，若仍 OOM，用 `--max-pixels 1505280`（= 1920*28*28）下调
-> 像素预算换显存（代价是损失小目标精度，非不得已不降）。
+> 32B 在 192GB 显存下默认推荐 `--batch-size 4`（显存占约 50% / ~96GB）；若追求极限吞吐可设为 `--batch-size 8`（显存占约 68% / ~130GB）。
 > 全量 Test 跑完后，`offline/infer.py` 会在推理目录自动生成 `submission.zip`。
 
 ---
