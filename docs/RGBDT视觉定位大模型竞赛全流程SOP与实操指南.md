@@ -303,7 +303,7 @@ cd /mnt/workspace/aicomp-multimodal-grounding
 # 冒烟命令与实际推理使用同一 batch size；192GB 显存推荐：
 # - Qwen3-VL-8B / InternVL3.5-8B: batch 16
 # - GroundingDINO: batch 32
-# - Qwen3-VL-32B: batch 8
+# - Qwen3-VL-32B: batch 2
 
 # 冒烟 1/3：Qwen3-VL
 python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-smoke
@@ -315,7 +315,7 @@ python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/Op
 python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-smoke
 
 # 4. Qwen3-VL-32B 冒烟
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 8 --batch-save 100 --run-tag qwen32-smoke
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-smoke
 
 # 全量推理：
 # 1. Qwen3-VL (8B)
@@ -328,14 +328,14 @@ python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/Op
 python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-infer
 
 # 4. Qwen3-VL-32B（带 LoRA 微调全量推理）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 8 --batch-save 100 --run-tag qwen32-infer
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-infer
 
 # 5. Qwen3-VL-32B 零样本基线推理（Zero-shot，无需 LoRA 权重）
 # a. 冒烟测试（100 条）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 8 --batch-save 100 --run-tag qwen32-zeroshot-smoke
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-zeroshot-smoke
 
 # b. 全量测试集推理（自动构建 submission.zip）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 8 --batch-save 100 --run-tag qwen32-zeroshot-full
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-zeroshot-full
 ```
 
 > 全量 Test 跑完后，`offline/infer.py` 会在推理目录自动生成 `submission.zip`。
