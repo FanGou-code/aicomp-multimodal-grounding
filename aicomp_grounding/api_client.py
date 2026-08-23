@@ -187,6 +187,10 @@ class OpenAIProtocolClient:
                 if attempt == self.transport_attempts:
                     raise APIError(f"API request failed: {exc}") from exc
                 delay = 2 ** (attempt - 1)
+            except APIError as exc:
+                if attempt == self.transport_attempts:
+                    raise
+                delay = 2 ** (attempt - 1)
             self.sleeper(min(delay, 30.0) + random.random() * 0.25)
         raise AssertionError("Unreachable API retry state")
 

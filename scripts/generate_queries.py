@@ -394,11 +394,19 @@ def _verify_query(
         _image_part(plain_rgb),
         {"type": "text", "text": VERIFICATION_PROMPT},
     ]
-    response = client.complete(
-        messages=_messages(content, prompt=""),
-        max_tokens=GENERATION_CONFIG["query_max_tokens"],
-        temperature=0.0,
-    )
+    try:
+        response = client.complete(
+            messages=_messages(content, prompt=""),
+            max_tokens=GENERATION_CONFIG["query_max_tokens"],
+            temperature=0.0,
+        )
+    except APIError as exc:
+        return {
+            "passed": False,
+            "iou": None,
+            "error": f"verification API call failed ({exc}); retry candidate query",
+            "api_call": None,
+        }
     recovered = parse_verification_bbox(response.content)
     if recovered is None:
         return {
@@ -439,15 +447,19 @@ def _annotate_frame(
         annotation_attempt_numbers(previous, retry_failed=retry_failed), start=1
     ):
         attempts = attempt_number
-        response = client.complete(
-            messages=_messages(
-                _frame_visual_content(marked_rgb),
-                prompt=FRAME_QUERY_PROMPT,
-                previous_error=last_error if run_attempt > 1 else "",
-            ),
-            max_tokens=GENERATION_CONFIG["query_max_tokens"],
-            temperature=GENERATION_CONFIG["temperature"],
-        )
+        try:
+            response = client.complete(
+                messages=_messages(
+                    _frame_visual_content(marked_rgb),
+                    prompt=FRAME_QUERY_PROMPT,
+                    previous_error=last_error if run_attempt > 1 else "",
+                ),
+                max_tokens=GENERATION_CONFIG["query_max_tokens"],
+                temperature=GENERATION_CONFIG["temperature"],
+            )
+        except APIError as exc:
+            last_error = f"API error: {exc}"
+            continue
         api_calls.append(response.record)
         try:
             candidates = parse_frame_query_candidates(response.content)
@@ -457,7 +469,8 @@ def _annotate_frame(
         uncertain = bool(candidates["uncertain"])
         if verify and plain_rgb is not None and gt_bbox is not None:
             verdict = _verify_query(client, plain_rgb, candidates["query"], gt_bbox)
-            api_calls.append(verdict["api_call"])
+            if verdict["api_call"] is not None:
+                api_calls.append(verdict["api_call"])
             if not verdict["passed"]:
                 last_error = verdict["error"]
                 print(
