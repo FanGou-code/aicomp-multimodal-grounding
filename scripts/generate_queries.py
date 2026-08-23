@@ -57,8 +57,11 @@ from aicomp_grounding.sequence import (
     parse_verification_bbox,
     source_fingerprint,
 )
-from aicomp_grounding.sharding import group_keys_by_scene
-from aicomp_grounding.api_client import OpenAIProtocolClient, SlidingWindowRateLimiter
+from aicomp_grounding.api_client import (
+    APIError,
+    OpenAIProtocolClient,
+    SlidingWindowRateLimiter,
+)
 
 FRAME_QUERY_PROMPT = """Write a natural English visual-grounding query for the physical object enclosed by the red rectangle.
 
