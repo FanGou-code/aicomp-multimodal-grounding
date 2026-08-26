@@ -140,42 +140,7 @@ class SequenceAnnotationTests(unittest.TestCase):
             parse_frame_query_candidates(duplicate_top_level)
 
 
-class VerificationBBoxParsingTests(unittest.TestCase):
-    def test_normal_json_bbox(self):
-        from aicomp_grounding.sequence import parse_verification_bbox
-        self.assertEqual(
-            parse_verification_bbox('{"bbox":[0.1,0.2,0.3,0.4]}'),
-            [0.1, 0.2, 0.3, 0.4],
-        )
 
-    def test_bare_array_bbox(self):
-        from aicomp_grounding.sequence import parse_verification_bbox
-        self.assertEqual(
-            parse_verification_bbox('[0.5,0.5,0.6,0.6]'),
-            [0.5, 0.5, 0.6, 0.6],
-        )
-
-    def test_0_1000_scaled_down(self):
-        from aicomp_grounding.sequence import parse_verification_bbox
-        self.assertEqual(
-            parse_verification_bbox('{"bbox":[125,240,780,910]}'),
-            [0.125, 0.24, 0.78, 0.91],
-        )
-
-    def test_code_fenced_json(self):
-        from aicomp_grounding.sequence import parse_verification_bbox
-        self.assertEqual(
-            parse_verification_bbox('```json\n{"bbox":[0.1,0.2,0.3,0.4]}\n```'),
-            [0.1, 0.2, 0.3, 0.4],
-        )
-
-    def test_inverted_box_returns_none(self):
-        from aicomp_grounding.sequence import parse_verification_bbox
-        self.assertIsNone(parse_verification_bbox('{"bbox":[0.5,0.5,0.3,0.3]}'))
-
-    def test_garbage_returns_none(self):
-        from aicomp_grounding.sequence import parse_verification_bbox
-        self.assertIsNone(parse_verification_bbox("no coordinates at all"))
 
 
 if __name__ == "__main__":

@@ -146,54 +146,7 @@ def parse_frame_query_candidates(text: str) -> dict[str, object]:
     }
 
 
-def parse_verification_bbox(text: str) -> list[float] | None:
-    """Parse a localization response into a normalized XYXY bbox or None.
 
-    Accepts either a JSON object ``{"bbox": [x1, y1, x2, y2]}`` or a bare
-    ``[x1, y1, x2, y2]`` array. Coordinates given in the 0-1000 integer
-    convention (any value clearly above the unit range) are scaled to [0, 1].
-    Returns None when no valid four-coordinate box can be extracted.
-    """
-    from aicomp_grounding.bbox import validate_bbox
-
-    cleaned = clean_query_text(text)
-    if not cleaned:
-        return None
-
-    candidates: list[list[float]] = []
-    # Strip code fences if GLM wrapped the JSON in ```json ... ```.
-    fenced = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
-    if fenced:
-        cleaned = fenced.group(1)
-
-    # Try parsing as JSON first (object with bbox, or bare array).
-    try:
-        parsed = json.loads(cleaned, object_pairs_hook=_reject_duplicate_json_keys)
-    except json.JSONDecodeError:
-        parsed = None
-    if isinstance(parsed, dict):
-        box = parsed.get("bbox") or parsed.get("box") or parsed.get("coordinates")
-        if isinstance(box, list) and len(box) == 4:
-            candidates.append([float(v) for v in box])
-    elif isinstance(parsed, list) and len(parsed) == 4:
-        candidates.append([float(v) for v in parsed])
-
-    # Fall back to the first four-number run if JSON parsing failed.
-    if not candidates:
-        match = re.search(
-            r"\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,"
-            r"\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]",
-            cleaned,
-        )
-        if match:
-            candidates.append([float(g) for g in match.groups()])
-
-    for box in candidates:
-        if any(value > 1.5 for value in box):
-            box = [value / 1000.0 for value in box]
-        if validate_bbox(box) is not None:
-            return [round(value, 6) for value in box]
-    return None
 
 
 def sequence_keys(dataset: dict, sequence_id: str) -> list[str]:

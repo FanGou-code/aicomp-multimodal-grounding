@@ -51,10 +51,8 @@ from aicomp_grounding.images import (
     verify_dataset_images,
 )
 from aicomp_grounding.io import atomic_write_json, load_json
-from aicomp_grounding.bbox import compute_iou
 from aicomp_grounding.sequence import (
     parse_frame_query_candidates,
-    parse_verification_bbox,
     source_fingerprint,
 )
 from aicomp_grounding.sharding import group_keys_by_scene
@@ -64,13 +62,6 @@ from aicomp_grounding.api_client import (
     SlidingWindowRateLimiter,
 )
 from aicomp_grounding.query_style import STYLE_PROMPT_HASH, build_style_prompt
-
-VERIFICATION_PROMPT = """You are given one complete RGB scene with no markings, plus a referring query that describes exactly one object in the scene. Locate that single object and output its tight bounding box.
-
-Return only JSON: {"bbox":[x1,y1,x2,y2]}
-Coordinates are normalized to [0, 1]: 0 = left/top edge, 1 = right/bottom edge. Require x1 < x2 and y1 < y2. If the query cannot be resolved to a single object, still return your best guess as a valid box. Output JSON only, no prose."""
-VERIFICATION_PROMPT_HASH = hashlib.sha256(VERIFICATION_PROMPT.encode("utf-8")).hexdigest()
-VERIFICATION_IOU_THRESHOLD = 0.5
 
 GENERATION_CONFIG = {
     "query_max_tokens": 4096,
@@ -171,16 +162,10 @@ def prepare_annotation_plan(
     concurrency: int,
     run_tag: str,
     verify_images: bool = False,
-    verify_queries: bool = False,
 ) -> dict:
     root = Path(data_root).resolve()
     dataset = _load_annotation_source(root, split)
     generation_config = dict(GENERATION_CONFIG)
-    if verify_queries:
-        generation_config["verify_queries"] = {
-            "prompt_hash": VERIFICATION_PROMPT_HASH,
-            "iou_threshold": VERIFICATION_IOU_THRESHOLD,
-        }
     plan = build_annotation_plan(
         dataset,
         split=split,
@@ -222,7 +207,6 @@ def preflight_annotation_run(
     retry_failed: bool = False,
     overwrite: bool = False,
     deep_verify_images: bool = False,
-    verify_queries: bool = False,
 ) -> dict:
     plan = prepare_annotation_plan(
         data_root=data_root,
@@ -232,7 +216,6 @@ def preflight_annotation_run(
         concurrency=concurrency,
         run_tag=run_tag,
         verify_images=deep_verify_images,
-        verify_queries=verify_queries,
     )
     run_dir = output_root.resolve() / plan["metadata"]["run_id"] / split
     if overwrite and run_dir.is_dir():
@@ -337,72 +320,12 @@ def _load_marked_frame(data_root: Path, item: dict) -> Image.Image:
     return build_marked_annotation_view(_load_plain_frame(data_root, item), item["bbox"])
 
 
-def _verify_query(
-    client: OpenAIProtocolClient,
-    plain_rgb: Image.Image,
-    query: str,
-    gt_bbox: list[float],
-) -> dict:
-    """Re-query GLM with the unmarked image to recover a box and score it.
-
-    Returns ``{"passed": bool, "iou": float, "error": str, "api_call": dict}``.
-    A None IoU means the model emitted no parseable box; that counts as a
-    verification failure (the query did not let the model locate the target).
-    """
-    content = [
-        _image_part(plain_rgb),
-        {
-            "type": "text",
-            "text": (
-                f"Referring query: {query}\n\nLocate the single object this "
-                "query describes in the unmarked RGB scene and return its "
-                "bounding box.\n\n" + VERIFICATION_PROMPT
-            ),
-        },
-    ]
-    try:
-        response = client.complete(
-            messages=_messages(content, prompt=""),
-            max_tokens=GENERATION_CONFIG["query_max_tokens"],
-            temperature=0.0,
-        )
-    except APIError as exc:
-        return {
-            "passed": False,
-            "iou": None,
-            "error": f"verification API call failed ({exc}); retry candidate query",
-            "api_call": None,
-        }
-    recovered = parse_verification_bbox(response.content)
-    if recovered is None:
-        return {
-            "passed": False,
-            "iou": None,
-            "error": "verification returned no parseable box",
-            "api_call": response.record,
-        }
-    iou = compute_iou(recovered, gt_bbox)
-    passed = iou >= VERIFICATION_IOU_THRESHOLD
-    return {
-        "passed": passed,
-        "iou": round(iou, 4),
-        "error": "" if passed else (
-            f"verification IoU {iou:.4f} below {VERIFICATION_IOU_THRESHOLD:.2f}; "
-            "rewrite so a reader given the unmarked image lands on the target"
-        ),
-        "api_call": response.record,
-    }
-
-
 def _annotate_frame(
     client: OpenAIProtocolClient,
     marked_rgb: Image.Image,
     *,
     previous: dict | None,
     retry_failed: bool,
-    plain_rgb: Image.Image | None = None,
-    gt_bbox: list[float] | None = None,
-    verify: bool = False,
     style_fields: dict | None = None,
 ) -> dict:
     keep_history = bool(previous and retry_failed)
@@ -447,20 +370,6 @@ def _annotate_frame(
             last_error = str(exc)
             continue
         uncertain = bool(candidates["uncertain"])
-        if verify and plain_rgb is not None and gt_bbox is not None:
-            verdict = _verify_query(client, plain_rgb, candidates["query"], gt_bbox)
-            if verdict["api_call"] is not None:
-                api_calls.append(verdict["api_call"])
-            if not verdict["passed"]:
-                last_error = verdict["error"]
-                print(
-                    f"[verify] IoU={verdict['iou']} FAIL → retry",
-                    flush=True,
-                )
-                continue
-            print(
-                f"[verify] IoU={verdict['iou']} pass", flush=True
-            )
         return {
             "status": "completed",
             "query": candidates["query"],
@@ -512,7 +421,6 @@ def annotate_shard(
     timeout_seconds: float = 180.0,
     rate_limiter: SlidingWindowRateLimiter | None = None,
     progress: AnnotationProgress | None = None,
-    verify_queries: bool = False,
 ) -> dict:
     metadata = plan["metadata"]
     dataset = _load_annotation_source(data_root, metadata["split"])
@@ -605,9 +513,6 @@ def annotate_shard(
                     marked_rgb,
                     previous=previous_frame,
                     retry_failed=retry_failed,
-                    plain_rgb=plain_rgb if verify_queries else None,
-                    gt_bbox=item["bbox"],
-                    verify=verify_queries,
                     style_fields=item,
                 )
                 save_checkpoint()
@@ -783,7 +688,6 @@ def run_annotation(
     publish: bool = False,
     preflight_only: bool = False,
     deep_verify_images: bool = False,
-    verify_queries: bool = False,
     timeout_seconds: float = 180.0,
     requests_per_minute: int = ANNOTATION_REQUESTS_PER_MINUTE,
     tokens_per_minute: int = ANNOTATION_TOKENS_PER_MINUTE,
@@ -804,7 +708,6 @@ def run_annotation(
         retry_failed=retry_failed,
         overwrite=overwrite,
         deep_verify_images=deep_verify_images,
-        verify_queries=verify_queries,
     )
     if preflight_only:
         print(
@@ -854,11 +757,6 @@ def run_annotation(
                     timeout_seconds=timeout_seconds,
                     rate_limiter=limiter,
                     progress=progress,
-                    verify_queries=bool(
-                        plan.get("metadata", {})
-                        .get("generation_config", {})
-                        .get("verify_queries")
-                    ),
                 )
             )
         for future in as_completed(futures):
@@ -910,17 +808,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--deep-verify-images", action="store_true")
-    parser.add_argument(
-        "--verify-queries",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help=(
-            "Self-localization verification: after generating each query, "
-            "re-query GLM with the UNMARKED image to recover a box and reject "
-            "queries whose recovery IoU with the GT box is below "
-            f"{VERIFICATION_IOU_THRESHOLD}. Failed queries retry."
-        ),
-    )
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument(
         "--requests-per-minute",

@@ -31,9 +31,9 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 **当前阶段与下一步**：32B 适配器代码已接入（`qwen3vl32`，纯兼容，8B 指纹零漂移），
 等待 GPU 冒烟（`--model qwen3vl32 --smoke-test`）；阶段一「标注对齐+数据扩展」零 GPU
-可并行推进（pilot → 风格审计 → 全量重生成）。标注验证已修复：GLM-4.6V 请求显式
-禁用 thinking，避免验证调用耗尽 `max_tokens` 后返回空 content。重跑 pilot 必须使用
-新 run-tag，`generation_config` 变化会自然生成新 run id。新风格计划链路已接入：
+可并行推进（pilot → 风格审计 → 全量重生成）。反向闭环验证（`_verify_query`）模块已移除：
+场景卡与风格规划已在规划层消除二义性，移除反向验证避免了微小目标误杀（False Rejection）
+并减少 50% API 耗时与 Token 消耗。新风格计划链路已接入：
 预定义句式族 → 400 序列场景卡 → 确定性 style plan → 扩展样本 ID →
 分组提示词生成，旧自由生成模式已移除。API 调用与全量生成由用户亲自执行。
 详见下方「当前状态」。
@@ -43,7 +43,15 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 每次开机从魔搭内网拉到实例临时盘 `/root/models`；`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-26，新标注策略基础接入与文档同步）
+## 当前状态（最后更新 2026-08-27，移除反向闭环验证模块与流水线精简）
+
+### 移除反向闭环验证模块（2026-08-27）
+- **决策与依据**：场景卡已在源头完成单目标与多目标的语法路由（多目标走序数/地标，单目标走属性），
+  规划层已消除二义性。反向验证存在对密集微小目标（中位数 25x30 像素）的检出误杀，且翻倍消耗 API。
+- **清理范围**：彻底移除 `generate_queries.py` 中的 `_verify_query`、`--verify-queries`、
+  `VERIFICATION_PROMPT`；移除 `sequence.py` 中的 `parse_verification_bbox` 及对应单测；
+  简化 `_annotate_frame` 与 `annotate_shard`。
+- **单测状态**：215 项单测全部通过（4 skip）。
 
 ### 新标注策略接入（2026-08-25）
 - 新增 `aicomp_grounding/query_style.py`：语义组、官方模板族、场景卡解析、
@@ -163,6 +171,16 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-27（仓库，移除反向闭环验证模块）
+
+* **动因**：场景卡已在规划层解决单目标（属性）与多目标（序数/地标）的语法路由，
+  消除二义性。反向验证在微小目标场景存在误杀（False Rejection），且调用量翻倍。
+* **清理**：从 `scripts/generate_queries.py` 移除 `_verify_query`、`--verify-queries`、
+  `VERIFICATION_PROMPT`；从 `aicomp_grounding/sequence.py` 移除 `parse_verification_bbox`；
+  移除对应单测（`VerificationBBoxParsingTests` 与 API 验证测试）。
+* `README.md` 与交接文档同步更新生成命令。
+* 全量单测 215 项全部通过（4 skip），`compileall` 与 `git diff --check` 通过。
 
 ### 2026-08-26（仓库，data 目录回退旧布局并保留 test.json 删除）
 

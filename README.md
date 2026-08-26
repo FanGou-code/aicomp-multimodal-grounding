@@ -304,21 +304,18 @@ python -u scripts/generate_queries.py \
   --data-root outputs/annotation_analysis/expanded_train \
   --split train \
   --limit-sequences 10 \
-  --verify-queries \
   --run-tag glm46v-style-plan-pilot
 
 python -u scripts/generate_queries.py \
   --data-root outputs/annotation_analysis/expanded_train \
   --split train \
   --publish \
-  --verify-queries \
   --run-tag glm46v-style-plan-gen
 
 python -u scripts/generate_queries.py \
   --data-root outputs/annotation_analysis/expanded_val \
   --split val \
   --publish \
-  --verify-queries \
   --run-tag glm46v-style-plan-gen
 ```
 
