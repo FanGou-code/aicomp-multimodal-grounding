@@ -1,8 +1,8 @@
-"""Official High-Speed Modal Multi-Worker Batch-Inference Engine for Qwen3-VL.
+"""Modal batch inference entrypoint for Qwen3-VL.
 
 Supports:
 1. Validation Set Evaluation (--split val): Computes ACC@0.5 and mIoU.
-2. Official Test Set Generation (--split test): Runs high-speed Batch-4 inference on 9,555 test queries
+2. Official Test Set Generation (--split test): Runs inference on 9,555 test queries
    with automatic packaging into a verified official submission.zip.
 3. Multi-Card Elastic Sharding (--num-shards 8): Automatically distributes work across parallel H100s.
 """

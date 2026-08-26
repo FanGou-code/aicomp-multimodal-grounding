@@ -1,457 +1,321 @@
----
-tags:
-  - aicomp
-  - multimodal
-  - grounding
-  - vlm
-  - sop
-  - modelscope
-  - modal
-updated: 2026-08-23
----
+# RGBDT 视觉定位：训练与推理 SOP
 
-# RGBDT 视觉定位竞赛：全流程 SOP 与多平台实操指南
+> 本文仅描述魔搭 DSW 上的数据落位、模型下载、训练和推理操作。
+> 数据预处理、索引生成和标注流程见根 README。
 
-> 本文档为团队协作操作指南，涵盖数据准备、云端分发、魔搭（ModelScope）与 Modal 平台的训练、多进程推理、WBF 融合及提交包（`submission.zip`）构建。
+## 路径约定
 
----
-
-## 零、 核心分发规范：代码、数据与模型解耦
-
-```mermaid
-flowchart LR
-    A["GitHub 代码仓库
-(代码 + 标注文件)"] -->|"git clone"| DSW["魔搭持久空间
-/mnt/workspace/"]
-    B["ModelScope 私有数据集
-(44GB 数据包 data.tar)"] -->|"modelscope download"| DSW
-    C["ModelScope 模型库
-(Qwen / InternVL / DINO)"] -->|"modelscope download"| DSW
-    DSW --> TRAIN["AMD 192G 实例
-LoRA 微调训练"]
-    TRAIN --> INFER["多进程推理
-(ACC@0.5 选优权重)"]
-    INFER --> FUSION["WBF 框融合
-➔ submission.zip"]
+```text
+/mnt/workspace/                            持久盘
+/mnt/workspace/data/                       数据集根
+/mnt/workspace/aicomp_env/                持久虚拟环境
+/mnt/workspace/aicomp-multimodal-grounding/ 仓库
+/root/models/                              非持久模型目录
 ```
 
-| 资产类型 | 托管平台 | 拉取方式 | 说明 |
-| :--- | :--- | :--- | :--- |
-| **项目代码** | GitHub 私有仓库 | `git clone` (Token 鉴权) | 代码与标注文件，随时 `git pull` 同步。 |
-| **数据集 (44GB)** | ModelScope 私有数据集 | `modelscope download --dataset` | 机房内网下载，避免网页端传输大文件。 |
-| **基座模型** | ModelScope 官方模型库 | `modelscope download --model` | 官方原生托管，断点续传。 |
+模型全部下载到 `/root/models`，关机即失，每次 GPU 实例开机后重新下载。
 
----
-
-## 一、 第一阶段：本地数据准备与私有云端托管（仅负责人执行）
-
-> [!NOTE]
-> **团队协作提示**：
-> 完整数据集已由负责人预处理并托管至魔搭私有仓库。**队友无需在本地重复下载、清洗或上传数据**。联系负责人（Fang0）开通私有数据集权限后，**直接从【第二阶段：魔搭社区 (ModelScope DSW) 操作流程】开始执行即可**。
-
-以下步骤仅供数据维护者或需要重新构建数据集时参考：
-
-### 1. 克隆项目与安装基础依赖
-```bash
-git clone https://YOUR_GITHUB_TOKEN@github.com/FanGou-code/aicomp-multimodal-grounding.git
-cd aicomp-multimodal-grounding
-pip install -r requirements.txt
-```
-
-### 2. 原始数据填充与预处理
-将官方 `Train/`（400 个序列）与 `Test/` 放入 `data/raw/`：
-```bash
-mkdir -p data/raw data/derived
-# 将原始 Train/ 和 Test/ 放入 data/raw/
-python scripts/prepare_rgbdt.py --dataset-root data --skip-test-validation
-python scripts/build_indexes.py --data-dir data
-```
-
-### 3. 打包数据
-```bash
-tar -cf /home/fang0/dev/projects/data.tar -C data raw derived
-```
-
-### 4. 上传至魔搭私有数据集仓库
-```bash
-python scripts/upload_dataset.py --repo-id Fang001/rgbdt-grounding-dataset --token YOUR_MODELSCOPE_TOKEN --path /home/fang0/dev/projects/data.tar
-```
-
-### 5. 重新生成官方风格 Query 标注（新标注轮次，仅负责人执行）
-
-> 背景：旧标注的 Query 句式与任务目标存在风格差异，新流程把语义内容与句式结构
-> 解耦，按预定义句式族和场景支持度生成确定性 `style_plan`。
+## 1. 准备数据集
 
 ```bash
-export API_KEY="YOUR_API_KEY"
-
-# 1. 400 序列场景卡（需要 API_KEY；每个序列抽样 3 帧）
-python -u scripts/build_scene_cards.py \
-  --split train --frame-count 3 --concurrency 4 --index-root data/indexes
-python -u scripts/build_scene_cards.py \
-  --split val --frame-count 3 --concurrency 4 --index-root data/indexes
-
-# 2. style plan + expanded data root（无 API）
-python scripts/build_style_plan.py \
-  --split train \
-  --index-root data/indexes \
-  --scene-cards outputs/annotation_analysis/scene_cards/train/cards.json \
-  --queries-per-frame 3
-python scripts/build_style_plan.py \
-  --split val \
-  --index-root data/indexes \
-  --scene-cards outputs/annotation_analysis/scene_cards/val/cards.json \
-  --queries-per-frame 3
-
-# 3. 分组提示词生成（pilot 先跑 10 序列；全量发布时去掉 limit）
-python -u scripts/generate_queries.py \
-  --data-root outputs/annotation_analysis/expanded_train \
-  --split train --limit-sequences 10 --seed 42 --concurrency 4 \
-  --run-tag glm46v-style-plan-pilot --verify-queries
-
-# b. 审计风格分布
-python scripts/audit_query_style.py \
-  --queries outputs/annotation_analysis/expanded_train/train.json --full
-
-# c. 审计达标并人工抽检空间关系无幻觉后，全量生成并发布
-#    （--verify-queries 开启质量门控：短标签自动重试 + 无红框复定位 IoU<0.5 重写）
-python -u scripts/generate_queries.py \
-  --data-root outputs/annotation_analysis/expanded_train \
-  --split train --seed 42 --concurrency 4 \
-  --run-tag glm46v-style-plan-gen --publish --verify-queries
-python -u scripts/generate_queries.py \
-  --data-root outputs/annotation_analysis/expanded_val \
-  --split val --seed 42 --concurrency 4 \
-  --run-tag glm46v-style-plan-gen --publish --verify-queries
-```
-
-> 质量门控说明：`--verify-queries` 让每帧生成后追加一次无红框原图复定位，
-> GLM 根据刚生成的 Query 反查目标框，与 GT 框 IoU<0.5 判失败并自动重写。
-> 同时短 Query（<5 词且无空间词）在 QC 时被拒。开启后 API 调用量约为
-> 未开启的 1.5~2 倍，但显著提升标注可信度。验证参数计入 run id，
-> 开启与不开启是不同标注 run。
-
-> 兼容说明：新流程只生成带 `annotation_style` 的 expanded item；旧自由生成模式
-> 已移除，训练核心与模型指纹不变。
-
-**发布后必做的分发动作**：
-1. 从 `outputs/annotations/` 目录名获取新标注 run id（后续所有训练命令中的
-   `YOUR_ANNOTATION_RUN_ID` 都替换为它）；
-2. 更新 `.gitignore` 中 `outputs/annotations/annot_.../` 白名单为新 run id
-   并提交，队友 `git pull` 即可拿到新 `approved.json`（旧 run 产物保持原样，
-   指纹可回溯，不要删除）。
-
----
-
-## 二、 第二阶段：魔搭社区 (ModelScope DSW) 操作流程（全员执行）
-
-持久化目录为 `/mnt/workspace/`（关机不丢数据）。
-
-> [!NOTE]
-> **模型分工与推理共性说明**：
-> - **Qwen3-VL / InternVL3.5 分支**：需结合深度图信息，执行 Depth-JET 伪彩转换（`prepare_rgbdt.py`）与 LoRA 微调训练；
-> - **GroundingDINO 分支**：属于 Zero-shot 开箱即用模型，仅使用可见光图像（无需生成 Depth-JET 伪彩，无需 LoRA 训练）；
-> - **全模型推理共性**：三个模型在阶段 2.3 进行测试集推理时，**直接读取
->   `data/raw/Test/queries/queries.json`**，推理核心会自动映射为 worker 路径。
-
-### 基座模型 ID 与落盘路径
-
-| 模型代号 (`--model`) | ModelScope 模型 ID | 本地落盘路径 (`--model-path`) | 技术类型 |
-| :--- | :--- | :--- | :--- |
-| `qwen3vl32` | `Qwen/Qwen3-VL-32B-Instruct` | `/root/models/Qwen/Qwen3-VL-32B-Instruct`（临时盘，非持久） | 多模态 VLM (LoRA 微调，二代主力，33B dense) |
-| `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | `/mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct` | 多模态 VLM (LoRA 微调) |
-| `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | `/mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF` | 多模态 VLM (LoRA 微调) |
-| `groundingdino` | `AI-ModelScope/GroundingDINO` | `/mnt/workspace/models/AI-ModelScope/grounding-dino-base` | 开放词表检测 (Zero-shot 推理) |
-
----
-
-### 阶段 2.1：在【CPU 实例】下下载资产与预处理（零 GPU 额度消耗）
-
-在魔搭控制台启动：`方式一：CPU 环境`（8核 32GB，免费不限时），在终端执行：
-
-#### 1. 克隆代码仓库
-```bash
-cd /mnt/workspace
-git clone https://YOUR_GITHUB_TOKEN@github.com/FanGou-code/aicomp-multimodal-grounding.git
-```
-
-#### 2. 下载数据集并一次性全量解压（不要重复生成 Processed / 索引）
-```bash
-# a. 下载数据压缩包到实例临时盘（不写入持久盘）
 cd /mnt/workspace/aicomp-multimodal-grounding
 mkdir -p /tmp/rgbdt-download /mnt/workspace/data
+
 modelscope download --dataset Fang001/rgbdt-grounding-dataset data.tar \
   --token YOUR_MODELSCOPE_TOKEN --local_dir /tmp/rgbdt-download
 
-# b. 先确认持久盘空间足够（Raw+Processed 全量约 44GB，建议预留 60GB）
-df -h /mnt/workspace
-
-# c. 全量解压到持久盘，包含 raw/Train、raw/Test、derived/Processed 与 queries.json
 tar -xf /tmp/rgbdt-download/data.tar -C /mnt/workspace/data --no-same-owner
 
-# d. 删除临时压缩包，避免重复占用临时盘
-rm -f /tmp/rgbdt-download/data.tar
-
-# e. 只做轻量存在性检查，不要执行全量 SHA-256 审计或 Depth-JET 生成
 test -f /mnt/workspace/data/raw/Test/queries/queries.json
-test -d /mnt/workspace/data/derived/Processed/Train
 test -d /mnt/workspace/data/raw/Train
+test -d /mnt/workspace/data/derived/Processed/Train
 ```
 
-> 说明：本地打包时 `data.tar` 已包含 `derived/Processed` 与官方
-> `raw/Test/queries/queries.json`。云端只需全量解压
-> 一次；`train.json`、`val.json`、`split_manifest.json`、`excluded_overlap.json`
-> 都是本地流水线/审计产物，训练与推理直接使用 approved 标注和官方模板，
-> 不需要在云端重新生成。
+## 2. 创建并激活环境
 
-#### 3. 下载基座模型（8B / InternVL / DINO 落 `/mnt/workspace/models/`；32B 落临时盘）
+首次执行：
+
 ```bash
-# 1. Qwen3-VL-8B (负责 Qwen 分支执行)
-modelscope download --model Qwen/Qwen3-VL-8B-Instruct --local_dir /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct
-
-# 2. InternVL3.5-8B (负责 InternVL 分支执行)
-modelscope download --model OpenGVLab/InternVL3_5-8B-HF --local_dir /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF
-
-# 3. GroundingDINO (负责 DINO 分支执行)
-modelscope download --model AI-ModelScope/GroundingDINO --local_dir /mnt/workspace/models/AI-ModelScope/grounding-dino-base
-
-# 4. Qwen3-VL-32B (二代主力 VLM。约 66G，远超持久盘可用配额，因此下载到实例本地
-#    临时盘 /root/models——非持久、关机即失，每次开机重新拉取（魔搭内网快，约
-#    6-15 分钟）。临时盘需约 ≥80G 空位。若实例临时盘路径不是 /root/models，改
-#    后面所有 --model-path 中的同名路径即可。)
-mkdir -p /root/models/Qwen
-modelscope download --model Qwen/Qwen3-VL-32B-Instruct --local_dir /root/models/Qwen/Qwen3-VL-32B-Instruct
-```
-
-> **资产准备完毕后，在控制台停止该 CPU 实例。**
-
----
-
-### 阶段 2.2：在【AMD2 192G 实例】下配置持久环境并启动训练
-
-在魔搭控制台启动：`方式三：AMD2 GPU 环境`（8核 200GB 内存，显存 192G，100 小时免费额度）。
-
-#### 1. 首次配置持久 GPU 虚拟环境（仅需执行 1 次，永久保留）
-```bash
-# a. 创建持久化虚拟环境
 python3 -m venv --system-site-packages /mnt/workspace/aicomp_env
-
-# b. 激活环境并安装依赖包
 source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
-pip install -r requirements.txt transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 qwen-vl-utils==0.0.14 -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
 
-# c. 加载并持久化 AMD ROCm 性能环境（仅 AMD 实例需要）
+pip install -r requirements.txt transformers==4.57.3 peft==0.19.1 \
+  accelerate==1.14.0 qwen-vl-utils==0.0.14 \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+
 source offline/rocm_env.sh
-echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' >> /mnt/workspace/aicomp_env/bin/activate
+echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' \
+  >> /mnt/workspace/aicomp_env/bin/activate
 ```
 
-> **提示**：以后每次重新开机或换卡，无需重复安装依赖，只需执行激活命令：
-> `source /mnt/workspace/aicomp_env/bin/activate`
->
-> **训练性能说明**：仓库已将 DataLoader `num_workers` 调整为 4，
-> 启用 `persistent_workers=True`，step checkpoint 从每 20 步调整为每 50 步；
-> 这些改动不改变训练结果，只降低 CPU/磁盘开销。
->
-> **磁盘说明（断点自动保留）**：训练断点已改为自动清理——step 断点只保留
-> 最近 2 个、epoch 断点只保留最新 1 个、训练完成后自动清空 `checkpoints/`
-> （最终只留 `best/` 与 `last/`，单 run 约 0.6G）。**实例时长不够、训练拆多次
-> 跑完全不受影响**：`--resume` 自动从最新断点精确恢复。历史 run 的旧断点需
-> 手动清理：`rm -rf outputs/output_lora/<旧RUN_ID>/checkpoints`。
->
-> **前置条件**：训练前确认 `outputs/annotations/YOUR_ANNOTATION_RUN_ID/`
-> 已就位（新标注轮次：负责人发布后更新 `.gitignore` 白名单，`git pull` 获取；
-> 将下方命令中的 `YOUR_ANNOTATION_RUN_ID` 替换为实际 run id）。
+之后每次执行：
 
-#### 2. 启动后台会话守护并在会话中激活环境
 ```bash
-# a. 开启并进入 tmux 后台会话
-tmux new -s train
-
-# b. 激活虚拟环境并进入项目目录
 source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
 ```
 
-> **tmux 常用操作速查**：
-> - **离开会话（后台继续运行）**：按 `Ctrl + B`，再按 `D`
-> - **重新连回查看实时输出**：`tmux attach -t train`
-> - **向上翻看历史日志**：按 `Ctrl + B`，再按 `[`（按 `q` 退出翻页）
-> - **关闭/销毁会话**：在会话内输入 `exit` 或在外部终端执行 `tmux kill-session -t train`
+## 3. 下载模型
 
-#### 3. 训练 Qwen3-VL-8B
-```bash
-# 冒烟测试（1 batch）
-python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --data-dir data --smoke-test
-
-# 正式启动 3 轮 LoRA 训练
-python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --data-dir data --run-tag exp-qwen-01
-```
-产物位置：`outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX/`
-
-#### 4. 训练 InternVL3.5-8B
-```bash
-# 冒烟测试
-python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --data-dir data --smoke-test
-
-# 正式训练
-python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --data-dir data --run-tag exp-internvl-01
-```
-产物位置：`outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX/`
-
-#### 5. 训练 Qwen3-VL-32B（二代主力）
-
-> 前置：GPU 实例开机后先重下 32B 权重到临时盘 `/root/models`（阶段 2.1 第 4 条，
-> 非持久、关机即失）。训练超参沿用 8B 适配器继承配置（LoRA r16/α48、batch 1 +
-> 梯度累积 16、1080p 满像素预算）——batch 已是 1，无需再降，冒烟先行确认显存。
+GPU 实例开机后执行：
 
 ```bash
-# 冒烟测试（1 batch，确认 33B dense + 三图 1080p 满像素预算在 192G 上可跑通）
-python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --data-dir data --smoke-test
+export MODEL_ROOT=/root/models
+mkdir -p "$MODEL_ROOT"
 
-# 正式启动 3 轮 LoRA 训练
-python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --data-dir data --run-tag exp-qwen32-01
+modelscope download --model Qwen/Qwen3-VL-8B-Instruct \
+  --local_dir "$MODEL_ROOT/Qwen/Qwen3-VL-8B-Instruct"
+
+modelscope download --model Qwen/Qwen3-VL-32B-Instruct \
+  --local_dir "$MODEL_ROOT/Qwen/Qwen3-VL-32B-Instruct"
+
+modelscope download --model OpenGVLab/InternVL3_5-8B-HF \
+  --local_dir "$MODEL_ROOT/OpenGVLab/InternVL3_5-8B-HF"
+
+modelscope download --model AI-ModelScope/GroundingDINO \
+  --local_dir "$MODEL_ROOT/AI-ModelScope/grounding-dino-base"
 ```
-产物位置：`outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX/`
 
----
-
-### 阶段 2.3：官方测试集单卡 MI300X 批量推理
-
-> [!IMPORTANT]
-> **前置检查**：推理直接使用 `data/raw/Test/queries/queries.json`。
+下载前检查临时盘空间：
 
 ```bash
-# a. 开启并进入 tmux 后台会话（推理会持续较久，建议与训练使用不同会话名）
-tmux new -s infer
-
-# b. 激活虚拟环境并进入项目目录
-source /mnt/workspace/aicomp_env/bin/activate
-cd /mnt/workspace/aicomp-multimodal-grounding
-
-# 断线后重新连接：tmux attach -t infer
-# c. 另开一个终端持续检测 GPU 利用率与显存：
-#    watch -n 1 rocm-smi --showuse --showmemuse
-
-# 单卡 MI300X 不要使用 --num-shards >1；每子进程会重复加载模型并抢同一张卡。
-# 推荐固定 --num-shards 1 --num-workers 4：DataLoader worker 进程内完成图像
-# 解码与 processor 预处理，与 GPU 生成完全并行（Qwen/InternVL 已适配）。
-
-# 冒烟命令与实际推理使用同一 batch size；192GB 显存推荐：
-# - Qwen3-VL-8B / InternVL3.5-8B: batch 16
-# - GroundingDINO: batch 32
-# - Qwen3-VL-32B: batch 2
-
-# 冒烟 1/3：Qwen3-VL
-python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/raw/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-smoke
-
-# 冒烟 2/3：InternVL3.5
-python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/raw/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-smoke
-
-# 3. GroundingDINO 冒烟
-python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/raw/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-smoke
-
-# 4. Qwen3-VL-32B 冒烟
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/raw/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-smoke
-
-# 全量推理：
-# 1. Qwen3-VL (8B)
-python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/raw/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-infer
-
-# 2. InternVL3.5 (8B)
-python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/raw/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-infer
-
-# 3. GroundingDINO
-python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/raw/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-infer
-
-# 4. Qwen3-VL-32B（带 LoRA 微调全量推理）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/raw/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-infer
-
-# 5. Qwen3-VL-32B 零样本基线推理（Zero-shot，无需 LoRA 权重）
-# a. 冒烟测试（100 条）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/raw/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-zeroshot-smoke
-
-# b. 全量测试集推理（自动构建 submission.zip）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/raw/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-zeroshot-full
+df -h /root
 ```
 
-> 全量 Test 跑完后，`offline/infer.py` 会在推理目录自动生成 `submission.zip`。
+## 4. 训练
 
----
+训练命令统一使用 `offline/train.py`。先跑 smoke，再启动完整训练。
 
-### 阶段 2.4：打榜提交包构建（单模型直接提交 / 多模型 WBF 融合提交）
+### Qwen3-VL-8B
 
-#### 方案一：单模型预测结果直接打包打榜（三个模型均可直接独立打包）
 ```bash
-# 1. Qwen3-VL 单模型直接打包
-python -m aicomp_grounding.submission --test-json data/raw/Test/queries/queries.json --predictions outputs/inference/YOUR_QWEN_INFER_ID/predictions.json --output-dir outputs/submission/qwen_single
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model qwen3vl \
+  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --data-dir /mnt/workspace/data \
+  --smoke-test
 
-# 2. InternVL3.5 单模型直接打包
-python -m aicomp_grounding.submission --test-json data/raw/Test/queries/queries.json --predictions outputs/inference/YOUR_INTERNVL_INFER_ID/predictions.json --output-dir outputs/submission/internvl_single
-
-# 3. GroundingDINO 单模型直接打包
-python -m aicomp_grounding.submission --test-json data/raw/Test/queries/queries.json --predictions outputs/inference/YOUR_DINO_INFER_ID/predictions.json --output-dir outputs/submission/dino_single
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model qwen3vl \
+  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --data-dir /mnt/workspace/data \
+  --run-tag exp-qwen-01
 ```
-产物位置：对应 `outputs/submission/<model>_single/submission.zip`
 
-#### 方案二：多模型 WBF 加权框融合与综合提交包构建
+### Qwen3-VL-32B
+
 ```bash
-# 1. 加权框融合（分别替换为各模型实际推理生成的输出目录 ID）
-# 当前推理产物不生成 scores.json，因此去掉 --scores，DINO 权重写在 --weights 中。
-python -m aicomp_grounding.fusion.wbf --predictions outputs/inference/YOUR_QWEN_INFER_ID/predictions.json outputs/inference/YOUR_INTERNVL_INFER_ID/predictions.json outputs/inference/YOUR_DINO_INFER_ID/predictions.json --weights 1.0 1.0 0.8 --test-json data/raw/Test/queries/queries.json --output-dir outputs/fusion
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model qwen3vl32 \
+  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
+  --data-dir /mnt/workspace/data \
+  --smoke-test
 
-# 2. WBF 输出名为 predictions.json（不是 fused_predictions.json）；且上面带 --test-json 时已自动构建 submission.zip
-python -m aicomp_grounding.submission --test-json data/raw/Test/queries/queries.json --predictions outputs/fusion/YOUR_FUSION_ID/predictions.json --output-dir outputs/submission/final_submit
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model qwen3vl32 \
+  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
+  --data-dir /mnt/workspace/data \
+  --run-tag exp-qwen32-01
 ```
-产物位置：`outputs/fusion/<FUSION_RUN_ID>/predictions.json` 与
-`outputs/fusion/<FUSION_RUN_ID>/submission.zip`；也可用上面第 2 步输出到
-`outputs/submission/final_submit/submission.zip`。
 
----
+### InternVL3.5-8B
 
-## 三、 Modal 云端平台 (Serverless H100) 操作流程
-
-### 1. 数据同步至云端 Volume
 ```bash
-pip install modal
-modal token new
-modal volume create rgbdt-dataset
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model internvl35 \
+  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --data-dir /mnt/workspace/data \
+  --smoke-test
 
-modal volume put --force rgbdt-dataset data/raw/Train data/raw/Train
-modal volume put --force rgbdt-dataset data/raw/Test/Images data/raw/Test/Images
-modal volume put --force rgbdt-dataset data/raw/Test/queries/queries.json data/raw/Test/queries/queries.json
-modal volume put --force rgbdt-dataset data/derived/Processed data/derived/Processed
-modal volume put --force rgbdt-dataset outputs/annotations/YOUR_ANNOTATION_RUN_ID data/outputs/annotations/YOUR_ANNOTATION_RUN_ID
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model internvl35 \
+  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --data-dir /mnt/workspace/data \
+  --run-tag exp-internvl-01
 ```
 
-### 2. 云端 H100 训练
+## 5. 推理
+
+推理统一使用：
+
+```text
+--test-json /mnt/workspace/data/raw/Test/queries/queries.json
+--data-dir /mnt/workspace/data
+--num-shards 1
+--num-workers 4
+```
+
+每个模型按两类执行：零样本（不带 LoRA）和微调后（带 LoRA）。每类先 smoke，再全量。
+
+### Qwen3-VL-8B
+
+零样本：
+
 ```bash
-# Qwen3-VL
-modal run cloud/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model qwen3vl --run-tag exp-h100
+python offline/infer.py \
+  --model qwen3vl \
+  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --limit 100 --num-shards 1 --num-workers 4 \
+  --batch-size 16 --batch-save 100 --run-tag qwen8-zero-smoke
 
-# InternVL3.5
-modal run cloud/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model internvl35 --run-tag exp-h100
+python offline/infer.py \
+  --model qwen3vl \
+  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --num-shards 1 --num-workers 4 \
+  --batch-size 16 --batch-save 100 --run-tag qwen8-zero-full
 ```
 
-### 3. 8 卡 H100 并发推理
+微调后：
+
 ```bash
-modal run cloud/infer.py --model qwen3vl --split test --num-shards 8 --adapter-path "/data/data/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX"
+python offline/infer.py \
+  --model qwen3vl \
+  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --limit 100 --num-shards 1 --num-workers 4 \
+  --batch-size 16 --batch-save 100 --run-tag qwen8-lora-smoke
 
-modal volume get --force rgbdt-dataset "data/outputs/submission/YOUR_INFER_ID/submission.zip" "./submission.zip"
+python offline/infer.py \
+  --model qwen3vl \
+  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --num-shards 1 --num-workers 4 \
+  --batch-size 16 --batch-save 100 --run-tag qwen8-lora-full
 ```
 
----
+### Qwen3-VL-32B
 
-## 四、 常见问题 (FAQ)
+零样本：
 
-1. **问：为什么训练入口要求 `--annotation-run-id`，而不允许直接传 `train.json`？**
-   - **答**：`data/indexes/train.json` 的 `query` 字段为空。训练必须使用带有自然语言描述的标注文件（`approved.json`）。
-2. **问：魔搭 DSW 实例重启后，Python 依赖如何快捷复用？**
-   - **答**：虚拟环境保存在 `/mnt/workspace/aicomp_env` 持久化目录下。换卡或重启后，无需重新创建或下载依赖，只需执行单行指令 `source /mnt/workspace/aicomp_env/bin/activate` 即可直接复用。
-3. **问：GroundingDINO 分支需要执行预处理或训练吗？**
-   - **答**：不需要。GroundingDINO 是纯 Zero-shot 开放词表检测模型（无需微调），不使用深度图，因此无需生成 Depth-JET 伪彩图，也无需生成训练切分索引。直接在测试集上运行推理以供后续 WBF 框融合使用。
-4. **问：为什么 Qwen3-VL-32B 权重不放在 `/mnt/workspace/models`？**
-   - **答**：32B 权重约 66G，超过持久盘可用配额（100G 留给 venv/代码/标注/断点/输出）。
-     因此下载到实例本地临时盘 `/root/models`（非持久、关机即失），每次开机从魔搭内网
-     重新拉取（同机房内网快，约 6-15 分钟）。注意训练断点/标注/提交仍在
-     `/mnt/workspace`——模型可失，断点不可失。
+```bash
+python offline/infer.py \
+  --model qwen3vl32 \
+  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --limit 100 --num-shards 1 --num-workers 4 \
+  --batch-size 2 --batch-save 100 --run-tag qwen32-zero-smoke
+
+python offline/infer.py \
+  --model qwen3vl32 \
+  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --num-shards 1 --num-workers 4 \
+  --batch-size 2 --batch-save 100 --run-tag qwen32-zero-full
+```
+
+微调后：
+
+```bash
+python offline/infer.py \
+  --model qwen3vl32 \
+  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
+  --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --limit 100 --num-shards 1 --num-workers 4 \
+  --batch-size 2 --batch-save 100 --run-tag qwen32-lora-smoke
+
+python offline/infer.py \
+  --model qwen3vl32 \
+  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
+  --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --num-shards 1 --num-workers 4 \
+  --batch-size 2 --batch-save 100 --run-tag qwen32-lora-full
+```
+
+### InternVL3.5-8B
+
+零样本：
+
+```bash
+python offline/infer.py \
+  --model internvl35 \
+  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --limit 100 --num-shards 1 --num-workers 4 \
+  --batch-size 16 --batch-save 100 --run-tag internvl-zero-smoke
+
+python offline/infer.py \
+  --model internvl35 \
+  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --num-shards 1 --num-workers 4 \
+  --batch-size 16 --batch-save 100 --run-tag internvl-zero-full
+```
+
+微调后：
+
+```bash
+python offline/infer.py \
+  --model internvl35 \
+  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --limit 100 --num-shards 1 --num-workers 4 \
+  --batch-size 16 --batch-save 100 --run-tag internvl-lora-smoke
+
+python offline/infer.py \
+  --model internvl35 \
+  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --num-shards 1 --num-workers 4 \
+  --batch-size 16 --batch-save 100 --run-tag internvl-lora-full
+```
+
+### GroundingDINO-B
+
+GroundingDINO-B 仅做零样本：
+
+```bash
+python offline/infer.py \
+  --model groundingdino \
+  --model-path /root/models/AI-ModelScope/grounding-dino-base \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --limit 100 --num-shards 1 --num-workers 4 \
+  --batch-size 32 --batch-save 100 --run-tag dino-zero-smoke
+
+python offline/infer.py \
+  --model groundingdino \
+  --model-path /root/models/AI-ModelScope/grounding-dino-base \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --data-dir /mnt/workspace/data \
+  --num-shards 1 --num-workers 4 \
+  --batch-size 32 --batch-save 100 --run-tag dino-zero-full
+```
+
+## 6. 提交包
+
+推理完成后，使用预测结果生成 `submission.zip`：
+
+```bash
+python -m aicomp_grounding.submission \
+  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --predictions /mnt/workspace/outputs/inference/YOUR_RUN_ID/predictions.json \
+  --output-dir /mnt/workspace/outputs/submission/YOUR_RUN_ID \
+  --allow-fallback
+```

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Unified Dataset Indexer.
+"""Dataset indexer.
 
-Fast, deterministic index generator:
+Deterministic index generator:
 1. data/indexes/train.json (80% Train split)
 2. data/indexes/val.json (20% Val split)
 3. data/indexes/split_manifest.json (Preparation and split audit metadata)

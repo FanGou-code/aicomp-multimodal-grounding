@@ -95,7 +95,7 @@ used when a platform starts the process from another working directory.
 | `data/raw/Test` 测试集 | 含在 43G 内 | 同上 |
 | `data/derived/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成（确定性输出） |
 | `data/indexes/train.json`、`data/indexes/val.json`、`data/indexes/split_manifest.json`、`data/audits/excluded_overlap.json` | KB 级 | 仅本地预处理/审计使用，云端不需要；官方 `raw/Test/queries/queries.json` 随 `data/raw/Test` 提供 |
-| 基础模型权重 | Qwen-8B 17G / **Qwen-32B ~66G** / InternVL 17G / DINO 0.7G | 各自从 HF 或魔搭镜像下载；32B 不落持久盘，下载到实例临时盘（非持久）、每次开机重新拉取 |
+| 基础模型权重 | Qwen-8B 17G / **Qwen-32B ~66G** / InternVL 17G / DINO 0.7G | 全部下载到 `/root/models`（非持久），每次开机重新拉取 |
 
 **不需要**：LoRA 权重（融合只交换各自 predictions.json）、Zhipu API Key
 （标注已随仓库分发，仅重新生成标注时才需要）、Modal 凭据。

@@ -53,8 +53,7 @@ flowchart LR
 
 ### 教师模型 (Teacher Model)
 
-本项目采用 Z.ai (zai-org) 最新开源的多模态大语言模型 **GLM-4.6V** 作为教师模型，负责训练数据的自然语言标签合成。
-GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原生支持极高分辨率和超长上下文，尤其在多模态空间推理、细粒度 OCR 识别和复杂视觉解析上表现优异。系统通过 Zhipu AI（智谱）提供的 API 接口调用该开源模型，准确提取图像中标记的目标边界框特征，并稳定生成高质量的自然语言定位 Query。
+本项目使用 Z.ai (zai-org) 的 **GLM-4.6V** 作为教师模型，通过 Zhipu AI 提供的 API 为红框目标生成自然语言定位 Query。
 
 ### Query 自动生成
 
@@ -197,7 +196,7 @@ RGBDT500 对应 NeurIPS 2025 论文 **Collaborating Vision, Depth, and Thermal S
 
 ## 数据目录
 
-数据不随仓库分发。预处理前应满足以下结构：
+数据不随仓库分发。预处理前只有原始 raw 结构：
 
 ```text
 data/
@@ -213,16 +212,16 @@ data/
         infrared/*.png
         depth/*.png
       queries/queries.json
+```
+
+正式预处理后生成 Processed、索引与审计：
+
+```text
+data/
   derived/
     Processed/
       Train/<sequence>/depth_jet/*.png
       Test/depth_jet/*.png
-```
-
-正式预处理后生成：
-
-```text
-data/
   indexes/
     train.json
     val.json
@@ -456,7 +455,7 @@ python offline/infer.py \
   --test-json data/raw/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<QWEN_RUN_ID>/best/epoch_03 \
-  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
+  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
   --num-shards 1 \
   --num-workers 4 \
   --batch-size 4 \
@@ -468,7 +467,7 @@ python offline/infer.py \
   --test-json data/raw/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<INTERNVL_RUN_ID>/best/epoch_03 \
-  --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
+  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
   --num-shards 1 \
   --num-workers 4 \
   --batch-size 4 \
@@ -479,15 +478,13 @@ python offline/infer.py \
   --model groundingdino \
   --test-json data/raw/Test/queries/queries.json \
   --data-dir data \
-  --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base \
+  --model-path /root/models/AI-ModelScope/grounding-dino-base \
   --num-shards 1 \
   --num-workers 4 \
   --batch-size 8 \
   --run-tag dino-infer
 
-# 4. Qwen3-VL-32B 推理 (二代主力；权重在实例临时盘 /root/models，非持久、非关机即失，
-#    每次开机先重新下载，见 docs/SOP 阶段 2.1。33B dense 显存占用约为 8B 的 4 倍，
-#    batch 固定 1，OOM 时下调 --max-pixels 而非扩 batch)
+# 4. Qwen3-VL-32B 推理
 python offline/infer.py \
   --model qwen3vl32 \
   --test-json data/raw/Test/queries/queries.json \

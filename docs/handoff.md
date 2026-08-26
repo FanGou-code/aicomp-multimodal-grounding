@@ -164,6 +164,15 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-08-26（仓库，SOP 精简与文档宣传词清理）
+
+* 重写训练/推理 SOP：删除 Modal 指令、本地预处理/标注流程、重复推理描述；
+  数据预处理只在 README 说明。
+* 所有模型统一下载到非持久路径 `/root/models`，CPU 阶段不再下载模型。
+* README 数据目录改为“预处理前只有 raw，处理后才有 derived/Processed、
+  indexes、audits”；教师模型段落删除宣传性描述。
+* 清理 `High-Speed`、`Fast`、`二代主力` 等注释冗余词；research 文档未改动。
+
 ### 2026-08-26（仓库，数据目录重构与 AMD ROCm 环境配置落地）
 
 * 本地数据目录改为：`data/raw/{Train,Test}`、`data/derived/Processed`、
