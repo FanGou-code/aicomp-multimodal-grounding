@@ -147,7 +147,9 @@ python -u scripts/generate_queries.py \
 > **模型分工与推理共性说明**：
 > - **Qwen3-VL / InternVL3.5 分支**：需结合深度图信息，执行 Depth-JET 伪彩转换（`prepare_rgbdt.py`）与 LoRA 微调训练；
 > - **GroundingDINO 分支**：属于 Zero-shot 开箱即用模型，仅使用可见光图像（无需生成 Depth-JET 伪彩，无需 LoRA 训练）；
-> - **全模型推理共性**：三个模型在阶段 2.3 进行测试集推理时，**均只需要 `data/test.json` 索引**，统一执行 `python scripts/build_indexes.py --data-dir data --test-only` 生成。
+> - **全模型推理共性**：三个模型在阶段 2.3 进行测试集推理时，**直接读取
+>   `data/Test/queries/queries.json`**，推理核心会自动映射为 worker 路径，
+>   无需额外生成 `data/test.json`。
 
 ### 基座模型 ID 与落盘路径
 
@@ -181,22 +183,23 @@ modelscope download --dataset Fang001/rgbdt-grounding-dataset data.tar \
 # b. 先确认持久盘空间足够（Raw+Processed 全量约 44GB，建议预留 60GB）
 df -h /mnt/workspace
 
-# c. 全量解压到持久盘，包含 Train / Test / Processed / test.json
+# c. 全量解压到持久盘，包含 Train / Test / Processed / queries.json
 tar -xf /tmp/rgbdt-download/data.tar -C /mnt/workspace/data --no-same-owner
 
 # d. 删除临时压缩包，避免重复占用临时盘
 rm -f /tmp/rgbdt-download/data.tar
 
 # e. 只做轻量存在性检查，不要执行全量 SHA-256 审计或 Depth-JET 生成
-test -f /mnt/workspace/data/test.json
+test -f /mnt/workspace/data/Test/queries/queries.json
 test -d /mnt/workspace/data/Processed/Train
 test -d /mnt/workspace/data/Train
 ```
 
-> 说明：本地打包时 `data.tar` 已包含 `Processed` 与 `test.json`。云端只需全量解压
+> 说明：本地打包时 `data.tar` 已包含 `Processed` 与官方
+> `Test/queries/queries.json`。云端只需全量解压
 > 一次；`train.json`、`val.json`、`split_manifest.json`、`excluded_overlap.json`
-> 都是本地流水线/审计产物，训练与推理直接使用 approved 标注和 `test.json`，
-> 不需要在云端重新生成。
+> 都是本地流水线/审计产物，训练与推理直接使用 approved 标注和官方模板，
+> 不需要在云端重新生成，也不需要 `data/test.json`。
 
 #### 3. 下载基座模型（8B / InternVL / DINO 落 `/mnt/workspace/models/`；32B 落临时盘）
 ```bash
@@ -309,10 +312,8 @@ python offline/train.py --annotation-run-id YOUR_ANNOTATION_RUN_ID --model qwen3
 ### 阶段 2.3：官方测试集单卡 MI300X 批量推理
 
 > [!IMPORTANT]
-> **前置检查**：若 `data/test.json` 尚未生成，执行生成指令：
-> ```bash
-> python scripts/build_indexes.py --data-dir data --test-only
-> ```
+> **前置检查**：推理直接使用 `data/Test/queries/queries.json`，无需生成
+> `data/test.json`。
 
 ```bash
 # a. 开启并进入 tmux 后台会话（推理会持续较久，建议与训练使用不同会话名）
@@ -336,36 +337,36 @@ cd /mnt/workspace/aicomp-multimodal-grounding
 # - Qwen3-VL-32B: batch 2
 
 # 冒烟 1/3：Qwen3-VL
-python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-smoke
+python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-smoke
 
 # 冒烟 2/3：InternVL3.5
-python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-smoke
+python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-smoke
 
 # 3. GroundingDINO 冒烟
-python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-smoke
+python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-smoke
 
 # 4. Qwen3-VL-32B 冒烟
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-smoke
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-smoke
 
 # 全量推理：
 # 1. Qwen3-VL (8B)
-python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-infer
+python offline/infer.py --model qwen3vl --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --lora-path outputs/output_lora/YOUR_QWEN_RUN_ID/best/epoch_XX --test-json data/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag qwen-infer
 
 # 2. InternVL3.5 (8B)
-python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-infer
+python offline/infer.py --model internvl35 --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF --lora-path outputs/output_lora/YOUR_INTERNVL_RUN_ID/best/epoch_XX --test-json data/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 16 --batch-save 100 --run-tag internvl-infer
 
 # 3. GroundingDINO
-python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-infer
+python offline/infer.py --model groundingdino --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base --test-json data/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 32 --batch-save 100 --run-tag dino-infer
 
 # 4. Qwen3-VL-32B（带 LoRA 微调全量推理）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-infer
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --lora-path outputs/output_lora/YOUR_QWEN32_RUN_ID/best/epoch_XX --test-json data/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-infer
 
 # 5. Qwen3-VL-32B 零样本基线推理（Zero-shot，无需 LoRA 权重）
 # a. 冒烟测试（100 条）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-zeroshot-smoke
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/Test/queries/queries.json --data-dir data --limit 100 --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-zeroshot-smoke
 
 # b. 全量测试集推理（自动构建 submission.zip）
-python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/test.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-zeroshot-full
+python offline/infer.py --model qwen3vl32 --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct --test-json data/Test/queries/queries.json --data-dir data --num-shards 1 --num-workers 4 --batch-size 2 --batch-save 100 --run-tag qwen32-zeroshot-full
 ```
 
 > 全量 Test 跑完后，`offline/infer.py` 会在推理目录自动生成 `submission.zip`。
@@ -414,9 +415,6 @@ modal volume put --force rgbdt-dataset data/Train data/Train
 modal volume put --force rgbdt-dataset data/Test/Images data/Test/Images
 modal volume put --force rgbdt-dataset data/Test/queries/queries.json data/Test/queries/queries.json
 modal volume put --force rgbdt-dataset data/Processed data/Processed
-modal volume put --force rgbdt-dataset data/train.json data/train.json
-modal volume put --force rgbdt-dataset data/val.json data/val.json
-modal volume put --force rgbdt-dataset data/test.json data/test.json
 modal volume put --force rgbdt-dataset outputs/annotations/YOUR_ANNOTATION_RUN_ID data/outputs/annotations/YOUR_ANNOTATION_RUN_ID
 ```
 

@@ -41,9 +41,10 @@ PROJECT_ROOT/outputs/          training, inference, fusion, submission outputs
 annotation root explicitly. The historical `data/outputs/annotations` layout
 is retained only as a compatibility path inside the Modal adapter.
 
-`data/test.json` is the processed test inference index. The official
-`data/Test/queries/queries.json` is a submission template and must not be sent
-to model workers as their image index.
+`data/test.json` is optional. The official `data/Test/queries/queries.json`
+can be sent directly to inference-core workers; it is mapped in memory to
+`Test/Images/...` and `Processed/Test/depth_jet/...`, so no separate processed
+index file is required.
 
 两条铁律：
 
@@ -105,8 +106,8 @@ git clone                         # 代码 + 已批准标注集 (approved.json �
 # 大数据 (data/ 43G) 与权重自行获取，见 offline/README.md 外部数据清单
 
 # 1. zero-shot 跑通（单张 24GB GPU 即可）
-python offline/infer.py --model internvl35 --test-json data/test.json --limit 100 ...
-python offline/infer.py --model groundingdino --test-json data/test.json --limit 100 ...
+python offline/infer.py --model internvl35 --test-json data/Test/queries/queries.json --limit 100 ...
+python offline/infer.py --model groundingdino --test-json data/Test/queries/queries.json --limit 100 ...
 
 # 2. 训练（通过 --model 选择已接入训练循环的 adapter；标注 run id 用当前 golden 值）
 modal run cloud/train.py --model <name> --annotation-run-id YOUR_ANNOTATION_RUN_ID ...

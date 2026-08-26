@@ -8,7 +8,7 @@ prediction payloads of parallel shards.
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from aicomp_grounding.bbox import compute_iou, validate_bbox
 from aicomp_grounding.io import load_json
@@ -21,8 +21,11 @@ def load_inference_items(
 ) -> tuple[list[dict], dict | None]:
     """Load a normalized item list from the JSON object at ``path``.
 
-    Accepts an approved annotation artifact (``{metadata, data}``) or a flat
-    ``{query_id: item}`` index (``io.load_json`` enforces a JSON object).
+    Accepts an approved annotation artifact (``{metadata, data}``), a flat
+    ``{query_id: item}`` index, or the official Test template directly.
+    Official template paths are mapped in memory to the processed worker layout
+    (``Test/Images/...`` and ``Processed/Test/depth_jet/...``), so a separate
+    ``data/test.json`` file is not required.
     Every item gains a ``"key"`` entry. Returns ``(items, approved_metadata_or_None)``.
     """
     raw = load_json(path)
@@ -35,6 +38,27 @@ def load_inference_items(
     ):
         approved_metadata = raw["metadata"]
         raw = raw["data"]
+
+    if isinstance(raw, dict) and raw:
+        first = next(iter(raw.values()))
+        if (
+            isinstance(first, dict)
+            and isinstance(first.get("visible"), str)
+            and first["visible"].startswith("Images/visible/")
+        ):
+            raw = {
+                key: {
+                    **item,
+                    "visible": f"Test/{item['visible']}",
+                    "infrared": f"Test/{item['infrared']}",
+                    "depth": (
+                        "Processed/Test/depth_jet/"
+                        f"{PurePosixPath(item['depth']).name}"
+                    ),
+                }
+                for key, item in raw.items()
+                if isinstance(item, dict)
+            }
 
     items: list[dict] = []
     for key, value in raw.items():

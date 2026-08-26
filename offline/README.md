@@ -39,7 +39,7 @@ python offline/train.py \
 ```bash
 python offline/infer.py \
   --model qwen3vl \
-  --test-json data/test.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path YOUR_LORA_PATH \
   --output-dir outputs/inference \
@@ -48,14 +48,15 @@ python offline/infer.py \
   --run-tag offline-test
 
 # 其他模型示例（zero-shot，无需 LoRA）：
-python offline/infer.py --model groundingdino --test-json data/test.json ...
-python offline/infer.py --model internvl35 --test-json data/test.json ...
+python offline/infer.py --model groundingdino --test-json data/Test/queries/queries.json ...
+python offline/infer.py --model internvl35 --test-json data/Test/queries/queries.json ...
 ```
 
-`data/test.json` is the processed worker index used to load images. The
-official `data/Test/queries/queries.json` file is a submission template only;
-it is consumed when a complete test run packages `submission.zip`. For
-validation, pass the approved artifact explicitly, for example:
+The official `data/Test/queries/queries.json` file is used directly as the
+worker index; the inference core maps its raw modal paths to
+`Test/Images/...` and `Processed/Test/depth_jet/...` in memory, so a separate
+`data/test.json` is not required. For validation, pass the approved artifact
+explicitly, for example:
 
 ```bash
 python offline/infer.py \
@@ -93,7 +94,7 @@ used when a platform starts the process from another working directory.
 | `data/Train` 原始三模态（400 序列） | 共 ~43G | 由数据提供方另行获取 |
 | `data/Test` 测试集 | 含在 43G 内 | 同上 |
 | `data/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成（确定性输出） |
-| `train/val/test.json`、`split_manifest.json` | KB 级 | 直接拷贝（**不要**重生成，避免指纹漂移） |
+| `train/val.json`、`split_manifest.json`、`excluded_overlap.json` | KB 级 | 仅本地预处理/审计使用，云端不需要；官方 `Test/queries/queries.json` 随 `data/Test` 提供 |
 | 基础模型权重 | Qwen-8B 17G / **Qwen-32B ~66G** / InternVL 17G / DINO 0.7G | 各自从 HF 或魔搭镜像下载；32B 不落持久盘，下载到实例临时盘（非持久）、每次开机重新拉取 |
 
 **不需要**：LoRA 权重（融合只交换各自 predictions.json）、Zhipu API Key

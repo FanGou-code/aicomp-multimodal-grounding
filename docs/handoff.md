@@ -164,6 +164,17 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-08-26（仓库，推理不再依赖 data/test.json）
+
+* `inference_core.load_inference_items` 现可直接读取官方
+  `data/Test/queries/queries.json`，在内存把 `Images/...` 映射为
+  `Test/Images/...` 与 `Processed/Test/depth_jet/...`。
+* `offline/infer.py` 与 `cloud/infer.py` 的 Test 推理默认走官方模板；
+  云端不再需要 `data/test.json`，也不要上传该文件。
+* README / SOP / offline README / architecture 同步更新，`test.json`
+  降级为本地可选重建文件。
+* 全量单测 223 项通过（4 skip）。
+
 ### 2026-08-26（仓库，数据分发架构优化：云端不再重复生成数据）
 
 * README/SOP 更新为云端只上传 `Train / Test / Processed` 图片树与 `test.json`；

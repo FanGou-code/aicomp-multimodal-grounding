@@ -76,8 +76,11 @@ def parse_args():
     parser.add_argument(
         "--test-json",
         type=Path,
-        default=Path("data/test.json"),
-        help="Path to input dataset JSON index (e.g. data/test.json or data/val.json).",
+        default=Path("data/Test/queries/queries.json"),
+        help=(
+            "Path to input dataset JSON index; accepts approved artifacts, "
+            "data/test.json, or the official Test template directly."
+        ),
     )
     parser.add_argument(
         "--max-pixels",

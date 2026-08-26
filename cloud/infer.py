@@ -52,9 +52,9 @@ def resolve_inference_paths(
 ) -> tuple[Path, Path | None]:
     """Resolve local Modal-entrypoint inputs without hiding bad fallbacks.
 
-    Returns ``(index_path, official_template_path)``.  The template is only
-    needed for test submission packaging; workers always receive the processed
-    test index or the approved validation artifact.
+    Returns ``(index_path, official_template_path)``. For test, the official
+    template is also the worker index: ``load_inference_items`` maps its raw
+    modal paths to the processed layout in memory.
     """
 
     paths = ProjectPaths.from_root(project_root)
@@ -80,13 +80,10 @@ def resolve_inference_paths(
     if split != "test":
         raise ValueError(f"Unsupported Modal inference split: {split!r}")
 
-    index_path = paths.dataset_index("test")
     template_path = paths.submission_template
-    if not index_path.is_file():
-        raise FileNotFoundError(f"Processed test index not found at {index_path}")
     if not template_path.is_file():
         raise FileNotFoundError(f"Official test template not found at {template_path}")
-    return index_path, template_path
+    return template_path, template_path
 
 
 @app.function(
@@ -273,10 +270,9 @@ def main(
     print(f"  Parallel Shards:    {num_shards}")
     print(f"=================================================================")
 
-    # Resolve local files before dispatching items to Modal workers.  The
-    # official test template is intentionally kept separate from the worker
-    # index because its image paths describe the submission contract, not the
-    # processed files mounted in the worker.
+    # Resolve local files before dispatching items to Modal workers. The
+    # official template doubles as the worker index; shared inference-core maps
+    # its raw modal paths to Test/ and Processed/ paths in memory.
     index_path, test_template_path = resolve_inference_paths(
         split,
         annotation_run_id,

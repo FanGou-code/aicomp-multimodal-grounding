@@ -167,21 +167,18 @@ class AnnotationSourceGateTests(unittest.TestCase):
 
 
 class ModalInferencePathTests(unittest.TestCase):
-    def test_test_split_uses_processed_index_and_separate_template(self):
+    def test_test_split_uses_official_template_as_worker_index(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            index = root / "data/test.json"
             template = root / "data/Test/queries/queries.json"
-            index.parent.mkdir(parents=True)
             template.parent.mkdir(parents=True)
-            index.write_text("{}", encoding="utf-8")
             template.write_text("{}", encoding="utf-8")
 
             index_path, template_path = infer_modal.resolve_inference_paths(
                 "test", "", project_root=root
             )
 
-            self.assertEqual(index_path, index.resolve())
+            self.assertEqual(index_path, template.resolve())
             self.assertEqual(template_path, template.resolve())
 
     def test_val_split_uses_repository_annotation_artifact(self):

@@ -49,6 +49,26 @@ class LoadInferenceItemsTests(unittest.TestCase):
         self.assertEqual([item["key"] for item in items], ["q1", "q2"])
         self.assertIsNone(metadata)
 
+    def test_official_template_is_mapped_to_processed_worker_layout(self):
+        official = {
+            "000001_001": {
+                "visible": "Images/visible/000001.png",
+                "infrared": "Images/infrared/000001.png",
+                "depth": "Images/depth/000001.png",
+                "query": "The person beside the white van",
+            }
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "queries.json"
+            atomic_write_json(path, official)
+            items, metadata = load_inference_items(path)
+        item = items[0]
+        self.assertEqual(item["visible"], "Test/Images/visible/000001.png")
+        self.assertEqual(item["infrared"], "Test/Images/infrared/000001.png")
+        self.assertEqual(item["depth"], "Processed/Test/depth_jet/000001.png")
+        self.assertEqual(item["key"], "000001_001")
+        self.assertIsNone(metadata)
+
     def test_non_object_shapes_are_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "invalid.json"

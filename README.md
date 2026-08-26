@@ -216,7 +216,7 @@ data/
     Test/depth_jet/*.png
   train.json
   val.json
-  test.json
+  test.json          # 可选；推理也可以直接读官方 queries.json
   split_manifest.json
   excluded_overlap.json   # filter_overlap.py 剔除同源帧的审计日志
 ```
@@ -231,7 +231,7 @@ Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使
 
 云端运行只需要：
   data/Test + data/Train + data/Processed
-  data/test.json（推理索引）
+  官方 data/Test/queries/queries.json（推理入口在内存映射路径）
   仓库 approved.json（训练标注）
 ```
 
@@ -340,7 +340,6 @@ modal volume put --force rgbdt-dataset data/Test/Images data/Test/Images
 modal volume put --force rgbdt-dataset data/Test/queries/queries.json data/Test/queries/queries.json
 modal volume put --force rgbdt-dataset data/Processed/Train data/Processed/Train
 modal volume put --force rgbdt-dataset data/Processed/Test/depth_jet data/Processed/Test/depth_jet
-modal volume put --force rgbdt-dataset data/test.json data/test.json
 ```
 
 `train.json`、`val.json`、`split_manifest.json` 与 `excluded_overlap.json` 不需要上传到
@@ -436,7 +435,7 @@ modal run cloud/infer.py \
 # 1. Qwen3-VL 推理
 python offline/infer.py \
   --model qwen3vl \
-  --test-json data/test.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<QWEN_RUN_ID>/best/epoch_03 \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
@@ -448,7 +447,7 @@ python offline/infer.py \
 # 2. InternVL3.5 推理
 python offline/infer.py \
   --model internvl35 \
-  --test-json data/test.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<INTERNVL_RUN_ID>/best/epoch_03 \
   --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
@@ -460,7 +459,7 @@ python offline/infer.py \
 # 3. GroundingDINO 推理 (Zero-shot)
 python offline/infer.py \
   --model groundingdino \
-  --test-json data/test.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base \
   --num-shards 1 \
@@ -473,7 +472,7 @@ python offline/infer.py \
 #    batch 固定 1，OOM 时下调 --max-pixels 而非扩 batch)
 python offline/infer.py \
   --model qwen3vl32 \
-  --test-json data/test.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<QWEN32_RUN_ID>/best/epoch_03 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
