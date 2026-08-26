@@ -164,6 +164,19 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-08-26（仓库，数据目录重构与 AMD ROCm 环境配置落地）
+
+* 本地数据目录改为：`data/raw/{Train,Test}`、`data/derived/Processed`、
+  `data/indexes/*.json`、`data/audits/excluded_overlap.json`；旧路径保留
+  symlink 兼容过渡。
+* 已从 `data/` 移除 `test.json`；`build_indexes.py` 不再生成该文件，推理直接
+  使用 `data/raw/Test/queries/queries.json` 并由 `inference_core` 内存映射路径。
+* 新增 `offline/rocm_env.sh`：启用 hipBLASLt、ROCm Tunable Ops 与
+  expandable-segments；README/SOP/offline README 已同步持久化激活方式。
+* `ProjectPaths` 与新结构对齐，场景卡/style plan 增加 `--index-root`，
+  离线推理默认读取 `data/raw/Test/queries/queries.json`。
+* 全量单测 223 项通过（4 skip），`compileall` 与 `git diff --check` 通过。
+
 ### 2026-08-26（仓库，推理不再依赖 data/test.json）
 
 * `inference_core.load_inference_items` 现可直接读取官方

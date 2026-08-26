@@ -118,6 +118,7 @@ def load_annotation_source(data_root: Path, split: str) -> dict:
 def build_scene_cards(
     *,
     data_root: Path,
+    index_root: Path,
     split: str,
     output_root: Path,
     seed: int,
@@ -131,7 +132,7 @@ def build_scene_cards(
     tokens_per_minute: int,
     estimated_tokens_per_request: int,
 ) -> Path:
-    dataset = load_annotation_source(data_root.resolve(), split)
+    dataset = load_annotation_source(index_root.resolve(), split)
     groups = group_keys_by_scene(list(dataset), dataset)
     selected = select_scene_ids(dataset, limit=limit_sequences, seed=seed)
     run_dir = output_root.resolve() / "scene_cards" / split
@@ -236,6 +237,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--split", choices=sorted(ANNOTATION_SPLITS), default="train")
     parser.add_argument("--data-root", type=Path, default=Path("data"))
+    parser.add_argument("--index-root", type=Path, default=Path("data/indexes"))
     parser.add_argument(
         "--output-root",
         type=Path,
@@ -269,6 +271,7 @@ def main() -> None:
         parser.error(f"--concurrency must be between 1 and {MAX_API_CONCURRENCY}")
     path = build_scene_cards(
         data_root=args.data_root,
+        index_root=args.index_root,
         split=args.split,
         output_root=args.output_root,
         seed=args.seed,

@@ -39,7 +39,7 @@ python offline/train.py \
 ```bash
 python offline/infer.py \
   --model qwen3vl \
-  --test-json data/Test/queries/queries.json \
+  --test-json data/raw/Test/queries/queries.json \
   --data-dir data \
   --lora-path YOUR_LORA_PATH \
   --output-dir outputs/inference \
@@ -48,14 +48,14 @@ python offline/infer.py \
   --run-tag offline-test
 
 # 其他模型示例（zero-shot，无需 LoRA）：
-python offline/infer.py --model groundingdino --test-json data/Test/queries/queries.json ...
-python offline/infer.py --model internvl35 --test-json data/Test/queries/queries.json ...
+python offline/infer.py --model groundingdino --test-json data/raw/Test/queries/queries.json ...
+python offline/infer.py --model internvl35 --test-json data/raw/Test/queries/queries.json ...
 ```
 
-The official `data/Test/queries/queries.json` file is used directly as the
+The official `data/raw/Test/queries/queries.json` file is used directly as the
 worker index; the inference core maps its raw modal paths to
-`Test/Images/...` and `Processed/Test/depth_jet/...` in memory, so a separate
-`data/test.json` is not required. For validation, pass the approved artifact
+`raw/Test/Images/...` and `derived/Processed/Test/depth_jet/...` in memory.
+For validation, pass the approved artifact
 explicitly, for example:
 
 ```bash
@@ -91,10 +91,10 @@ used when a platform starts the process from another working directory.
 
 | 缺的东西 | 体量 | 获取方式 |
 | --- | --- | --- |
-| `data/Train` 原始三模态（400 序列） | 共 ~43G | 由数据提供方另行获取 |
-| `data/Test` 测试集 | 含在 43G 内 | 同上 |
-| `data/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成（确定性输出） |
-| `train/val.json`、`split_manifest.json`、`excluded_overlap.json` | KB 级 | 仅本地预处理/审计使用，云端不需要；官方 `Test/queries/queries.json` 随 `data/Test` 提供 |
+| `data/raw/Train` 原始三模态（400 序列） | 共 ~43G | 由数据提供方另行获取 |
+| `data/raw/Test` 测试集 | 含在 43G 内 | 同上 |
+| `data/derived/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成（确定性输出） |
+| `data/indexes/train.json`、`data/indexes/val.json`、`data/indexes/split_manifest.json`、`data/audits/excluded_overlap.json` | KB 级 | 仅本地预处理/审计使用，云端不需要；官方 `raw/Test/queries/queries.json` 随 `data/raw/Test` 提供 |
 | 基础模型权重 | Qwen-8B 17G / **Qwen-32B ~66G** / InternVL 17G / DINO 0.7G | 各自从 HF 或魔搭镜像下载；32B 不落持久盘，下载到实例临时盘（非持久）、每次开机重新拉取 |
 
 **不需要**：LoRA 权重（融合只交换各自 predictions.json）、Zhipu API Key
@@ -114,3 +114,17 @@ pip install transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 \
 
 基础模型建议从魔搭镜像下载到本地，`--model-path` 指定本地目录，
 避免直连 HuggingFace。
+
+### AMD ROCm 环境
+
+在 AMD MI300X 实例上，每次训练/推理前先加载仓库内置环境：
+
+```bash
+source offline/rocm_env.sh
+```
+
+也可以追加到持久虚拟环境的激活脚本，让 `source <venv>/bin/activate` 自动生效：
+
+```bash
+echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' >> /mnt/workspace/aicomp_env/bin/activate
+```

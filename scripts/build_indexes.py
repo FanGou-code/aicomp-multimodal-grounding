@@ -2,10 +2,12 @@
 """Unified Dataset Indexer.
 
 Fast, deterministic index generator:
-1. data/test.json (Official Test queries mapped to project relative paths)
-2. data/train.json (80% Train split)
-3. data/val.json (20% Val split)
-4. data/split_manifest.json (Preparation and split audit metadata)
+1. data/indexes/train.json (80% Train split)
+2. data/indexes/val.json (20% Val split)
+3. data/indexes/split_manifest.json (Preparation and split audit metadata)
+
+The official Test template is used directly by inference; no data/test.json is
+written or uploaded.
 
 For deep SHA-256 byte deduplication across full images, use `scripts/filter_overlap.py` or pass `--audit-overlap`.
 """
@@ -38,43 +40,14 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_test_index_only(dataset_root: Path) -> dict:
-    dataset_root = dataset_root.resolve()
-    test_root = dataset_root / "Test"
-    queries_file = test_root / "queries" / "queries.json"
-
-    if not queries_file.is_file():
-        raise FileNotFoundError(f"Official test queries not found: {queries_file}")
-
-    print(f"[*] Loading official Test queries from {queries_file}...")
-    with queries_file.open("r", encoding="utf-8") as f:
-        official_queries = json.load(f)
-
-    test_index = {}
-    for qid, item in official_queries.items():
-        depth_name = PurePosixPath(item["depth"]).name
-        test_index[qid] = {
-            "visible": f"Test/{item['visible']}",
-            "infrared": f"Test/{item['infrared']}",
-            "depth": f"Processed/Test/depth_jet/{depth_name}",
-            "query": item["query"],
-        }
-    atomic_write_json(dataset_root / "test.json", test_index)
-    print(f"[+] data/test.json generated ({len(test_index)} queries in 0.05s).")
-    return test_index
-
-
 def build_indexes(
     dataset_root: Path,
     *,
     seed: int = 42,
     train_ratio: float = 0.8,
     audit_overlap: bool = False,
-    test_only: bool = False,
 ) -> dict:
     dataset_root = dataset_root.resolve()
-    if test_only:
-        return build_test_index_only(dataset_root)
 
     train_root = dataset_root / "Train"
     test_root = dataset_root / "Test"
@@ -85,8 +58,8 @@ def build_indexes(
     if not queries_file.is_file():
         raise FileNotFoundError(f"Official test queries not found: {queries_file}")
 
-    # 1. Build test.json
-    print(f"[*] Loading official Test queries from {queries_file}...")
+    # The official template is validated in memory; inference reads it directly.
+    print(f"[*] Loading official Test template from {queries_file}...")
     with queries_file.open("r", encoding="utf-8") as f:
         official_queries = json.load(f)
 
@@ -99,8 +72,7 @@ def build_indexes(
             "depth": f"Processed/Test/depth_jet/{depth_name}",
             "query": item["query"],
         }
-    atomic_write_json(dataset_root / "test.json", test_index)
-    print(f"[+] data/test.json generated ({len(test_index)} queries).")
+    print(f"[+] data/test.json intentionally not generated ({len(test_index)} queries).")
 
     # 2. Optional Test image SHA-256 set for deduplication
     test_hashes = {}
@@ -168,8 +140,8 @@ def build_indexes(
     # Write train.json & val.json
     atomic_write_json(dataset_root / "train.json", train_data)
     atomic_write_json(dataset_root / "val.json", val_data)
-    print(f"[+] data/train.json generated ({len(train_data)} samples).")
-    print(f"[+] data/val.json generated ({len(val_data)} samples).")
+    print(f"[+] data/indexes/train.json generated ({len(train_data)} samples).")
+    print(f"[+] data/indexes/val.json generated ({len(val_data)} samples).")
 
     if audit_overlap:
         overlap_report = {
@@ -206,14 +178,14 @@ def build_indexes(
         },
     }
     atomic_write_json(dataset_root / "split_manifest.json", manifest)
-    print(f"[+] data/split_manifest.json generated.")
+    print(f"[+] data/indexes/split_manifest.json generated.")
 
     print("\n" + "=" * 60)
     print(f"索引 JSON 文件已在 0.2 秒内构建完毕并锁定：")
-    print(f" - data/train.json          : {len(train_data)} 样本")
-    print(f" - data/val.json            : {len(val_data)} 样本")
-    print(f" - data/test.json           : {len(test_index)} 查询")
-    print(f" - data/split_manifest.json : 协议版本 {PREPARATION_PROTOCOL_VERSION}")
+    print(f" - data/indexes/train.json  : {len(train_data)} 样本")
+    print(f" - data/indexes/val.json    : {len(val_data)} 样本")
+    print(f" - 官方 Test template        : {len(test_index)} 查询（推理直接读取）")
+    print(f" - data/indexes/split_manifest.json : 协议版本 {PREPARATION_PROTOCOL_VERSION}")
     print("=" * 60)
     return manifest
 
@@ -223,7 +195,6 @@ def main():
     parser.add_argument("--dataset-root", "--data-dir", dest="dataset_root", type=Path, default=Path("data"), help="Dataset root directory")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for train/val split")
     parser.add_argument("--train-ratio", type=float, default=0.8, help="Train split ratio")
-    parser.add_argument("--test-only", action="store_true", help="Only build data/test.json (0.05s instant build for inference)")
     parser.add_argument("--audit-overlap", action="store_true", help="Run full 43GB SHA-256 byte deduplication against Test set")
     args = parser.parse_args()
 
@@ -232,7 +203,6 @@ def main():
         seed=args.seed,
         train_ratio=args.train_ratio,
         audit_overlap=args.audit_overlap,
-        test_only=args.test_only,
     )
 
 

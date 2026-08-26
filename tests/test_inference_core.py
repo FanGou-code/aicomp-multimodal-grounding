@@ -63,9 +63,9 @@ class LoadInferenceItemsTests(unittest.TestCase):
             atomic_write_json(path, official)
             items, metadata = load_inference_items(path)
         item = items[0]
-        self.assertEqual(item["visible"], "Test/Images/visible/000001.png")
-        self.assertEqual(item["infrared"], "Test/Images/infrared/000001.png")
-        self.assertEqual(item["depth"], "Processed/Test/depth_jet/000001.png")
+        self.assertEqual(item["visible"], "raw/Test/Images/visible/000001.png")
+        self.assertEqual(item["infrared"], "raw/Test/Images/infrared/000001.png")
+        self.assertEqual(item["depth"], "derived/Processed/Test/depth_jet/000001.png")
         self.assertEqual(item["key"], "000001_001")
         self.assertIsNone(metadata)
 

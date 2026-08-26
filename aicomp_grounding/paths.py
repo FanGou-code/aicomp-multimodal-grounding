@@ -36,6 +36,22 @@ class ProjectPaths:
         return self.root / "data"
 
     @property
+    def raw(self) -> Path:
+        return self.data / "raw"
+
+    @property
+    def derived(self) -> Path:
+        return self.data / "derived"
+
+    @property
+    def indexes(self) -> Path:
+        return self.data / "indexes"
+
+    @property
+    def audits(self) -> Path:
+        return self.data / "audits"
+
+    @property
     def outputs(self) -> Path:
         return self.root / "outputs"
 
@@ -53,12 +69,14 @@ class ProjectPaths:
 
     @property
     def submission_template(self) -> Path:
-        return self.data / "Test" / "queries" / "queries.json"
+        return self.raw / "Test" / "queries" / "queries.json"
 
     def dataset_index(self, split: str) -> Path:
         if split not in {"train", "val", "test"}:
             raise ValueError(f"Unsupported dataset split: {split!r}")
-        return self.data / f"{split}.json"
+        if split == "test":
+            return self.submission_template
+        return self.indexes / f"{split}.json"
 
     def annotation_artifact(self, annotation_run_id: str, split: str) -> Path:
         if split not in {"train", "val"}:

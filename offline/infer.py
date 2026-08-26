@@ -76,7 +76,7 @@ def parse_args():
     parser.add_argument(
         "--test-json",
         type=Path,
-        default=Path("data/Test/queries/queries.json"),
+        default=Path("data/raw/Test/queries/queries.json"),
         help=(
             "Path to input dataset JSON index; accepts approved artifacts, "
             "data/test.json, or the official Test template directly."
