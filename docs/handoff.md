@@ -164,6 +164,15 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-08-26（仓库，数据分发架构优化：云端不再重复生成数据）
+
+* README/SOP 更新为云端只上传 `Train / Test / Processed` 图片树与 `test.json`；
+  `train.json`、`val.json`、`split_manifest.json`、`excluded_overlap.json`
+  仅保留在本地流水线与审计中。
+* 魔搭准备流程改为：临时盘下载 `data.tar` -> 全量解压到持久盘 -> 删除压缩包，
+  不再在云端执行 Depth-JET 生成和全量 SHA-256 查重。
+* 全量 SHA-256 查重明确只在本地首次准备数据时执行。
+
 ### 2026-08-26（仓库，训练/推理实时进度日志统一）
 
 * 训练与推理进度日志统一使用绝对时间戳 `YYYY-MM-DD HH:MM:SS`。

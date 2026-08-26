@@ -170,25 +170,33 @@ cd /mnt/workspace
 git clone https://YOUR_GITHUB_TOKEN@github.com/FanGou-code/aicomp-multimodal-grounding.git
 ```
 
-#### 2. 下载数据集、排除解压并生成伪彩与切分
+#### 2. 下载数据集并一次性全量解压（不要重复生成 Processed / 索引）
 ```bash
-# a. 下载数据压缩包（直接传 Token）
+# a. 下载数据压缩包到实例临时盘（不写入持久盘）
 cd /mnt/workspace/aicomp-multimodal-grounding
-mkdir -p data
-modelscope download --dataset Fang001/rgbdt-grounding-dataset data.tar --token YOUR_MODELSCOPE_TOKEN --local_dir data/
+mkdir -p /tmp/rgbdt-download /mnt/workspace/data
+modelscope download --dataset Fang001/rgbdt-grounding-dataset data.tar \
+  --token YOUR_MODELSCOPE_TOKEN --local_dir /tmp/rgbdt-download
 
-# b. 解压 Train 与 Test（排除 Processed）并删除压缩包
-tar -xf data/data.tar -C data/ --exclude=Processed* --no-same-owner && rm -f data/data.tar
+# b. 先确认持久盘空间足够（Raw+Processed 全量约 44GB，建议预留 60GB）
+df -h /mnt/workspace
 
-# c. 安装轻量依赖（全员执行）
-pip install pillow opencv-python-headless numpy -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+# c. 全量解压到持久盘，包含 Train / Test / Processed / test.json
+tar -xf /tmp/rgbdt-download/data.tar -C /mnt/workspace/data --no-same-owner
 
-# d. 生成 Depth-JET 深度伪彩（仅 Qwen3-VL 与 InternVL3.5 需要，DINO 分支可跳过）
-python scripts/prepare_rgbdt.py --dataset-root data --skip-test-validation
+# d. 删除临时压缩包，避免重复占用临时盘
+rm -f /tmp/rgbdt-download/data.tar
 
-# e. 生成测试集索引
-python scripts/build_indexes.py --data-dir data --test-only
+# e. 只做轻量存在性检查，不要执行全量 SHA-256 审计或 Depth-JET 生成
+test -f /mnt/workspace/data/test.json
+test -d /mnt/workspace/data/Processed/Train
+test -d /mnt/workspace/data/Train
 ```
+
+> 说明：本地打包时 `data.tar` 已包含 `Processed` 与 `test.json`。云端只需全量解压
+> 一次；`train.json`、`val.json`、`split_manifest.json`、`excluded_overlap.json`
+> 都是本地流水线/审计产物，训练与推理直接使用 approved 标注和 `test.json`，
+> 不需要在云端重新生成。
 
 #### 3. 下载基座模型（8B / InternVL / DINO 落 `/mnt/workspace/models/`；32B 落临时盘）
 ```bash

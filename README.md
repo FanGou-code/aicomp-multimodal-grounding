@@ -223,6 +223,23 @@ data/
 
 Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使不同场景间的颜色具有一致距离含义。
 
+文件角色：
+
+```text
+本地流水线使用：
+  train.json / val.json / split_manifest.json / excluded_overlap.json
+
+云端运行只需要：
+  data/Test + data/Train + data/Processed
+  data/test.json（推理索引）
+  仓库 approved.json（训练标注）
+```
+
+`train.json`、`val.json`、`split_manifest.json` 与 `excluded_overlap.json` 是本地
+生成标注/风格计划和做查重审计所需的中间产物；approved 发布后，训练核心直接消费
+approved 样本，不再依赖这些索引。云端不要在启动阶段重新运行全量 SHA-256 审计或
+Depth-JET 生成，否则会重复扫描约 44GB 图像并卡在 I/O 上。
+
 ## 完整复现流程
 
 ### 1. 数据预处理与切分
@@ -231,11 +248,17 @@ Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使
 # 1. 批量生成本地 Depth-JET 伪彩图
 python scripts/prepare_rgbdt.py --dataset-root data --skip-test-validation
 
-# 2. 一键构建 5 个切分 JSON 索引并执行 SHA-256 去重审计（耗时 1 秒）
+# 2. 本地一次性构建切分 JSON 索引（不要放到云端启动阶段）
 python scripts/build_indexes.py --data-dir data
+
+# 3. 深度 SHA-256 查重只需要在本地首次审计时执行；执行前先确认命令参数
+#    python scripts/filter_overlap.py --data-dir data --write
 ```
 
-`build_indexes.py` 会对 `data/Train/*/color/*.png` 与 `data/Test/Images/visible/*.png` 做 SHA-256 字节级匹配，自动剔除与 Test 重叠的样本，并输出 `train.json`、`val.json`、`test.json`、`split_manifest.json` 与 `overlap_report.json`。
+`build_indexes.py` 输出 `train.json`、`val.json`、`test.json` 与
+`split_manifest.json`，本身是轻量 JSON 构建。`filter_overlap.py` 才执行
+全量 SHA-256 字节级匹配并输出 `excluded_overlap.json`；该步骤只适合在本地
+首次准备数据时执行，不应该放进云端日常训练/推理流程。
 
 > 当前 `annot_ac72f1d926bb2d23` 标注集已核查：Train 2,875 条、Val 719 条与 Test 的 SHA-256 匹配均为 **0**，无同源帧进入训练。
 
@@ -289,8 +312,6 @@ python -u scripts/generate_queries.py \
   --verify-queries \
   --run-tag glm46v-style-plan-gen
 ```
-  --publish
-```
 
 产物位于：
 
@@ -311,7 +332,7 @@ outputs/annotations/<ANNOTATION_RUN_ID>/<split>/
 
 ### 3. 上传到 Modal Volume
 
-`rgbdt-dataset` 挂载到容器 `/data`，项目数据根目录固定为 `/data/data`。上传预处理数据：
+`rgbdt-dataset` 挂载到容器 `/data`，项目数据根目录固定为 `/data/data`。上传运行所需数据：
 
 ```bash
 modal volume put --force rgbdt-dataset data/Train data/Train
@@ -319,11 +340,11 @@ modal volume put --force rgbdt-dataset data/Test/Images data/Test/Images
 modal volume put --force rgbdt-dataset data/Test/queries/queries.json data/Test/queries/queries.json
 modal volume put --force rgbdt-dataset data/Processed/Train data/Processed/Train
 modal volume put --force rgbdt-dataset data/Processed/Test/depth_jet data/Processed/Test/depth_jet
-modal volume put --force rgbdt-dataset data/train.json data/train.json
-modal volume put --force rgbdt-dataset data/val.json data/val.json
 modal volume put --force rgbdt-dataset data/test.json data/test.json
-modal volume put --force rgbdt-dataset data/split_manifest.json data/split_manifest.json
 ```
+
+`train.json`、`val.json`、`split_manifest.json` 与 `excluded_overlap.json` 不需要上传到
+Modal Volume；这些文件只在本地生成标注与审计时使用。
 
 上传 approved 标注：
 
