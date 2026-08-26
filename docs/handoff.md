@@ -164,6 +164,16 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-08-26（仓库，文档措辞审计与过期描述清理）
+
+* 除 `research` 与 `handoff` 外，审计并修订 README、architecture、offline/cloud
+  README、SOP 与相关代码注释。
+* `cloud/README` 更新为官方模板直接作为 worker 索引，不再引用 `data/test.json`。
+* `offline/README` 修正数据索引路径、统一使用中文描述，并移除宣传性措辞。
+* `build_indexes.py` 输出描述不再出现 `test.json`；README 删除教师模型宣传词、
+  “推荐的新链”、`快速验证` 等冗余表达。
+* 全量单测 223 项通过（4 skip），`compileall` 与 `git diff --check` 通过。
+
 ### 2026-08-26（仓库，SOP 精简与文档宣传词清理）
 
 * 重写训练/推理 SOP：删除 Modal 指令、本地预处理/标注流程、重复推理描述；

@@ -6,8 +6,8 @@ Deterministic index generator:
 2. data/indexes/val.json (20% Val split)
 3. data/indexes/split_manifest.json (Preparation and split audit metadata)
 
-The official Test template is used directly by inference; no data/test.json is
-written or uploaded.
+The official Test template is used directly by inference; no separate processed
+index file is written or uploaded.
 
 For deep SHA-256 byte deduplication across full images, use `scripts/filter_overlap.py` or pass `--audit-overlap`.
 """
@@ -72,7 +72,7 @@ def build_indexes(
             "depth": f"Processed/Test/depth_jet/{depth_name}",
             "query": item["query"],
         }
-    print(f"[+] data/test.json intentionally not generated ({len(test_index)} queries).")
+    print(f"[+] Processed test index intentionally not generated ({len(test_index)} queries).")
 
     # 2. Optional Test image SHA-256 set for deduplication
     test_hashes = {}

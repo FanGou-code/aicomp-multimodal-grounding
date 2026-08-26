@@ -1,11 +1,10 @@
-# 💻 Offline End — 离线端
+# Offline End — 离线端
 
-离线端：平台无关的训练与推理（兜底 / 免费算力）。推理本体是 `infer.py`，训练本体是
-`train.py`（与云端共用 `aicomp_grounding/training_core`，行为完全一致）；任何单卡
-GPU 机器装好依赖即可运行，各平台差异只体现在"怎么装环境"。
+离线端提供平台无关的训练与推理入口。`offline/infer.py` 调用推理核心，
+`offline/train.py` 与云端共用 `aicomp_grounding/training_core`。
 
-可移植仓库的约定是：数据索引位于 `data/`，已批准标注和训练/推理产物位于
-仓库级 `outputs/`。Modal 仍由 `cloud/` 适配器使用历史 Volume 布局，离线端不依赖该布局。
+数据索引位于 `data/indexes/`，已批准标注和训练/推理产物位于仓库级 `outputs/`。
+Modal 由 `cloud/` 适配器使用 Volume 布局，离线端不依赖该布局。
 
 ## 平台 × 任务矩阵
 
@@ -52,11 +51,9 @@ python offline/infer.py --model groundingdino --test-json data/raw/Test/queries/
 python offline/infer.py --model internvl35 --test-json data/raw/Test/queries/queries.json ...
 ```
 
-The official `data/raw/Test/queries/queries.json` file is used directly as the
-worker index; the inference core maps its raw modal paths to
-`raw/Test/Images/...` and `derived/Processed/Test/depth_jet/...` in memory.
-For validation, pass the approved artifact
-explicitly, for example:
+推理可直接使用 `data/raw/Test/queries/queries.json`；`inference_core` 会在内存中
+把原始模态路径映射到 `raw/Test/Images/...` 与
+`derived/Processed/Test/depth_jet/...`。验证集推理显式传入 approved 标注，例如：
 
 ```bash
 python offline/infer.py \
@@ -79,8 +76,8 @@ used when a platform starts the process from another working directory.
 `shard_checkpoints/shard_<id>.checkpoint.json`，但当前恢复以最终
 `predictions.json` 为准，中断后请保持稳定会话完整跑完。
 
-`--num-workers 4` 是单卡推荐默认值，通过 DataLoader 预取图像与 GPU 推理
-并行；`--num-workers 0` 保留旧的串行加载行为。
+`--num-workers 4` 通过 DataLoader 预取图像并与 GPU 推理并行；
+`--num-workers 0` 使用串行加载。
 
 ## 仓库内容与外部数据清单
 

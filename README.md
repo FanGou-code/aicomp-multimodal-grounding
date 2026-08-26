@@ -38,7 +38,7 @@ flowchart LR
 | `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | `741a7d0` | RGB + Infrared + Depth + Query | 训练 / 推理 | 动态切块 (`max_num_tiles=12`)，LoRA (r=16, α=48)，BF16 (SDPA) |
 | `groundingdino` | `IDEA-Research/grounding-dino-base` | `12bdfa3` | RGB + Query | 推理 (Zero-shot) | 原生判别式检测器，输出置信度得分供 WBF 融合 |
 
-> 注：另内置 `mock` 确定性桩模型，用于纯 CPU 单元测试与端到端流水线快速验证。
+> 注：另内置 `mock` 确定性桩模型，用于纯 CPU 单元测试与端到端流水线验证。
 
 ### VLM 训练配置
 
@@ -285,7 +285,7 @@ python scripts/build_indexes.py --data-dir data
 export API_KEY="<your API key>"
 ```
 
-推荐的新风格计划链路：
+新风格计划链路：
 
 ```bash
 # 1. 生成场景卡（需要 API_KEY；每个序列抽样 3 帧）
@@ -423,7 +423,7 @@ modal run cloud/train.py \
 
 ### 5. 推理与评估
 
-#### 5.1 Modal 云端流水线推理（推荐）
+#### 5.1 Modal 云端流水线推理
 
 验证集评估（Val 评估）：
 
@@ -546,7 +546,7 @@ python -m aicomp_grounding.submission \
 | 推理 | `outputs/inference/<id>/` | 增量预测 checkpoint |
 | 提交 | `outputs/submission/<id>/` | 完整 ZIP |
 
-Run ID 由数据、模型、Prompt、关键参数、seed 和 run-tag 共同确定。修改实验配置时应使用新的 run-tag，避免不同实验的产物混淆。
+Run ID 由数据、模型、Prompt、参数、seed 和 run-tag 共同确定。修改实验配置时应使用新的 run-tag，避免产物混淆。
 
 ## 测试
 

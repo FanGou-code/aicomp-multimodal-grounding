@@ -1,4 +1,4 @@
-# ☁️ Cloud End — Modal
+# Cloud End — Modal
 
 云端端：Modal 专用适配器。通用实验室电脑、魔搭工作台或其他真实 GPU
 环境请使用仓库根目录下的 `offline/` 入口；本目录只负责把同一套核心逻辑接入
@@ -22,7 +22,7 @@ modal run cloud/train.py --annotation-run-id annot_ac72f1d926bb2d23 --model qwen
 # 验证集评估（Modal 的本地入口；使用 approved 标注）
 modal run cloud/infer.py --split val --adapter-path /data/data/output_lora/<RUN_ID>/best/epoch_XX
 
-# 官方测试集 8 卡分片推理 + 自动生成 submission.zip；worker 使用 data/test.json
+# 官方测试集 8 卡分片推理 + 自动生成 submission.zip；worker 直接使用官方模板
 modal run cloud/infer.py --split test --num-shards 8 --adapter-path /data/data/output_lora/<RUN_ID>/best/epoch_XX
 
 # 其他模型（--model 换适配器；LoRA 可选）
