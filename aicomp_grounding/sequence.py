@@ -109,8 +109,11 @@ def _parse_json_object(text: str, *, label: str) -> dict:
 def parse_frame_query_candidates(text: str) -> dict[str, object]:
     payload = _parse_json_object(text, label="Frame query")
     expected = {"query", "alternate_query", "uncertain"}
-    if set(payload) != expected:
+    optional = {"style"}
+    if set(payload) - expected - optional:
         raise ValueError(f"Frame query must contain exactly {sorted(expected)}")
+    if "style" in payload and not isinstance(payload["style"], str):
+        raise ValueError("Frame query style must be a string when present")
     query = clean_query_text(payload["query"])
     valid, reason = validate_annotation_query(query)
     if not valid:

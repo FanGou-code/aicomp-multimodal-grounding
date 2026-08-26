@@ -86,6 +86,7 @@ class SiliconFlowClientTests(unittest.TestCase):
             model="glm-4.6v",
             base_url="https://api.siliconflow.cn/v1",
             opener=opener,
+            thinking_mode="disabled",
         )
         response = client.complete(
             messages=[{"role": "user", "content": "test"}],
@@ -94,6 +95,7 @@ class SiliconFlowClientTests(unittest.TestCase):
         )
 
         self.assertFalse(captured["payload"]["enable_thinking"])
+        self.assertEqual(captured["payload"]["thinking"], {"type": "disabled"})
         self.assertEqual(captured["payload"]["response_format"], {"type": "json_object"})
         self.assertEqual(captured["payload"]["max_tokens"], 256)
         self.assertEqual(captured["authorization"], "Bearer secret-test-key")
@@ -264,6 +266,35 @@ class FrameGenerationTests(unittest.TestCase):
         self.assertIn("cone", result["query"])
         self.assertEqual(len(client.calls), 2)
 
+    def test_style_fields_inject_group_specific_prompt(self):
+        marked = self._marked()
+        client = self.FakeClient(
+            [
+                json.dumps({
+                    "query": "The third cone from left to right",
+                    "alternate_query": None,
+                    "uncertain": False,
+                    "style": "ordinal",
+                })
+            ],
+            "glm-4.6v",
+        )
+        result = generate_queries._annotate_frame(
+            client,
+            marked,
+            previous=None,
+            retry_failed=False,
+            style_fields={
+                "annotation_style": "ordinal",
+                "annotation_style_family": "FROM_LEFT_TO_RIGHT",
+                "annotation_min_words": 8,
+                "annotation_max_words": 12,
+                "annotation_fallback_style": "scene_location",
+            },
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertIn("FROM_LEFT_TO_RIGHT", client.calls[0]["messages"][1]["content"][-1]["text"])
+
     def test_verify_rejects_low_iou_and_retries(self):
         plain = Image.new("RGB", (320, 180), "gray")
         marked = build_marked_annotation_view(plain, [0.1, 0.1, 0.4, 0.6])
@@ -325,6 +356,12 @@ class FrameGenerationTests(unittest.TestCase):
         # 1 gen + 1 verify = 2 api_calls
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(len(result["api_calls"]), 2)
+        verify_content = client.calls[1]["messages"][1]["content"]
+        self.assertEqual(verify_content[0]["type"], "image_url")
+        verify_text = " ".join(
+            part["text"] for part in verify_content if part["type"] == "text"
+        )
+        self.assertIn("Referring query:", verify_text)
 
 
 if __name__ == "__main__":

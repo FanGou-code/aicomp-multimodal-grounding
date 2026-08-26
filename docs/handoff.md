@@ -31,14 +31,43 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 **当前阶段与下一步**：32B 适配器代码已接入（`qwen3vl32`，纯兼容，8B 指纹零漂移），
 等待 GPU 冒烟（`--model qwen3vl32 --smoke-test`）；阶段一「标注对齐+数据扩展」零 GPU
-可并行推进（pilot → 风格审计 → 全量重生成）。详见下方「当前状态」。
+可并行推进（pilot → 风格审计 → 全量重生成）。标注验证已修复：GLM-4.6V 请求显式
+禁用 thinking，避免验证调用耗尽 `max_tokens` 后返回空 content。重跑 pilot 必须使用
+新 run-tag，`generation_config` 变化会自然生成新 run id。新风格计划链路已接入：
+官方 Query 全量分析 → 400 序列场景卡 → 确定性 style plan → 扩展样本 ID →
+分组提示词生成，旧单 Query 流程保持兼容。API 调用与全量生成由用户亲自执行。
+详见下方「当前状态」。
 
 **运行边界**：本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。32B 权重（~66G）不落持久盘，
 每次开机从魔搭内网拉到实例临时盘 `/root/models`；`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-23，32B 冒烟跑通与标注韧性加固）
+## 当前状态（最后更新 2026-08-26，新标注策略基础接入与文档同步）
+
+### 新标注策略接入（2026-08-25）
+- 新增 `aicomp_grounding/query_style.py`：语义组、官方模板族、场景卡解析、
+  deterministic style plan、扩展标注源、分组提示词。
+- 新增脚本：
+  `scripts/analyze_test_query_templates.py`（全量官方 Query 分析）；
+  `scripts/build_scene_cards.py`（400 序列 x 抽样帧场景卡）；
+  `scripts/build_style_plan.py`（生成可被现有 generate_queries 直接消费的
+  expanded data root）。
+- `generate_queries.py` 保留旧自由生成模式；当 expanded item 带
+  `annotation_style` 字段时自动使用对应官方模板族提示词。
+- 生成扩展样本 ID 规则为 `001_00000001_q1`，原始 bbox/图路径不变，
+  训练核心与 approved schema 不需要改。
+- 验证状态：220 单测全绿（4 skip），官方 Query 全量分析脚本已在本机跑通，
+  API 场景卡和实际 Query 生成由用户自己执行。
+
+### 标注验证修复（本轮）
+- **根因**：Zhipu `glm-4.6v` endpoint 默认思考；验证任务在 4096 token 内只吐
+  reasoning，`message.content` 为空，被客户端判为 `API response has no final content`。
+- **修复**：`api_client.py` 支持 `thinking_mode`，请求体发送 `thinking=disabled`；
+  生成与验证共用该配置。验证消息改为“原图在前、任务与 JSON 合同在后”。
+- **Prompt**：生成 prompt 增加可执行混比约束（约 2/3 空间关系、约 1/3 序数），
+  减少固定模板刷屏，并优先最短清晰表述。
+- **重跑**：pilot 需换新 run-tag（如 `glm46v-style-pilot-2`），不要复用旧目录。
 
 ### 成绩一览
 
@@ -136,6 +165,45 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-26（仓库，文档同步与新标注策略提交说明）
+
+* 同步 README、architecture、SOP 与 handoff：新 `query_style` 核心模块、
+  官方 Query 全量分析、场景卡、style plan、expanded data root 和分组提示词
+  均已纳入文档。
+* 保留旧式单 Query 流程说明，新增推荐的新风格计划链路命令。
+* `offline/infer.py` 的推理进度输出 bug 修复一并保留，未合并其他无关改动。
+
+### 2026-08-25（仓库，新标注策略基础接入，旧流程零兼容破坏）
+
+* 新增 `query_style.py`，把“语义内容”和“句式结构”解耦：官方 Query 全量分析、
+  场景卡结构化字段、style plan、合成样本 ID、分组提示词全部为纯逻辑可单测。
+* 新增三个脚本：官方模板全量分析、400 序列场景卡、可生成 expanded data root
+  的 style plan。expanded root 使用相对 symlink 指向原 `data/Train` 与
+  `data/Processed`，原始索引不修改。
+* `generate_queries.py` 保留旧模式；仅当 item 存在 `annotation_style` 字段时
+  注入对应官方模板族提示词，返回 JSON 允许可选 `style` 字段。
+* 审计升级：`scripts/audit_query_style.py --full` 增加语义组覆盖输出，
+  官方 Query 实测分组为 ordinal 28.5% / spatial 34.0% / distance 10.5% /
+  scene_location 5.7% / attribute_action 21.3%。
+* 验证：220 项单测全绿（4 skip），`compileall` 与 `git diff --check` 通过。
+  API key、场景卡实际运行、pilot 与全量生成均由用户亲手执行。
+
+### 2026-08-23（仓库，标注验证空 content 根因修复与 prompt 混比约束）
+
+* **根因**：`glm-4.6v` 的 Zhipu endpoint 默认启用思考模式。验证调用虽返回
+  `finish_reason=stop` 且产生 completion tokens，但内容被 reasoning 占满，
+  `message.content` 为空；客户端因此反复报 `API response has no final content`，
+  少数请求伴随 `1210` HTTP 400。
+* **修复**：`OpenAIProtocolClient` 增加 `thinking_mode` 参数，请求体发送
+  `{"thinking":{"type":"disabled"}}`；`generate_queries.py` 的生成与验证共用
+  `thinking_mode=disabled`，避免继续猜测旧 `enable_thinking` 参数。
+* **验证消息流**：调整为先给无红框原图，再给 `Referring query`、定位任务和
+  JSON bbox 合同，降低语境分裂和 JSON 合同被前文抢占。
+* **生成 prompt**：加入“约 2/3 空间关系、约 1/3 序数”的混比约束，强调优先最短
+  清晰表述、同类别对象才计数序数；避免旧 prompt 把所有帧都推向同一种空间/序数模板。
+* **验证**：212 项单测全绿（4 skip），`compileall` 与 `git diff --check` 通过。
+  重跑本地 pilot 时应使用新 run-tag；`generation_config` 已变，旧 run id 不复用。
 
 ### 2026-08-23（32B 冒烟验证通过、标注生成韧性加固与推理策略定案）
 

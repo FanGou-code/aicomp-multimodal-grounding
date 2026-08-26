@@ -216,7 +216,8 @@ def _run_inference_loop(
             batch.clear()
 
         start_time = time.time()
-        processed_count = len(predictions)
+        initial_count = len(predictions)
+        processed_count = initial_count
         for item in pending_items:
             scene_id = (
                 item["visible"],
@@ -248,10 +249,11 @@ def _run_inference_loop(
             if processed_count % batch_save == 0 or processed_count == len(items):
                 flush()
                 elapsed = time.time() - start_time
-                avg_speed = elapsed / max(1, processed_count - (len(items) - len(pending_items)))
+                session_processed = processed_count - initial_count
+                speed = session_processed / max(1e-5, elapsed)
                 print(
                     f"Progress: [{processed_count}/{len(items)}] | "
-                    f"Avg speed: {avg_speed:.2f}s/query | "
+                    f"Speed: {speed:.2f} samples/s | "
                     f"Elapsed: {elapsed / 60:.1f}m"
                 )
                 if checkpoint_path is not None and checkpoint_metadata is not None:
@@ -336,7 +338,8 @@ def _run_dataloader_inference_loop(
     )
 
     start_time = time.time()
-    processed_count = len(predictions)
+    initial_count = len(predictions)
+    processed_count = initial_count
     since_last_save = 0
 
     for keys, payload in loader:
@@ -352,7 +355,8 @@ def _run_dataloader_inference_loop(
 
         if since_last_save >= batch_save or processed_count == len(items):
             elapsed = time.time() - start_time
-            speed = processed_count / max(1e-5, elapsed)
+            session_processed = processed_count - initial_count
+            speed = session_processed / max(1e-5, elapsed)
             print(
                 f"Progress: [{processed_count}/{len(items)}] | "
                 f"Speed: {speed:.2f} samples/s | "

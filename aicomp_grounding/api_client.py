@@ -110,6 +110,7 @@ class OpenAIProtocolClient:
         sleeper: Callable[[float], None] = time.sleep,
         rate_limiter: SlidingWindowRateLimiter | None = None,
         enable_thinking: bool | None = False,
+        thinking_mode: str | None = None,
         json_mode: bool = True,
     ) -> None:
         if not api_key.strip():
@@ -127,6 +128,7 @@ class OpenAIProtocolClient:
         self.sleeper = sleeper
         self.rate_limiter = rate_limiter
         self.enable_thinking = enable_thinking
+        self.thinking_mode = thinking_mode
         self.json_mode = json_mode
 
     def complete(
@@ -145,6 +147,8 @@ class OpenAIProtocolClient:
         }
         if self.enable_thinking is not None:
             payload["enable_thinking"] = self.enable_thinking
+        if self.thinking_mode is not None:
+            payload["thinking"] = {"type": self.thinking_mode}
         if self.json_mode:
             payload["response_format"] = {"type": "json_object"}
         body = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")

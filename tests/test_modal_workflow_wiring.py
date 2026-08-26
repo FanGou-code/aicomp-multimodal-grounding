@@ -26,7 +26,7 @@ class AnnotationEntrypointTests(unittest.TestCase):
         self.assertIn("enclosed by the red rectangle", query_prompt)
         self.assertIn("never mention the rectangle", query_prompt)
         self.assertIn("multiple same-category objects", query_prompt)
-        self.assertIn("ordinal or a spatial relation", query_prompt)
+        self.assertIn("spatial relation or, when confident, an ordinal", query_prompt)
         self.assertIn("leftmost window", query_prompt)
         self.assertIn("roughly 6 to 15 words", query_prompt)
         self.assertIn("is not acceptable", query_prompt)
@@ -34,6 +34,13 @@ class AnnotationEntrypointTests(unittest.TestCase):
         self.assertIn("confidently count", query_prompt)
         self.assertIn("viewer's perspective", query_prompt)
         self.assertIn("Never force a variant", query_prompt)
+        self.assertIn("roughly two thirds", query_prompt)
+        self.assertIn("only about one third", query_prompt)
+        self.assertIn("most reliable spatial cue", query_prompt)
+        self.assertIn("shortest clear wording", query_prompt)
+
+    def test_annotation_request_disables_glm_thinking(self):
+        self.assertEqual(generate_queries.GENERATION_CONFIG["thinking_mode"], "disabled")
 
     def test_test_split_is_rejected_before_preflight(self):
         preflight = MagicMock()

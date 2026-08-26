@@ -18,6 +18,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from aicomp_grounding.query_style import QUERY_STYLE_GROUPS, analyze_queries
+
 SPATIAL_RE = re.compile(
     r"\b("
     r"left|right|far|near|behind|front|foreground|background|top|bottom|"
@@ -64,6 +66,7 @@ def style_stats(queries: list[str]) -> dict[str, object]:
         1 for q in queries if SPATIAL_RE.search(q) or ORDINAL_RE.search(q)
     )
     starts_the = sum(1 for q in queries if q.startswith("The "))
+    semantic = analyze_queries(queries)
     return {
         "count": len(queries),
         "mean_words": statistics.mean(word_counts),
@@ -74,6 +77,8 @@ def style_stats(queries: list[str]) -> dict[str, object]:
         "ordinal_ratio": ordinal / len(queries),
         "spatial_or_ordinal_ratio": either / len(queries),
         "starts_with_the_ratio": starts_the / len(queries),
+        "semantic_group_counts": semantic["group_counts"],
+        "semantic_group_ratios": semantic["group_ratios"],
     }
 
 
@@ -112,15 +117,30 @@ def main() -> None:
         type=Path,
         help="optional reference JSON (e.g. official test template) printed for comparison",
     )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="also print semantic query-group coverage",
+    )
     args = parser.parse_args()
 
     if args.reference is not None:
         reference = load_queries(args.reference)
-        print(format_stats_row(args.reference.name, style_stats(reference)))
+        reference_stats = style_stats(reference)
+        print(format_stats_row(args.reference.name, reference_stats))
+        if args.full:
+            for style in QUERY_STYLE_GROUPS:
+                ratio = reference_stats["semantic_group_ratios"][style]
+                print(f"  reference {style:<18} {ratio:.1%}")
         print()
     for path in args.queries:
         queries = load_queries(path)
-        print(format_stats_row(path.name, style_stats(queries)))
+        stats = style_stats(queries)
+        print(format_stats_row(path.name, stats))
+        if args.full:
+            for style in QUERY_STYLE_GROUPS:
+                ratio = stats["semantic_group_ratios"][style]
+                print(f"  {path.name} {style:<18} {ratio:.1%}")
 
 
 if __name__ == "__main__":

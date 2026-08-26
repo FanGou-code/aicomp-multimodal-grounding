@@ -62,6 +62,11 @@ GLM-4.6V 是一个开放权重的先进多模态模型，在基础架构上原�
 
 生成链路具备场景级分片、请求限流、断点恢复、失败重试和显式发布机制。训练程序只接受完整通过 QC 的 approved 产物。
 
+新风格计划链路将语义内容与句式结构解耦：先全量分析官方 Test Query 的语义组，
+再抽样生成 400 个训练序列的场景卡，按场景支持度生成确定性 `style_plan`，
+最后以扩展样本 ID（如 `001_00000001_q1`）逐条生成官方模板族 Query。旧模式
+仍可运行；带 `annotation_style` 字段的 expanded item 会自动使用分组提示词。
+
 ### 定位协议与后处理
 
 各模型 adapter 内部负责把原生输出统一转换为归一化 XYXY。Qwen3-VL 使用
@@ -93,6 +98,7 @@ aicomp_grounding/
   io.py                 原子 JSON 读写
   prompts.py            Qwen 定位 Prompt 协议（qwen3vl 适配器使用）
   query.py              Query 与训练样本结构校验
+  query_style.py        官方语义组、场景卡、style plan 与分组提示词
   sequence.py           Query 生成响应与文本 QC
   sharding.py           场景级均衡分片
   api_client.py         通用 OpenAI 协议客户端、限流与退避
@@ -116,6 +122,9 @@ scripts/
   prepare_rgbdt.py      RGBDT 图像检查与 Depth JET 伪彩转换
   build_indexes.py      构建 5 个切分 JSON 索引并执行 SHA-256 去重审计
   filter_overlap.py     SHA-256 剔除与 Test 同源的 Train/Val 样本
+  analyze_test_query_templates.py 全量分析官方 Query 语义组与模板比例
+  build_scene_cards.py   400 序列抽样帧场景卡生成（API 教师模型）
+  build_style_plan.py    合并官方分布与场景卡，生成 expanded 标注源
   generate_queries.py   自动 Query 生成与 approved 发布
   upload_dataset.py     ModelScope 数据集上传工具
 
@@ -239,7 +248,37 @@ python scripts/build_indexes.py --data-dir data
 export API_KEY="<your API key>"
 ```
 
-建议先选取少量场景验证 Prompt、API 和 QC：
+推荐的新风格计划链路：
+
+```bash
+# 0. 全量分析官方 Query（本地，无需 API）
+python scripts/analyze_test_query_templates.py \
+  --queries data/Test/queries/queries.json \
+  --output outputs/annotation_analysis/test_query_templates.json
+
+# 1. 生成场景卡（需要 API_KEY；每个序列抽样 3 帧）
+python -u scripts/build_scene_cards.py \
+  --split train --frame-count 3 --concurrency 4
+python -u scripts/build_scene_cards.py \
+  --split val --frame-count 3 --concurrency 4
+
+# 2. 生成 style plan 与 expanded data root
+python scripts/build_style_plan.py \
+  --split train \
+  --scene-cards outputs/annotation_analysis/scene_cards/train/cards.json \
+  --official-analysis outputs/annotation_analysis/test_query_templates.json \
+  --queries-per-frame 3
+
+# 3. 先跑 10 序列 pilot
+python -u scripts/generate_queries.py \
+  --data-root outputs/annotation_analysis/expanded_train \
+  --split train \
+  --limit-sequences 10 \
+  --verify-queries \
+  --run-tag glm46v-style-plan-pilot
+```
+
+旧式单 Query 生成仍可兼容使用，建议先选取少量场景验证 Prompt、API 和 QC：
 
 ```bash
 python -u scripts/generate_queries.py \

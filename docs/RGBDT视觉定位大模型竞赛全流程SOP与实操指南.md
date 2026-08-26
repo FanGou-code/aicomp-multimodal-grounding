@@ -84,22 +84,50 @@ python scripts/upload_dataset.py --repo-id Fang001/rgbdt-grounding-dataset --tok
 ```bash
 export API_KEY="YOUR_API_KEY"
 
-# a. Pilot：先跑 10 个序列验证新 prompt 的产出风格
+# 0. 官方 Query 全量分析（无 API，纯本地）
+python scripts/analyze_test_query_templates.py \
+  --queries data/Test/queries/queries.json \
+  --output outputs/annotation_analysis/test_query_templates.json
+
+# 1. 400 序列场景卡（需要 API_KEY；每个序列抽样 3 帧）
+python -u scripts/build_scene_cards.py \
+  --split train --frame-count 3 --concurrency 4
+python -u scripts/build_scene_cards.py \
+  --split val --frame-count 3 --concurrency 4
+
+# 2. style plan + expanded data root（无 API）
+python scripts/build_style_plan.py \
+  --split train \
+  --scene-cards outputs/annotation_analysis/scene_cards/train/cards.json \
+  --official-analysis outputs/annotation_analysis/test_query_templates.json \
+  --queries-per-frame 3
+python scripts/build_style_plan.py \
+  --split val \
+  --scene-cards outputs/annotation_analysis/scene_cards/val/cards.json \
+  --official-analysis outputs/annotation_analysis/test_query_templates.json \
+  --queries-per-frame 3
+
+# 3. 分组提示词生成（pilot 先跑 10 序列；全量发布时去掉 limit）
 python -u scripts/generate_queries.py \
+  --data-root outputs/annotation_analysis/expanded_train \
   --split train --limit-sequences 10 --seed 42 --concurrency 4 \
-  --run-tag glm46v-style-pilot
+  --run-tag glm46v-style-plan-pilot --verify-queries
 
 # b. 审计风格分布是否对齐官方测试集（目标：均值 ≈10 词、either ≥ 60%）
 python scripts/audit_query_style.py \
-  --queries outputs/annotations/YOUR_PILOT_RUN_ID/train/merged.json \
-  --reference data/Test/queries/queries.json
+  --queries outputs/annotation_analysis/expanded_train/train.json \
+  --reference data/Test/queries/queries.json --full
 
 # c. 审计达标并人工抽检空间关系无幻觉后，全量生成并发布
 #    （--verify-queries 开启质量门控：短标签自动重试 + 无红框复定位 IoU<0.5 重写）
 python -u scripts/generate_queries.py \
-  --split train --seed 42 --concurrency 4 --run-tag glm46v-gen-r2 --publish --verify-queries
+  --data-root outputs/annotation_analysis/expanded_train \
+  --split train --seed 42 --concurrency 4 \
+  --run-tag glm46v-style-plan-gen --publish --verify-queries
 python -u scripts/generate_queries.py \
-  --split val --seed 42 --concurrency 4 --run-tag glm46v-gen-r2 --publish --verify-queries
+  --data-root outputs/annotation_analysis/expanded_val \
+  --split val --seed 42 --concurrency 4 \
+  --run-tag glm46v-style-plan-gen --publish --verify-queries
 ```
 
 > 质量门控说明：`--verify-queries` 让每帧生成后追加一次无红框原图复定位，
@@ -107,6 +135,9 @@ python -u scripts/generate_queries.py \
 > 同时短 Query（<5 词且无空间词）在 QC 时被拒。开启后 API 调用量约为
 > 未开启的 1.5~2 倍，但显著提升标注可信度。验证参数计入 run id，
 > 开启与不开启是不同标注 run。
+
+> 兼容说明：旧式“原始 `data/train.json` 上单 Query”命令仍然可用；新策略只新增
+> 分析、场景卡、style plan 和 expanded data root，不改训练核心与模型指纹。
 
 **发布后必做的分发动作**：
 1. 从 `outputs/annotations/` 目录名获取新标注 run id（后续所有训练命令中的

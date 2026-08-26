@@ -63,6 +63,7 @@ from aicomp_grounding.api_client import (
     OpenAIProtocolClient,
     SlidingWindowRateLimiter,
 )
+from aicomp_grounding.query_style import build_style_prompt
 
 FRAME_QUERY_PROMPT = """Write a natural English visual-grounding query for the physical object enclosed by the red rectangle.
 
@@ -73,18 +74,20 @@ Return exactly:
 
 Core principle:
 - Describe the marked object so that someone scanning the whole scene can single it out immediately.
-- Ground the object in the scene: identify it through its position among the other objects or inside the image, not as an isolated label.
+- Ground the object in the scene: identify it through its position among the other objects or within the visible scene, not as an isolated label.
 - Aim for roughly 6 to 15 words. A bare label such as "A bus" or "White hat" is not acceptable.
-- When the scene contains other same-category objects, disambiguate spatially — this should be the majority of your queries. Only fall back to a purely descriptive clause when the object is truly unique and no positional cue is visible.
+- When the scene contains other same-category objects, disambiguate with the most reliable spatial cue available. Most generated queries should carry a positional or spatial cue; only use an ordinal when you can count the same-category objects confidently.
+- Prefer the shortest clear wording. One natural grounding cue is usually enough; stacked clauses should be avoided unless the extra context is needed to single out the target.
+- Match a natural corpus mix instead of forcing the same template on every frame: roughly two thirds of queries should contain a spatial cue, and only about one third should use an ordinal or extreme-position phrase.
 
 Preferred patterns, in order of preference:
-- Ordinal among same-category objects: "The third traffic cone from left to right in the front row", "The leftmost window on the second floor".
+- Ordinal among same-category objects when counting is confident: "The third traffic cone from left to right in the front row", "The leftmost window on the second floor".
 - Position relative to a landmark: "The red sedan parked to the right of the silver van", "The bird standing on the rock nearest the water".
 - Distance from the camera when clearly visible: "The farthest drone from the camera", "The person standing in the foreground".
 - Location inside the scene or area: "The deer in the middle of the field", "The air conditioner mounted in the top-right corner of the wall".
 - Attributes plus action and position: "Person in a light blue shirt sitting on the right concrete ledge", "The gray artificial rock speaker on the lawn near the fence".
 
-When multiple same-category objects are present, always disambiguate with an ordinal or a spatial relation; attributes alone are not enough in that case.
+When multiple same-category objects are present, attributes alone are not enough; use a spatial relation or, when confident, an ordinal.
 When the object is unique, still add a positional or contextual cue when one is clearly visible (foreground, middle of the scene, near a landmark, closest to the camera); otherwise a purely descriptive clause is acceptable.
 
 Grounding discipline:
@@ -114,10 +117,11 @@ VERIFICATION_IOU_THRESHOLD = 0.5
 GENERATION_CONFIG = {
     "query_max_tokens": 4096,
     "temperature": ANNOTATION_TEMPERATURE,
-    # GLM-4.6V does not accept enable_thinking param and
-    # may 400 on response_format json_object; the prompt already requests JSON
-    # and parse_frame_query_candidates handles fenced/raw JSON via QC + retry.
+    # Zhipu's chat-completions endpoint uses a `thinking` object, not
+    # `enable_thinking`. Disable it so the verification call cannot consume
+    # max_tokens on hidden reasoning and return an empty final message.
     "enable_thinking": None,
+    "thinking_mode": "disabled",
     "response_format": None,
     "image_detail": "high",
 }
@@ -388,15 +392,15 @@ def _verify_query(
     verification failure (the query did not let the model locate the target).
     """
     content = [
+        _image_part(plain_rgb),
         {
             "type": "text",
             "text": (
-                f"Query: {query}\n\nLocate the single object this query "
-                f"describes and return its bounding box."
+                f"Referring query: {query}\n\nLocate the single object this "
+                "query describes in the unmarked RGB scene and return its "
+                "bounding box.\n\n" + VERIFICATION_PROMPT
             ),
         },
-        _image_part(plain_rgb),
-        {"type": "text", "text": VERIFICATION_PROMPT},
     ]
     try:
         response = client.complete(
@@ -441,6 +445,7 @@ def _annotate_frame(
     plain_rgb: Image.Image | None = None,
     gt_bbox: list[float] | None = None,
     verify: bool = False,
+    style_fields: dict | None = None,
 ) -> dict:
     keep_history = bool(previous and retry_failed)
     api_calls = list(previous.get("api_calls", [])) if keep_history else []
@@ -451,11 +456,24 @@ def _annotate_frame(
         annotation_attempt_numbers(previous, retry_failed=retry_failed), start=1
     ):
         attempts = attempt_number
+        annotation_style = style_fields.get("annotation_style") if style_fields else None
+        if annotation_style:
+            prompt = build_style_prompt(
+                annotation_style,
+                min_words=int(style_fields.get("annotation_min_words", 7)),
+                max_words=int(style_fields.get("annotation_max_words", 13)),
+                template_family=style_fields.get("annotation_style_family", "OFFICIAL"),
+                fallback_style=style_fields.get(
+                    "annotation_fallback_style", "attribute_action"
+                ),
+            )
+        else:
+            prompt = FRAME_QUERY_PROMPT
         try:
             response = client.complete(
                 messages=_messages(
                     _frame_visual_content(marked_rgb),
-                    prompt=FRAME_QUERY_PROMPT,
+                    prompt=prompt,
                     previous_error=last_error if run_attempt > 1 else "",
                 ),
                 max_tokens=GENERATION_CONFIG["query_max_tokens"],
@@ -577,6 +595,7 @@ def annotate_shard(
         timeout_seconds=timeout_seconds,
         rate_limiter=rate_limiter,
         enable_thinking=GENERATION_CONFIG["enable_thinking"],
+        thinking_mode=GENERATION_CONFIG["thinking_mode"],
         json_mode=GENERATION_CONFIG["response_format"] == "json_object",
     )
     groups = group_keys_by_scene(list(dataset), dataset)
@@ -631,6 +650,7 @@ def annotate_shard(
                     plain_rgb=plain_rgb if verify_queries else None,
                     gt_bbox=item["bbox"],
                     verify=verify_queries,
+                    style_fields=item,
                 )
                 save_checkpoint()
                 frame = frames[sample_id]
