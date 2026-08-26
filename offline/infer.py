@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from collections import OrderedDict
+from datetime import datetime
 import multiprocessing
 from pathlib import Path
 import sys
@@ -36,6 +37,22 @@ from aicomp_grounding.paths import ProjectPaths, resolve_from_root
 from aicomp_grounding.submission import build_submission
 
 CACHE_MAX_SIZE = 32
+
+
+def _now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_eta(seconds: int) -> str:
+    if seconds < 0:
+        return "-"
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours}h{minutes:02d}m"
+    if minutes > 0:
+        return f"{minutes}m{seconds:02d}s"
+    return f"{seconds}s"
 
 
 def parse_args():
@@ -251,10 +268,14 @@ def _run_inference_loop(
                 elapsed = time.time() - start_time
                 session_processed = processed_count - initial_count
                 speed = session_processed / max(1e-5, elapsed)
+                remaining = max(len(items) - processed_count, 0)
+                eta = _format_eta(int(remaining / max(speed, 1e-6)))
+                percent = 100.0 * processed_count / len(items)
                 print(
-                    f"Progress: [{processed_count}/{len(items)}] | "
+                    f"[{_now_str()}] Progress {processed_count}/{len(items)} "
+                    f"({percent:.1f}%) | "
                     f"Speed: {speed:.2f} samples/s | "
-                    f"Elapsed: {elapsed / 60:.1f}m"
+                    f"ETA: {eta}"
                 )
                 if checkpoint_path is not None and checkpoint_metadata is not None:
                     atomic_write_json(
@@ -357,10 +378,14 @@ def _run_dataloader_inference_loop(
             elapsed = time.time() - start_time
             session_processed = processed_count - initial_count
             speed = session_processed / max(1e-5, elapsed)
+            remaining = max(len(items) - processed_count, 0)
+            eta = _format_eta(int(remaining / max(speed, 1e-6)))
+            percent = 100.0 * processed_count / len(items)
             print(
-                f"Progress: [{processed_count}/{len(items)}] | "
+                f"[{_now_str()}] Progress {processed_count}/{len(items)} "
+                f"({percent:.1f}%) | "
                 f"Speed: {speed:.2f} samples/s | "
-                f"Elapsed: {elapsed / 60:.1f}m"
+                f"ETA: {eta}"
             )
             if checkpoint_path is not None and checkpoint_metadata is not None:
                 atomic_write_json(

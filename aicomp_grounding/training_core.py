@@ -52,6 +52,10 @@ from aicomp_grounding.training_state import (
 SEED = 42
 
 
+def _log_now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _verify_training_images(
     data_root: Path,
     datasets: list[tuple[str, dict]],
@@ -770,7 +774,7 @@ def run_training(
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
                 if global_step % 50 == 0:
-                    now_str = datetime.now().strftime("%H:%M:%S")
+                    now_str = _log_now()
                     now_mono = time.monotonic()
                     elapsed_since_log = max(now_mono - last_log_time, 1e-4)
                     steps_since_log = max(global_step - last_log_step, 1)
@@ -838,7 +842,7 @@ def run_training(
         average_val_loss = validation_loss / validation_batches
         average_train_loss = epoch_loss / len(train_loader)
         print(
-            f"Epoch {epoch + 1}: train_loss={average_train_loss:.4f}, "
+            f"[{_log_now()}] Epoch {epoch + 1}: train_loss={average_train_loss:.4f}, "
             f"val_loss={average_val_loss:.4f}"
         )
 
@@ -853,7 +857,7 @@ def run_training(
         )
         candidate_metric = epoch_metrics[best_metric_name]
         print(
-            f"Epoch {epoch + 1}: ACC@0.5={epoch_metrics['acc_at_0_5']:.4f}, "
+            f"[{_log_now()}] Epoch {epoch + 1}: ACC@0.5={epoch_metrics['acc_at_0_5']:.4f}, "
             f"mIoU={epoch_metrics['mean_iou']:.4f}, failures={epoch_metrics['failures']}"
         )
 
