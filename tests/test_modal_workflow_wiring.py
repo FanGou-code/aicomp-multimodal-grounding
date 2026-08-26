@@ -170,7 +170,7 @@ class ModalInferencePathTests(unittest.TestCase):
     def test_test_split_uses_official_template_as_worker_index(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            template = root / "data/raw/Test/queries/queries.json"
+            template = root / "data/Test/queries/queries.json"
             template.parent.mkdir(parents=True)
             template.write_text("{}", encoding="utf-8")
 

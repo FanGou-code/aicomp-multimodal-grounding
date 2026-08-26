@@ -164,6 +164,16 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-08-26（仓库，data 目录回退旧布局并保留 test.json 删除）
+
+* `data/` 恢复为顶层 `Train / Test / Processed` 与
+  `train.json / val.json / split_manifest.json / excluded_overlap.json`。
+* 移除 `raw / derived / indexes / audits` 目录与兼容 symlink。
+* `data/test.json` 不保留；推理继续直接读 `data/Test/queries/queries.json`，
+  `build_indexes.py` 不生成 processed test index。
+* 保留 `offline/rocm_env.sh` 与 AMD ROCm 文档；数据路径相关代码和文档回退到旧布局。
+* 全量单测 223 项通过（4 skip），`compileall` 与 `git diff --check` 通过。
+
 ### 2026-08-26（仓库，文档措辞审计与过期描述清理）
 
 * 除 `research` 与 `handoff` 外，审计并修订 README、architecture、offline/cloud

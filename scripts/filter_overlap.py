@@ -104,20 +104,8 @@ def main() -> None:
     parser.add_argument(
         "--dataset-root",
         type=Path,
-        default=Path("data/raw"),
-        help="Dataset root directory containing Test/ and Train/ (default: data/raw)",
-    )
-    parser.add_argument(
-        "--index-root",
-        type=Path,
-        default=Path("data/indexes"),
-        help="Index directory containing train.json/val.json (default: data/indexes)",
-    )
-    parser.add_argument(
-        "--audit-root",
-        type=Path,
-        default=Path("data/audits"),
-        help="Audit output directory (default: data/audits)",
+        default=Path("data"),
+        help="Dataset root directory (default: data)",
     )
     parser.add_argument(
         "--overwrite-indexes",
@@ -128,8 +116,6 @@ def main() -> None:
     args = parser.parse_args()
 
     data_root: Path = args.dataset_root
-    index_root: Path = args.index_root
-    audit_root: Path = args.audit_root
     test_visible_dir = data_root / "Test" / "Images" / "visible"
     test_hashes = _build_test_image_hashes(test_visible_dir)
     if not test_hashes:
@@ -138,7 +124,7 @@ def main() -> None:
 
     all_records: Dict[str, List[dict]] = {}
     for split in ("train", "val"):
-        index_path = index_root / f"{split}.json"
+        index_path = data_root / f"{split}.json"
         if not index_path.is_file():
             print(f"[filter_overlap] {index_path} not found, skipping {split}.")
             continue
@@ -152,13 +138,13 @@ def main() -> None:
 
     # Keep split_manifest.json consistent with the filtered indexes so the
     # annotation and training pipelines accept the new split.
-    manifest_path = index_root / "split_manifest.json"
+    manifest_path = data_root / "split_manifest.json"
     if args.overwrite_indexes and manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         fingerprints = manifest.get("index_fingerprints", {})
         counts = manifest.get("index_sample_counts", {})
         for split in ("train", "val"):
-            index_path = index_root / f"{split}.json"
+            index_path = data_root / f"{split}.json"
             if not index_path.is_file():
                 continue
             index = json.loads(index_path.read_text(encoding="utf-8"))
@@ -169,8 +155,7 @@ def main() -> None:
         atomic_write_json(manifest_path, manifest)
         print(f"[filter_overlap] Updated split_manifest.json fingerprints/counts.")
 
-    audit_root.mkdir(parents=True, exist_ok=True)
-    excluded_path = audit_root / "excluded_overlap.json"
+    excluded_path = data_root / "excluded_overlap.json"
     summary = {
         "description": "Samples excluded because their visible image matches a Test image (SHA-256).",
         "test_images_hashed": len(test_hashes),

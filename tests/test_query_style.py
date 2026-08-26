@@ -130,14 +130,12 @@ class BuildStylePlanArtifactsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             data_root = root / "data"
-            (data_root / "raw" / "Train").mkdir(parents=True)
-            (data_root / "derived" / "Processed").mkdir(parents=True)
-            index_root = data_root / "indexes"
-            index_root.mkdir(parents=True)
+            (data_root / "Train").mkdir(parents=True)
+            (data_root / "Processed").mkdir(parents=True)
             dataset = _dataset()
-            atomic_write_json(index_root / "train.json", dataset)
+            atomic_write_json(data_root / "train.json", dataset)
             atomic_write_json(
-                index_root / "split_manifest.json",
+                data_root / "split_manifest.json",
                 {
                     "status": "complete",
                     "preparation_protocol_version": 2,
@@ -167,7 +165,6 @@ class BuildStylePlanArtifactsTests(unittest.TestCase):
             result = build_style_plan_artifacts(
                 split="train",
                 data_root=data_root,
-                index_root=index_root,
                 scene_cards_path=cards_path,
                 output_root=root / "outputs",
                 queries_per_frame=2,

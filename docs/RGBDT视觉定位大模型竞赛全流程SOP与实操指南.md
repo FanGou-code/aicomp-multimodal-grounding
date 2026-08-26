@@ -26,9 +26,9 @@ modelscope download --dataset Fang001/rgbdt-grounding-dataset data.tar \
 
 tar -xf /tmp/rgbdt-download/data.tar -C /mnt/workspace/data --no-same-owner
 
-test -f /mnt/workspace/data/raw/Test/queries/queries.json
-test -d /mnt/workspace/data/raw/Train
-test -d /mnt/workspace/data/derived/Processed/Train
+test -f /mnt/workspace/data/Test/queries/queries.json
+test -d /mnt/workspace/data/Train
+test -d /mnt/workspace/data/Processed/Train
 ```
 
 ## 2. 创建并激活环境
@@ -146,7 +146,7 @@ python offline/train.py \
 推理统一使用：
 
 ```text
---test-json /mnt/workspace/data/raw/Test/queries/queries.json
+--test-json /mnt/workspace/data/Test/queries/queries.json
 --data-dir /mnt/workspace/data
 --num-shards 1
 --num-workers 4
@@ -162,7 +162,7 @@ python offline/train.py \
 python offline/infer.py \
   --model qwen3vl \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --limit 100 --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag qwen8-zero-smoke
@@ -170,7 +170,7 @@ python offline/infer.py \
 python offline/infer.py \
   --model qwen3vl \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag qwen8-zero-full
@@ -183,7 +183,7 @@ python offline/infer.py \
   --model qwen3vl \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
   --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --limit 100 --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag qwen8-lora-smoke
@@ -192,7 +192,7 @@ python offline/infer.py \
   --model qwen3vl \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
   --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag qwen8-lora-full
@@ -206,7 +206,7 @@ python offline/infer.py \
 python offline/infer.py \
   --model qwen3vl32 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --limit 100 --num-shards 1 --num-workers 4 \
   --batch-size 2 --batch-save 100 --run-tag qwen32-zero-smoke
@@ -214,7 +214,7 @@ python offline/infer.py \
 python offline/infer.py \
   --model qwen3vl32 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --num-shards 1 --num-workers 4 \
   --batch-size 2 --batch-save 100 --run-tag qwen32-zero-full
@@ -227,7 +227,7 @@ python offline/infer.py \
   --model qwen3vl32 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
   --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --limit 100 --num-shards 1 --num-workers 4 \
   --batch-size 2 --batch-save 100 --run-tag qwen32-lora-smoke
@@ -236,7 +236,7 @@ python offline/infer.py \
   --model qwen3vl32 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
   --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --num-shards 1 --num-workers 4 \
   --batch-size 2 --batch-save 100 --run-tag qwen32-lora-full
@@ -250,7 +250,7 @@ python offline/infer.py \
 python offline/infer.py \
   --model internvl35 \
   --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --limit 100 --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag internvl-zero-smoke
@@ -258,7 +258,7 @@ python offline/infer.py \
 python offline/infer.py \
   --model internvl35 \
   --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag internvl-zero-full
@@ -271,7 +271,7 @@ python offline/infer.py \
   --model internvl35 \
   --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
   --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --limit 100 --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag internvl-lora-smoke
@@ -280,7 +280,7 @@ python offline/infer.py \
   --model internvl35 \
   --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
   --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag internvl-lora-full
@@ -294,7 +294,7 @@ GroundingDINO-B 仅做零样本：
 python offline/infer.py \
   --model groundingdino \
   --model-path /root/models/AI-ModelScope/grounding-dino-base \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --limit 100 --num-shards 1 --num-workers 4 \
   --batch-size 32 --batch-save 100 --run-tag dino-zero-smoke
@@ -302,7 +302,7 @@ python offline/infer.py \
 python offline/infer.py \
   --model groundingdino \
   --model-path /root/models/AI-ModelScope/grounding-dino-base \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --data-dir /mnt/workspace/data \
   --num-shards 1 --num-workers 4 \
   --batch-size 32 --batch-save 100 --run-tag dino-zero-full
@@ -314,7 +314,7 @@ python offline/infer.py \
 
 ```bash
 python -m aicomp_grounding.submission \
-  --test-json /mnt/workspace/data/raw/Test/queries/queries.json \
+  --test-json /mnt/workspace/data/Test/queries/queries.json \
   --predictions /mnt/workspace/outputs/inference/YOUR_RUN_ID/predictions.json \
   --output-dir /mnt/workspace/outputs/submission/YOUR_RUN_ID \
   --allow-fallback

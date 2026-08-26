@@ -2,8 +2,8 @@
 
 The generated directory is a compatible `generate_queries.py` data root:
 it contains `<split>.json`, `split_manifest.json`, and relative image symlinks
-back to the original `data/raw/Train` and `data/derived/Processed` trees. Raw
-indexes are never modified.
+back to the original `data/Train` and `data/Processed` trees. Raw indexes are
+never modified.
 """
 
 from __future__ import annotations
@@ -32,15 +32,11 @@ from aicomp_grounding.query_style import (
 
 def _ensure_image_links(expanded_root: Path, data_root: Path) -> None:
     expanded_root.mkdir(parents=True, exist_ok=True)
-    link_specs = (
-        ("Train", data_root / "raw" / "Train"),
-        ("Processed", data_root / "derived" / "Processed"),
-    )
-    for name, target in link_specs:
+    for name in ("Train", "Processed"):
         link = expanded_root / name
         if link.exists() or link.is_symlink():
             continue
-        target = target.resolve()
+        target = (data_root / name).resolve()
         if not target.is_dir():
             raise FileNotFoundError(
                 f"Cannot create expanded image link, missing {target}"
@@ -52,7 +48,6 @@ def build_style_plan_artifacts(
     *,
     split: str,
     data_root: Path,
-    index_root: Path,
     scene_cards_path: Path,
     output_root: Path,
     seed: int = 42,
@@ -61,7 +56,7 @@ def build_style_plan_artifacts(
     split = split.strip().lower()
     if split not in ANNOTATION_SPLITS:
         raise ValueError(f"Annotation is restricted to train/val, got {split!r}")
-    raw = load_json(index_root / f"{split}.json")
+    raw = load_json(data_root / f"{split}.json")
     if not isinstance(raw, dict) or not raw:
         raise ValueError(f"{split} annotation source is empty")
     cards = load_json(scene_cards_path)
@@ -82,7 +77,7 @@ def build_style_plan_artifacts(
             (expanded_root / old).unlink(missing_ok=True)
     _ensure_image_links(expanded_root, data_root.resolve())
 
-    manifest = load_json(index_root / "split_manifest.json")
+    manifest = load_json(data_root / "split_manifest.json")
     if not isinstance(manifest, dict) or manifest.get("status") != "complete":
         raise ValueError("Raw split_manifest.json is not a completed supported preparation")
     manifest["preparation_protocol_version"] = PREPARATION_PROTOCOL_VERSION
@@ -117,7 +112,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--split", choices=sorted(ANNOTATION_SPLITS), default="train")
     parser.add_argument("--data-root", type=Path, default=Path("data"))
-    parser.add_argument("--index-root", type=Path, default=Path("data/indexes"))
     parser.add_argument("--scene-cards", type=Path, required=True)
     parser.add_argument(
         "--output-root",
@@ -132,7 +126,6 @@ def main() -> None:
     result = build_style_plan_artifacts(
         split=args.split,
         data_root=args.data_root,
-        index_root=args.index_root,
         scene_cards_path=args.scene_cards,
         output_root=args.output_root,
         seed=args.seed,

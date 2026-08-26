@@ -3,7 +3,7 @@
 离线端提供平台无关的训练与推理入口。`offline/infer.py` 调用推理核心，
 `offline/train.py` 与云端共用 `aicomp_grounding/training_core`。
 
-数据索引位于 `data/indexes/`，已批准标注和训练/推理产物位于仓库级 `outputs/`。
+数据索引位于 `data/`，已批准标注和训练/推理产物位于仓库级 `outputs/`。
 Modal 由 `cloud/` 适配器使用 Volume 布局，离线端不依赖该布局。
 
 ## 平台 × 任务矩阵
@@ -38,7 +38,7 @@ python offline/train.py \
 ```bash
 python offline/infer.py \
   --model qwen3vl \
-  --test-json data/raw/Test/queries/queries.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path YOUR_LORA_PATH \
   --output-dir outputs/inference \
@@ -47,13 +47,13 @@ python offline/infer.py \
   --run-tag offline-test
 
 # 其他模型示例（zero-shot，无需 LoRA）：
-python offline/infer.py --model groundingdino --test-json data/raw/Test/queries/queries.json ...
-python offline/infer.py --model internvl35 --test-json data/raw/Test/queries/queries.json ...
+python offline/infer.py --model groundingdino --test-json data/Test/queries/queries.json ...
+python offline/infer.py --model internvl35 --test-json data/Test/queries/queries.json ...
 ```
 
-推理可直接使用 `data/raw/Test/queries/queries.json`；`inference_core` 会在内存中
-把原始模态路径映射到 `raw/Test/Images/...` 与
-`derived/Processed/Test/depth_jet/...`。验证集推理显式传入 approved 标注，例如：
+推理可直接使用 `data/Test/queries/queries.json`；`inference_core` 会在内存中
+把原始模态路径映射到 `Test/Images/...` 与
+`Processed/Test/depth_jet/...`。验证集推理显式传入 approved 标注，例如：
 
 ```bash
 python offline/infer.py \
@@ -88,10 +88,10 @@ used when a platform starts the process from another working directory.
 
 | 缺的东西 | 体量 | 获取方式 |
 | --- | --- | --- |
-| `data/raw/Train` 原始三模态（400 序列） | 共 ~43G | 由数据提供方另行获取 |
-| `data/raw/Test` 测试集 | 含在 43G 内 | 同上 |
-| `data/derived/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成（确定性输出） |
-| `data/indexes/train.json`、`data/indexes/val.json`、`data/indexes/split_manifest.json`、`data/audits/excluded_overlap.json` | KB 级 | 仅本地预处理/审计使用，云端不需要；官方 `raw/Test/queries/queries.json` 随 `data/raw/Test` 提供 |
+| `data/Train` 原始三模态（400 序列） | 共 ~43G | 由数据提供方另行获取 |
+| `data/Test` 测试集 | 含在 43G 内 | 同上 |
+| `data/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成（确定性输出） |
+| `data/train.json`、`data/val.json`、`data/split_manifest.json`、`data/excluded_overlap.json` | KB 级 | 仅本地预处理/审计使用，云端不需要；官方 `Test/queries/queries.json` 随 `data/Test` 提供 |
 | 基础模型权重 | Qwen-8B 17G / **Qwen-32B ~66G** / InternVL 17G / DINO 0.7G | 全部下载到 `/root/models`（非持久），每次开机重新拉取 |
 
 **不需要**：LoRA 权重（融合只交换各自 predictions.json）、Zhipu API Key

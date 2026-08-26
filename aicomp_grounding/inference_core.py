@@ -24,8 +24,8 @@ def load_inference_items(
     Accepts an approved annotation artifact (``{metadata, data}``), a flat
     ``{query_id: item}`` index, or the official Test template directly.
     Official template paths are mapped in memory to the processed worker layout
-    (``raw/Test/Images/...`` and ``derived/Processed/Test/depth_jet/...``), so
-    a separate processed test index file is not required.
+    (``Test/Images/...`` and ``Processed/Test/depth_jet/...``), so a separate
+    ``data/test.json`` file is not required.
     Every item gains a ``"key"`` entry. Returns ``(items, approved_metadata_or_None)``.
     """
     raw = load_json(path)
@@ -49,10 +49,10 @@ def load_inference_items(
             raw = {
                 key: {
                     **item,
-                    "visible": f"raw/Test/{item['visible']}",
-                    "infrared": f"raw/Test/{item['infrared']}",
+                    "visible": f"Test/{item['visible']}",
+                    "infrared": f"Test/{item['infrared']}",
                     "depth": (
-                        "derived/Processed/Test/depth_jet/"
+                        "Processed/Test/depth_jet/"
                         f"{PurePosixPath(item['depth']).name}"
                     ),
                 }

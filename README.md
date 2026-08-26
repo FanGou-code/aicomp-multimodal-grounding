@@ -196,38 +196,34 @@ RGBDT500 对应 NeurIPS 2025 论文 **Collaborating Vision, Depth, and Thermal S
 
 ## 数据目录
 
-数据不随仓库分发。预处理前只有原始 raw 结构：
+数据不随仓库分发。预处理前应满足以下结构：
 
 ```text
 data/
-  raw/
-    Train/<sequence>/
-      color/*.png
+  Train/<sequence>/
+    color/*.png
+    infrared/*.png
+    depth/*.png
+    groundtruth.txt
+  Test/
+    Images/
+      visible/*.png
       infrared/*.png
       depth/*.png
-      groundtruth.txt
-    Test/
-      Images/
-        visible/*.png
-        infrared/*.png
-        depth/*.png
-      queries/queries.json
+    queries/queries.json
 ```
 
-正式预处理后生成 Processed、索引与审计：
+正式预处理后生成：
 
 ```text
 data/
-  derived/
-    Processed/
-      Train/<sequence>/depth_jet/*.png
-      Test/depth_jet/*.png
-  indexes/
-    train.json
-    val.json
-    split_manifest.json
-  audits/
-    excluded_overlap.json
+  Processed/
+    Train/<sequence>/depth_jet/*.png
+    Test/depth_jet/*.png
+  train.json
+  val.json
+  split_manifest.json
+  excluded_overlap.json
 ```
 
 Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使不同场景间的颜色具有一致距离含义。
@@ -236,18 +232,18 @@ Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使
 
 ```text
 本地流水线使用：
-  data/indexes/train.json
-  data/indexes/val.json
-  data/indexes/split_manifest.json
-  data/audits/excluded_overlap.json
+  data/train.json
+  data/val.json
+  data/split_manifest.json
+  data/excluded_overlap.json
 
 云端运行只需要：
-  data/raw/Train + data/raw/Test + data/derived/Processed
-  官方 data/raw/Test/queries/queries.json（推理入口在内存映射路径）
+  data/Train + data/Test + data/Processed
+  官方 data/Test/queries/queries.json（推理入口在内存映射路径）
   仓库 approved.json（训练标注）
 ```
 
-`indexes/*.json` 与 `audits/*.json` 是本地
+`train.json`、`val.json`、`split_manifest.json`、`excluded_overlap.json` 是本地
 生成标注/风格计划和做查重审计所需的中间产物；approved 发布后，训练核心直接消费
 approved 样本，不再依赖这些索引。云端不要在启动阶段重新运行全量 SHA-256 审计或
 Depth-JET 生成，否则会重复扫描约 44GB 图像并卡在 I/O 上。
@@ -264,15 +260,13 @@ python scripts/prepare_rgbdt.py --dataset-root data --skip-test-validation
 python scripts/build_indexes.py --data-dir data
 
 # 3. 深度 SHA-256 查重只需要在本地首次审计时执行；执行前先确认命令参数
-#    python scripts/filter_overlap.py \
-#      --dataset-root data/raw --index-root data/indexes --audit-root data/audits \
-#      --overwrite-indexes
+#    python scripts/filter_overlap.py --dataset-root data --overwrite-indexes
 ```
 
-`build_indexes.py` 输出 `data/indexes/train.json`、`data/indexes/val.json` 与
-`data/indexes/split_manifest.json`，本身是轻量 JSON 构建。
+`build_indexes.py` 输出 `data/train.json`、`data/val.json` 与
+`data/split_manifest.json`，本身是轻量 JSON 构建。
 `filter_overlap.py` 才执行全量 SHA-256 字节级匹配并输出
-`data/audits/excluded_overlap.json`；该步骤只适合在本地
+`data/excluded_overlap.json`；该步骤只适合在本地
 首次准备数据时执行，不应该放进云端日常训练/推理流程。
 
 > 当前 `annot_ac72f1d926bb2d23` 标注集已核查：Train 2,875 条、Val 719 条与 Test 的 SHA-256 匹配均为 **0**，无同源帧进入训练。
@@ -290,20 +284,18 @@ export API_KEY="<your API key>"
 ```bash
 # 1. 生成场景卡（需要 API_KEY；每个序列抽样 3 帧）
 python -u scripts/build_scene_cards.py \
-  --split train --frame-count 3 --concurrency 4 --index-root data/indexes
+  --split train --frame-count 3 --concurrency 4
 python -u scripts/build_scene_cards.py \
-  --split val --frame-count 3 --concurrency 4 --index-root data/indexes
+  --split val --frame-count 3 --concurrency 4
 
 # 2. 生成 style plan 与 expanded data root
 python scripts/build_style_plan.py \
   --split train \
-  --index-root data/indexes \
   --scene-cards outputs/annotation_analysis/scene_cards/train/cards.json \
   --queries-per-frame 3
 
 python scripts/build_style_plan.py \
   --split val \
-  --index-root data/indexes \
   --scene-cards outputs/annotation_analysis/scene_cards/val/cards.json \
   --queries-per-frame 3
 
@@ -352,11 +344,11 @@ outputs/annotations/<ANNOTATION_RUN_ID>/<split>/
 `rgbdt-dataset` 挂载到容器 `/data`，项目数据根目录固定为 `/data/data`。上传运行所需数据：
 
 ```bash
-modal volume put --force rgbdt-dataset data/raw/Train data/raw/Train
-modal volume put --force rgbdt-dataset data/raw/Test/Images data/raw/Test/Images
-modal volume put --force rgbdt-dataset data/raw/Test/queries/queries.json data/raw/Test/queries/queries.json
-modal volume put --force rgbdt-dataset data/derived/Processed/Train data/derived/Processed/Train
-modal volume put --force rgbdt-dataset data/derived/Processed/Test/depth_jet data/derived/Processed/Test/depth_jet
+modal volume put --force rgbdt-dataset data/Train data/Train
+modal volume put --force rgbdt-dataset data/Test/Images data/Test/Images
+modal volume put --force rgbdt-dataset data/Test/queries/queries.json data/Test/queries/queries.json
+modal volume put --force rgbdt-dataset data/Processed/Train data/Processed/Train
+modal volume put --force rgbdt-dataset data/Processed/Test/depth_jet data/Processed/Test/depth_jet
 ```
 
 `train.json`、`val.json`、`split_manifest.json` 与 `excluded_overlap.json` 不需要上传到
@@ -452,7 +444,7 @@ modal run cloud/infer.py \
 # 1. Qwen3-VL 推理
 python offline/infer.py \
   --model qwen3vl \
-  --test-json data/raw/Test/queries/queries.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<QWEN_RUN_ID>/best/epoch_03 \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
@@ -464,7 +456,7 @@ python offline/infer.py \
 # 2. InternVL3.5 推理
 python offline/infer.py \
   --model internvl35 \
-  --test-json data/raw/Test/queries/queries.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<INTERNVL_RUN_ID>/best/epoch_03 \
   --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
@@ -476,7 +468,7 @@ python offline/infer.py \
 # 3. GroundingDINO 推理 (Zero-shot)
 python offline/infer.py \
   --model groundingdino \
-  --test-json data/raw/Test/queries/queries.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --model-path /root/models/AI-ModelScope/grounding-dino-base \
   --num-shards 1 \
@@ -487,7 +479,7 @@ python offline/infer.py \
 # 4. Qwen3-VL-32B 推理
 python offline/infer.py \
   --model qwen3vl32 \
-  --test-json data/raw/Test/queries/queries.json \
+  --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<QWEN32_RUN_ID>/best/epoch_03 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
@@ -504,7 +496,7 @@ python -m aicomp_grounding.fusion.wbf \
   --predictions outputs/inference/<QWEN_INFER>/predictions.json outputs/inference/<INTERNVL_INFER>/predictions.json outputs/inference/<DINO_INFER>/predictions.json \
   --weights 1.0 1.0 0.8 \
   --scores "" "" outputs/inference/<DINO_INFER>/scores.json \
-  --test-json data/raw/Test/queries/queries.json \
+  --test-json data/Test/queries/queries.json \
   --output-dir outputs/fusion
 ```
 
@@ -514,7 +506,7 @@ python -m aicomp_grounding.fusion.wbf \
 
 ```bash
 python -m aicomp_grounding.submission \
-  --test-json data/raw/Test/queries/queries.json \
+  --test-json data/Test/queries/queries.json \
   --predictions outputs/fusion/<FUSION_ID>/fused_predictions.json \
   --output-dir outputs/submission/final_submit
 ```
@@ -530,7 +522,7 @@ python -m aicomp_grounding.submission \
 
 ```bash
 python -m aicomp_grounding.submission \
-  --test-json data/raw/Test/queries/queries.json \
+  --test-json data/Test/queries/queries.json \
   --predictions "outputs/inference/<RUN_ID>/predictions.json" \
   --output-dir "outputs/submission/<RUN_ID>" \
   --default-bbox 0 0 1 1 \

@@ -31,10 +31,7 @@ cloud workspace, or Modal-backed job. The platform-independent entrypoints in
 
 ```text
 PROJECT_ROOT/                 repository root
-PROJECT_ROOT/data/raw/         raw Train and Test trees
-PROJECT_ROOT/data/derived/     generated Processed images
-PROJECT_ROOT/data/indexes/     local train/val/split-manifest JSON
-PROJECT_ROOT/data/audits/      local overlap audit JSON
+PROJECT_ROOT/data/             dataset files and generated indexes
 PROJECT_ROOT/outputs/annotations/  approved query artifacts
 PROJECT_ROOT/outputs/          training, inference, fusion, submission outputs
 ```
@@ -44,9 +41,9 @@ PROJECT_ROOT/outputs/          training, inference, fusion, submission outputs
 annotation root explicitly. The historical `data/outputs/annotations` layout
 is retained only as a compatibility path inside the Modal adapter.
 
-The official `data/raw/Test/queries/queries.json`
+The official `data/Test/queries/queries.json`
 can be sent directly to inference-core workers; it is mapped in memory to
-`raw/Test/Images/...` and `derived/Processed/Test/depth_jet/...`, so no
+`Test/Images/...` and `Processed/Test/depth_jet/...`, so no
 separate processed index file is generated or required.
 
 两条铁律：
@@ -109,8 +106,8 @@ git clone                         # 代码 + 已批准标注集 (approved.json �
 # 大数据 (data/ 43G) 与权重自行获取，见 offline/README.md 外部数据清单
 
 # 1. zero-shot 跑通（单张 24GB GPU 即可）
-python offline/infer.py --model internvl35 --test-json data/raw/Test/queries/queries.json --limit 100 ...
-python offline/infer.py --model groundingdino --test-json data/raw/Test/queries/queries.json --limit 100 ...
+python offline/infer.py --model internvl35 --test-json data/Test/queries/queries.json --limit 100 ...
+python offline/infer.py --model groundingdino --test-json data/Test/queries/queries.json --limit 100 ...
 
 # 2. 训练（通过 --model 选择已接入训练循环的 adapter；标注 run id 用当前 golden 值）
 modal run cloud/train.py --model <name> --annotation-run-id YOUR_ANNOTATION_RUN_ID ...
@@ -119,7 +116,7 @@ modal run cloud/train.py --model <name> --annotation-run-id YOUR_ANNOTATION_RUN_
 
 # 4. 融合
 python -m aicomp_grounding.fusion.wbf --predictions qwen.json internvl.json dino.json \
-    --weights 1 1 1 --scores '' '' dino_scores.json --test-json data/raw/Test/queries/queries.json
+    --weights 1 1 1 --scores '' '' dino_scores.json --test-json data/Test/queries/queries.json
 ```
 
 分支约定：fork → 特性分支 → PR 回主仓库，由仓库管理员 review 合并。

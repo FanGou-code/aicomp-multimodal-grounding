@@ -17,7 +17,7 @@ from aicomp_grounding.test_data import (
     validate_official_test_template,
 )
 
-DEFAULT_TEMPLATE = Path("data/raw/Test/queries/queries.json")
+DEFAULT_TEMPLATE = Path("data/Test/queries/queries.json")
 
 
 def load_predictions(path: Path) -> dict[str, list[float] | None]:

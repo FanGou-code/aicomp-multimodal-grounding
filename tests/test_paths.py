@@ -21,18 +21,7 @@ class ProjectPathsTests(unittest.TestCase):
             )
             self.assertEqual(
                 paths.submission_template,
-                Path(td).resolve() / "data/raw/Test/queries/queries.json",
-            )
-            self.assertEqual(paths.raw, Path(td).resolve() / "data/raw")
-            self.assertEqual(paths.derived, Path(td).resolve() / "data/derived")
-            self.assertEqual(paths.indexes, Path(td).resolve() / "data/indexes")
-            self.assertEqual(
-                paths.dataset_index("train"),
-                Path(td).resolve() / "data/indexes/train.json",
-            )
-            self.assertEqual(
-                paths.dataset_index("test"),
-                paths.submission_template,
+                Path(td).resolve() / "data/Test/queries/queries.json",
             )
 
     def test_relative_arguments_resolve_from_project_root(self):

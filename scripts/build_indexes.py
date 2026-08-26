@@ -2,9 +2,9 @@
 """Dataset indexer.
 
 Deterministic index generator:
-1. data/indexes/train.json (80% Train split)
-2. data/indexes/val.json (20% Val split)
-3. data/indexes/split_manifest.json (Preparation and split audit metadata)
+1. data/train.json (80% Train split)
+2. data/val.json (20% Val split)
+3. data/split_manifest.json (Preparation and split audit metadata)
 
 The official Test template is used directly by inference; no separate processed
 index file is written or uploaded.
@@ -140,8 +140,8 @@ def build_indexes(
     # Write train.json & val.json
     atomic_write_json(dataset_root / "train.json", train_data)
     atomic_write_json(dataset_root / "val.json", val_data)
-    print(f"[+] data/indexes/train.json generated ({len(train_data)} samples).")
-    print(f"[+] data/indexes/val.json generated ({len(val_data)} samples).")
+    print(f"[+] data/train.json generated ({len(train_data)} samples).")
+    print(f"[+] data/val.json generated ({len(val_data)} samples).")
 
     if audit_overlap:
         overlap_report = {
@@ -178,20 +178,20 @@ def build_indexes(
         },
     }
     atomic_write_json(dataset_root / "split_manifest.json", manifest)
-    print(f"[+] data/indexes/split_manifest.json generated.")
+    print(f"[+] data/split_manifest.json generated.")
 
     print("\n" + "=" * 60)
     print(f"索引 JSON 文件已在 0.2 秒内构建完毕并锁定：")
-    print(f" - data/indexes/train.json  : {len(train_data)} 样本")
-    print(f" - data/indexes/val.json    : {len(val_data)} 样本")
+    print(f" - data/train.json          : {len(train_data)} 样本")
+    print(f" - data/val.json            : {len(val_data)} 样本")
     print(f" - 官方 Test template        : {len(test_index)} 查询（推理直接读取）")
-    print(f" - data/indexes/split_manifest.json : 协议版本 {PREPARATION_PROTOCOL_VERSION}")
+    print(f" - data/split_manifest.json : 协议版本 {PREPARATION_PROTOCOL_VERSION}")
     print("=" * 60)
     return manifest
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Fast dataset index JSON builder.")
+    parser = argparse.ArgumentParser(description="Dataset index JSON builder.")
     parser.add_argument("--dataset-root", "--data-dir", dest="dataset_root", type=Path, default=Path("data"), help="Dataset root directory")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for train/val split")
     parser.add_argument("--train-ratio", type=float, default=0.8, help="Train split ratio")
