@@ -290,12 +290,6 @@ def _validate_frame_result(
     if frame["status"] not in {"completed", "failed"}:
         raise ValueError(f"Frame {sample_id!r} has an invalid status")
     _validate_attempts(frame["attempts"], label=f"Frame {sample_id!r}")
-    calls = _validate_api_calls(frame["api_calls"], f"Frame {sample_id!r}")
-    call_models = {call["model"] for call in calls}
-    if not call_models <= {generator_model}:
-        raise ValueError(f"Frame {sample_id!r} used an unexpected annotation model")
-    if len(frame["api_calls"]) < frame["attempts"]:
-        raise ValueError(f"Frame {sample_id!r} attempt history is inconsistent")
     if not isinstance(frame["uncertain"], bool):
         raise ValueError(f"Frame {sample_id!r} uncertain flag is invalid")
     if frame["status"] == "failed":
@@ -303,8 +297,21 @@ def _validate_frame_result(
             raise ValueError(f"Failed frame {sample_id!r} cannot contain an approved result")
         if not isinstance(frame["error"], str) or not frame["error"]:
             raise ValueError(f"Failed frame {sample_id!r} has invalid failure details")
+        if not isinstance(frame["api_calls"], list):
+            raise ValueError(f"Frame {sample_id!r} has invalid API call records")
+        if frame["api_calls"]:
+            calls = _validate_api_calls(frame["api_calls"], f"Frame {sample_id!r}")
+            call_models = {call["model"] for call in calls}
+            if not call_models <= {generator_model}:
+                raise ValueError(f"Frame {sample_id!r} used an unexpected annotation model")
         return frame
 
+    calls = _validate_api_calls(frame["api_calls"], f"Frame {sample_id!r}")
+    call_models = {call["model"] for call in calls}
+    if not call_models <= {generator_model}:
+        raise ValueError(f"Frame {sample_id!r} used an unexpected annotation model")
+    if len(frame["api_calls"]) < frame["attempts"]:
+        raise ValueError(f"Frame {sample_id!r} attempt history is inconsistent")
     valid, reason = validate_annotation_query(frame["query"])
     if not valid:
         raise ValueError(f"Completed frame {sample_id!r} query is invalid: {reason}")

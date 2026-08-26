@@ -204,7 +204,7 @@ def preflight_annotation_run(
     concurrency: int = 4,
     run_tag: str = "",
     resume: bool = True,
-    retry_failed: bool = False,
+    retry_failed: bool = True,
     overwrite: bool = False,
     deep_verify_images: bool = False,
 ) -> dict:
@@ -417,7 +417,7 @@ def annotate_shard(
     output_root: Path,
     api_key: str,
     resume: bool = True,
-    retry_failed: bool = False,
+    retry_failed: bool = True,
     timeout_seconds: float = 180.0,
     rate_limiter: SlidingWindowRateLimiter | None = None,
     progress: AnnotationProgress | None = None,
@@ -683,7 +683,7 @@ def run_annotation(
     concurrency: int = 4,
     run_tag: str = "",
     resume: bool = True,
-    retry_failed: bool = False,
+    retry_failed: bool = True,
     overwrite: bool = False,
     publish: bool = False,
     preflight_only: bool = False,
@@ -803,7 +803,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--run-tag", default="")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--retry-failed", action="store_true")
+    parser.add_argument("--retry-failed", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
