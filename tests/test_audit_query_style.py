@@ -18,7 +18,7 @@ class ExtractQueriesTests(unittest.TestCase):
         }
         self.assertEqual(extract_queries(payload), ["The red car on the left", "A bird"])
 
-    def test_official_template_mapping(self):
+    def test_payload_mapping_with_metadata_fields(self):
         payload = {
             "000001_001": {
                 "visible": "Images/visible/000001.png",

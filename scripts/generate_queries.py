@@ -63,49 +63,7 @@ from aicomp_grounding.api_client import (
     OpenAIProtocolClient,
     SlidingWindowRateLimiter,
 )
-from aicomp_grounding.query_style import build_style_prompt
-
-FRAME_QUERY_PROMPT = """Write a natural English visual-grounding query for the physical object enclosed by the red rectangle.
-
-You receive one complete RGB scene. The rectangle is only an internal pointer; never mention the rectangle, marking, image, frame, annotation, coordinates, or target.
-
-Return exactly:
-{"query":"natural noun phrase or clause","alternate_query":"equally valid alternative or null","uncertain":false}
-
-Core principle:
-- Describe the marked object so that someone scanning the whole scene can single it out immediately.
-- Ground the object in the scene: identify it through its position among the other objects or within the visible scene, not as an isolated label.
-- Aim for roughly 6 to 15 words. A bare label such as "A bus" or "White hat" is not acceptable.
-- When the scene contains other same-category objects, disambiguate with the most reliable spatial cue available. Most generated queries should carry a positional or spatial cue; only use an ordinal when you can count the same-category objects confidently.
-- Prefer the shortest clear wording. One natural grounding cue is usually enough; stacked clauses should be avoided unless the extra context is needed to single out the target.
-- Match a natural corpus mix instead of forcing the same template on every frame: roughly two thirds of queries should contain a spatial cue, and only about one third should use an ordinal or extreme-position phrase.
-
-Preferred patterns, in order of preference:
-- Ordinal among same-category objects when counting is confident: "The third traffic cone from left to right in the front row", "The leftmost window on the second floor".
-- Position relative to a landmark: "The red sedan parked to the right of the silver van", "The bird standing on the rock nearest the water".
-- Distance from the camera when clearly visible: "The farthest drone from the camera", "The person standing in the foreground".
-- Location inside the scene or area: "The deer in the middle of the field", "The air conditioner mounted in the top-right corner of the wall".
-- Attributes plus action and position: "Person in a light blue shirt sitting on the right concrete ledge", "The gray artificial rock speaker on the lawn near the fence".
-
-When multiple same-category objects are present, attributes alone are not enough; use a spatial relation or, when confident, an ordinal.
-When the object is unique, still add a positional or contextual cue when one is clearly visible (foreground, middle of the scene, near a landmark, closest to the camera); otherwise a purely descriptive clause is acceptable.
-
-Grounding discipline:
-- Only reference objects, directions, and positions that are clearly visible in the scene.
-- Ordinals require counting: use "second/third/..." only when you can confidently count the same-category objects; otherwise prefer "leftmost/rightmost" or a landmark relation.
-- Double-check left/right and top/bottom from the viewer's perspective before finalizing.
-- Use spatial verbs (mounted on, attached to, hanging from, standing beside) or positional phrases (to the right of, immediately below, in the foreground).
-- Never force a variant, invent an attribute, or mention images, crops, modalities, coordinates, targets, annotations, or boxes.
-
-Article and case:
-- Use "The" for a specific identifiable instance; "A"/"An" for an instance among several.
-- Sentence case: capitalize only the first letter. Do not end with a period. Commas for separating clauses are allowed.
-
-Set alternate_query to null unless a second phrase is equally grounded and meaningfully different.
-Set uncertain to true when the category or identifying evidence remains genuinely ambiguous.
-Output JSON only."""
-
-PROMPT_HASH = hashlib.sha256(FRAME_QUERY_PROMPT.encode("utf-8")).hexdigest()
+from aicomp_grounding.query_style import STYLE_PROMPT_HASH, build_style_prompt
 
 VERIFICATION_PROMPT = """You are given one complete RGB scene with no markings, plus a referring query that describes exactly one object in the scene. Locate that single object and output its tight bounding box.
 
@@ -232,7 +190,7 @@ def prepare_annotation_plan(
         model_revision=ANNOTATION_MODEL_REVISION,
         model_weights_url=ANNOTATION_MODEL_WEIGHTS_URL,
         model_license=ANNOTATION_MODEL_LICENSE,
-        prompt_hash=PROMPT_HASH,
+        prompt_hash=STYLE_PROMPT_HASH,
         render_protocol=RENDER_PROTOCOL,
         generation_config=generation_config,
         preparation_fingerprint=_preparation_fingerprint(root),
@@ -456,19 +414,19 @@ def _annotate_frame(
         annotation_attempt_numbers(previous, retry_failed=retry_failed), start=1
     ):
         attempts = attempt_number
-        annotation_style = style_fields.get("annotation_style") if style_fields else None
-        if annotation_style:
-            prompt = build_style_prompt(
-                annotation_style,
-                min_words=int(style_fields.get("annotation_min_words", 7)),
-                max_words=int(style_fields.get("annotation_max_words", 13)),
-                template_family=style_fields.get("annotation_style_family", "OFFICIAL"),
-                fallback_style=style_fields.get(
-                    "annotation_fallback_style", "attribute_action"
-                ),
+        if not style_fields or not style_fields.get("annotation_style"):
+            raise ValueError(
+                "Query generation requires an expanded style-plan source with annotation_style"
             )
-        else:
-            prompt = FRAME_QUERY_PROMPT
+        prompt = build_style_prompt(
+            style_fields["annotation_style"],
+            min_words=int(style_fields.get("annotation_min_words", 7)),
+            max_words=int(style_fields.get("annotation_max_words", 13)),
+            template_family=style_fields.get("annotation_style_family", "OFFICIAL"),
+            fallback_style=style_fields.get(
+                "annotation_fallback_style", "attribute_action"
+            ),
+        )
         try:
             response = client.complete(
                 messages=_messages(

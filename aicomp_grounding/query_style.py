@@ -386,3 +386,17 @@ def stable_json_hash(value: object, length: int = 64) -> str:
     encoded = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     return digest[:length]
+
+
+STYLE_PROMPT_HASH = hashlib.sha256(
+    "\n".join(
+        build_style_prompt(
+            style,
+            min_words=7,
+            max_words=13,
+            template_family=TEMPLATE_FAMILIES[style][0],
+            fallback_style="attribute_action",
+        )
+        for style in QUERY_STYLE_GROUPS
+    ).encode("utf-8")
+).hexdigest()

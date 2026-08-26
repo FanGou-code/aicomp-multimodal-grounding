@@ -1,9 +1,4 @@
-"""Audit the style distribution of generated grounding queries.
-
-Compares a generated query set (approved.json / merged.json / any mapping with
-"query" fields) against a reference distribution such as the official test
-template, reporting word-count and spatial/ordinal usage statistics.
-"""
+"""Audit the style distribution of generated grounding queries."""
 
 from __future__ import annotations
 
@@ -37,7 +32,7 @@ ORDINAL_RE = re.compile(
 
 
 def extract_queries(payload: object) -> list[str]:
-    """Extract query strings from approved/merged/official-template JSON."""
+    """Extract query strings from approved/merged/custom query JSON."""
     queries: list[str] = []
     if isinstance(payload, dict):
         data = payload.get("data", payload)
@@ -110,12 +105,7 @@ def main() -> None:
         nargs="+",
         type=Path,
         required=True,
-        help="query JSON files (approved.json, merged.json, or official template)",
-    )
-    parser.add_argument(
-        "--reference",
-        type=Path,
-        help="optional reference JSON (e.g. official test template) printed for comparison",
+        help="query JSON files (approved.json, merged.json, or custom query payload)",
     )
     parser.add_argument(
         "--full",
@@ -124,15 +114,6 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.reference is not None:
-        reference = load_queries(args.reference)
-        reference_stats = style_stats(reference)
-        print(format_stats_row(args.reference.name, reference_stats))
-        if args.full:
-            for style in QUERY_STYLE_GROUPS:
-                ratio = reference_stats["semantic_group_ratios"][style]
-                print(f"  reference {style:<18} {ratio:.1%}")
-        print()
     for path in args.queries:
         queries = load_queries(path)
         stats = style_stats(queries)

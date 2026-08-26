@@ -13,6 +13,7 @@ from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.images import is_trusted_image_fingerprint
+from aicomp_grounding.query_style import STYLE_PROMPT_HASH
 from scripts import generate_queries
 
 
@@ -21,23 +22,9 @@ def _raw(local_entrypoint):
 
 
 class AnnotationEntrypointTests(unittest.TestCase):
-    def test_annotation_prompt_uses_one_marked_rgb(self):
-        query_prompt = generate_queries.FRAME_QUERY_PROMPT
-        self.assertIn("enclosed by the red rectangle", query_prompt)
-        self.assertIn("never mention the rectangle", query_prompt)
-        self.assertIn("multiple same-category objects", query_prompt)
-        self.assertIn("spatial relation or, when confident, an ordinal", query_prompt)
-        self.assertIn("leftmost window", query_prompt)
-        self.assertIn("roughly 6 to 15 words", query_prompt)
-        self.assertIn("is not acceptable", query_prompt)
-        self.assertIn("Distance from the camera", query_prompt)
-        self.assertIn("confidently count", query_prompt)
-        self.assertIn("viewer's perspective", query_prompt)
-        self.assertIn("Never force a variant", query_prompt)
-        self.assertIn("roughly two thirds", query_prompt)
-        self.assertIn("only about one third", query_prompt)
-        self.assertIn("most reliable spatial cue", query_prompt)
-        self.assertIn("shortest clear wording", query_prompt)
+    def test_annotation_entrypoint_removed_legacy_free_prompt(self):
+        self.assertFalse(hasattr(generate_queries, "FRAME_QUERY_PROMPT"))
+        self.assertTrue(STYLE_PROMPT_HASH)
 
     def test_annotation_request_disables_glm_thinking(self):
         self.assertEqual(generate_queries.GENERATION_CONFIG["thinking_mode"], "disabled")

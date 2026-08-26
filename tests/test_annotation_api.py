@@ -147,6 +147,21 @@ class FrameGenerationTests(unittest.TestCase):
         image = Image.new("RGB", (320, 180), "gray")
         return build_marked_annotation_view(image, [0.1, 0.1, 0.4, 0.6])
 
+    @staticmethod
+    def _style_fields(style="attribute_action"):
+        family = {
+            "attribute_action": "ATTRIBUTE_ACTION",
+            "scene_location": "SCENE_REGION",
+            "ordinal": "FROM_LEFT_TO_RIGHT",
+        }[style]
+        return {
+            "annotation_style": style,
+            "annotation_style_family": family,
+            "annotation_min_words": 7,
+            "annotation_max_words": 13,
+            "annotation_fallback_style": "scene_location",
+        }
+
     def test_single_model_generates_query_with_one_image(self):
         marked = self._marked()
         client = self.FakeClient(
@@ -162,6 +177,7 @@ class FrameGenerationTests(unittest.TestCase):
             marked,
             previous=None,
             retry_failed=False,
+            style_fields=self._style_fields(),
         )
 
         self.assertEqual(result["status"], "completed")
@@ -200,6 +216,7 @@ class FrameGenerationTests(unittest.TestCase):
             marked,
             previous=None,
             retry_failed=False,
+            style_fields=self._style_fields(),
         )
 
         self.assertEqual(result["status"], "completed")
@@ -224,6 +241,7 @@ class FrameGenerationTests(unittest.TestCase):
             marked,
             previous=None,
             retry_failed=False,
+            style_fields=self._style_fields(),
         )
 
         self.assertEqual(result["status"], "failed")
@@ -260,6 +278,7 @@ class FrameGenerationTests(unittest.TestCase):
             marked,
             previous=None,
             retry_failed=False,
+            style_fields=self._style_fields(),
         )
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["attempts"], 2)
@@ -323,6 +342,7 @@ class FrameGenerationTests(unittest.TestCase):
             plain_rgb=plain,
             gt_bbox=gt_bbox,
             verify=True,
+            style_fields=self._style_fields(style="scene_location"),
         )
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["attempts"], 2)
@@ -350,6 +370,7 @@ class FrameGenerationTests(unittest.TestCase):
             plain_rgb=plain,
             gt_bbox=gt_bbox,
             verify=True,
+            style_fields=self._style_fields(style="scene_location"),
         )
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["attempts"], 1)

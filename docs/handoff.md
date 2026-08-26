@@ -34,8 +34,8 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 可并行推进（pilot → 风格审计 → 全量重生成）。标注验证已修复：GLM-4.6V 请求显式
 禁用 thinking，避免验证调用耗尽 `max_tokens` 后返回空 content。重跑 pilot 必须使用
 新 run-tag，`generation_config` 变化会自然生成新 run id。新风格计划链路已接入：
-官方 Query 全量分析 → 400 序列场景卡 → 确定性 style plan → 扩展样本 ID →
-分组提示词生成，旧单 Query 流程保持兼容。API 调用与全量生成由用户亲自执行。
+预定义句式族 → 400 序列场景卡 → 确定性 style plan → 扩展样本 ID →
+分组提示词生成，旧自由生成模式已移除。API 调用与全量生成由用户亲自执行。
 详见下方「当前状态」。
 
 **运行边界**：本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU
@@ -49,16 +49,14 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 - 新增 `aicomp_grounding/query_style.py`：语义组、官方模板族、场景卡解析、
   deterministic style plan、扩展标注源、分组提示词。
 - 新增脚本：
-  `scripts/analyze_test_query_templates.py`（全量官方 Query 分析）；
   `scripts/build_scene_cards.py`（400 序列 x 抽样帧场景卡）；
   `scripts/build_style_plan.py`（生成可被现有 generate_queries 直接消费的
   expanded data root）。
-- `generate_queries.py` 保留旧自由生成模式；当 expanded item 带
-  `annotation_style` 字段时自动使用对应官方模板族提示词。
+- `generate_queries.py` 只处理带 `annotation_style` 字段的 expanded item；
+  旧自由生成模式已移除，新流程统一使用模板族提示词。
 - 生成扩展样本 ID 规则为 `001_00000001_q1`，原始 bbox/图路径不变，
   训练核心与 approved schema 不需要改。
-- 验证状态：220 单测全绿（4 skip），官方 Query 全量分析脚本已在本机跑通，
-  API 场景卡和实际 Query 生成由用户自己执行。
+- 验证状态：单测全绿（4 skip），API 场景卡和实际 Query 生成由用户自己执行。
 
 ### 标注验证修复（本轮）
 - **根因**：Zhipu `glm-4.6v` endpoint 默认思考；验证任务在 4096 token 内只吐
@@ -169,9 +167,9 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 ### 2026-08-26（仓库，文档同步与新标注策略提交说明）
 
 * 同步 README、architecture、SOP 与 handoff：新 `query_style` 核心模块、
-  官方 Query 全量分析、场景卡、style plan、expanded data root 和分组提示词
-  均已纳入文档。
-* 保留旧式单 Query 流程说明，新增推荐的新风格计划链路命令。
+  场景卡、style plan、expanded data root 和分组提示词均已纳入文档。
+* 旧自由生成模式已移除，README/SOP 只保留新风格计划链路命令。
+* 技术文档与公开 CLI 不再保留测试集分析相关工具和参数。
 * `offline/infer.py` 的推理进度输出 bug 修复一并保留，未合并其他无关改动。
 
 ### 2026-08-25（仓库，新标注策略基础接入，旧流程零兼容破坏）

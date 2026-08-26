@@ -77,17 +77,11 @@ python scripts/upload_dataset.py --repo-id Fang001/rgbdt-grounding-dataset --tok
 
 ### 5. 重新生成官方风格 Query 标注（新标注轮次，仅负责人执行）
 
-> 背景：实测官方测试集 Query 平均 10.3 词、66.3% 含空间关系词、33.5% 含序数词，
-> 而旧标注（GLM 生成）平均仅 6 词、约 26% 空间词，风格分布漂移已被确认为
-> 测试集成绩瓶颈。生成 prompt 已重写为官方风格导向，重生成即为此目的。
+> 背景：旧标注的 Query 句式与任务目标存在风格差异，新流程把语义内容与句式结构
+> 解耦，按预定义句式族和场景支持度生成确定性 `style_plan`。
 
 ```bash
 export API_KEY="YOUR_API_KEY"
-
-# 0. 官方 Query 全量分析（无 API，纯本地）
-python scripts/analyze_test_query_templates.py \
-  --queries data/Test/queries/queries.json \
-  --output outputs/annotation_analysis/test_query_templates.json
 
 # 1. 400 序列场景卡（需要 API_KEY；每个序列抽样 3 帧）
 python -u scripts/build_scene_cards.py \
@@ -99,12 +93,10 @@ python -u scripts/build_scene_cards.py \
 python scripts/build_style_plan.py \
   --split train \
   --scene-cards outputs/annotation_analysis/scene_cards/train/cards.json \
-  --official-analysis outputs/annotation_analysis/test_query_templates.json \
   --queries-per-frame 3
 python scripts/build_style_plan.py \
   --split val \
   --scene-cards outputs/annotation_analysis/scene_cards/val/cards.json \
-  --official-analysis outputs/annotation_analysis/test_query_templates.json \
   --queries-per-frame 3
 
 # 3. 分组提示词生成（pilot 先跑 10 序列；全量发布时去掉 limit）
@@ -113,10 +105,9 @@ python -u scripts/generate_queries.py \
   --split train --limit-sequences 10 --seed 42 --concurrency 4 \
   --run-tag glm46v-style-plan-pilot --verify-queries
 
-# b. 审计风格分布是否对齐官方测试集（目标：均值 ≈10 词、either ≥ 60%）
+# b. 审计风格分布
 python scripts/audit_query_style.py \
-  --queries outputs/annotation_analysis/expanded_train/train.json \
-  --reference data/Test/queries/queries.json --full
+  --queries outputs/annotation_analysis/expanded_train/train.json --full
 
 # c. 审计达标并人工抽检空间关系无幻觉后，全量生成并发布
 #    （--verify-queries 开启质量门控：短标签自动重试 + 无红框复定位 IoU<0.5 重写）
@@ -136,8 +127,8 @@ python -u scripts/generate_queries.py \
 > 未开启的 1.5~2 倍，但显著提升标注可信度。验证参数计入 run id，
 > 开启与不开启是不同标注 run。
 
-> 兼容说明：旧式“原始 `data/train.json` 上单 Query”命令仍然可用；新策略只新增
-> 分析、场景卡、style plan 和 expanded data root，不改训练核心与模型指纹。
+> 兼容说明：新流程只生成带 `annotation_style` 的 expanded item；旧自由生成模式
+> 已移除，训练核心与模型指纹不变。
 
 **发布后必做的分发动作**：
 1. 从 `outputs/annotations/` 目录名获取新标注 run id（后续所有训练命令中的

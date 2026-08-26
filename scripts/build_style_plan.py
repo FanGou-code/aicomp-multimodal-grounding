@@ -52,7 +52,6 @@ def build_style_plan_artifacts(
     output_root: Path,
     seed: int = 42,
     queries_per_frame: int = 3,
-    official_analysis_path: Path | None = None,
 ) -> dict:
     split = split.strip().lower()
     if split not in ANNOTATION_SPLITS:
@@ -64,20 +63,11 @@ def build_style_plan_artifacts(
     if not isinstance(cards, dict):
         raise ValueError(f"Scene cards must be an object: {scene_cards_path}")
 
-    target_weights = None
-    if official_analysis_path is not None:
-        official = load_json(official_analysis_path)
-        ratios = official.get("group_ratios")
-        if not isinstance(ratios, dict):
-            raise ValueError("Official analysis must contain group_ratios")
-        target_weights = dict(ratios)
-
     plan = build_style_plan(
         raw,
         cards,
         seed=seed,
         queries_per_frame=queries_per_frame,
-        target_weights=target_weights,
     )
     expanded = expand_annotation_source(raw, plan)
 
@@ -130,11 +120,6 @@ def main() -> None:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--queries-per-frame", type=int, default=3)
-    parser.add_argument(
-        "--official-analysis",
-        type=Path,
-        help="JSON produced by analyze_test_query_templates.py",
-    )
     args = parser.parse_args()
     if not 1 <= args.queries_per_frame <= 6:
         parser.error("--queries-per-frame must be between 1 and 6")
@@ -145,7 +130,6 @@ def main() -> None:
         output_root=args.output_root,
         seed=args.seed,
         queries_per_frame=args.queries_per_frame,
-        official_analysis_path=args.official_analysis,
     )
     print(f"raw_samples={result['raw_samples']} expanded_samples={result['expanded_samples']}")
     print(f"style_plan: {result['style_plan_path']}")
