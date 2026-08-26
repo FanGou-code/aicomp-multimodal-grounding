@@ -231,7 +231,7 @@ def parse_scene_card(text: str) -> dict:
 
 def extract_supported_styles(card: dict) -> list[str]:
     supported: list[str] = []
-    if card.get("same_category_count", 0) >= 3 or card.get("ordinal_position"):
+    if card.get("same_category_count", 0) >= 2 and card.get("ordinal_position"):
         supported.append("ordinal")
     if card.get("landmark"):
         supported.append("spatial_landmark")
