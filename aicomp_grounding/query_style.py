@@ -277,9 +277,14 @@ def build_style_plan(
         normalized = {
             style: weight
             for style, weight in remaining.items()
-            if style in supported
+            if style in supported and weight > 0
         }
         if not normalized:
+            normalized = {
+                style: target_weights[style]
+                for style in supported
+            }
+        if not normalized or sum(normalized.values()) <= 0:
             normalized = {"attribute_action": 1.0}
         style = rng.choices(list(normalized), weights=list(normalized.values()), k=1)[0]
         remaining[style] = max(0.0, remaining[style] - 1.0 / max(len(shuffled), 1))
