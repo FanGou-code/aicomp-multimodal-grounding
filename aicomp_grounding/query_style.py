@@ -65,23 +65,23 @@ The red rectangle is an external indicator only. Never mention the rectangle, ma
 
 Analyze the scene and return JSON:
 {
-  "target_category": "specific basic-level category (e.g. person, car, dog, deer, swan, umbrella, sign, security camera)",
-  "visible_attributes": "salient color, clothing, pattern, or material (e.g. white, black, blue, red, checkered, metal, wooden)",
-  "action_or_state": "participle action, state, or posture (e.g. standing, walking, sitting, running, swimming, flying, parked, mounted, held in hand)",
-  "spatial_landmark": "immediate adjacent landmark, mount, or region (e.g. beside the lamp, on the grass/road, in the water, below awning, near the fence, in the foreground/background; or null)",
-  "disambiguation_cue": "natural positional/ordinal cue when multiple same-category objects exist (e.g. first, second, third, leftmost, rightmost, middle, closest, nearest, farthest, on the left/right, to the right/left of [landmark]; or null if unique)",
+  "target_category": "specific basic-level category of the tracked object",
+  "visible_attributes": "salient color, clothing, material, or visual patterns",
+  "action_or_state": "participle action, state, or posture",
+  "spatial_landmark": "adjacent physical landmark, mount, or background structure; or null if open space",
+  "disambiguation_cue": "spatial disambiguation index ONLY when multiple same-category objects exist (specify its sequence order, extreme boundary, depth row, or relative direction); or null if unique",
   "final_query": "natural compact English noun phrase of 6-20 words combining the non-null elements"
 }
 
 Query rules:
-- Form: Write one compact English noun phrase. Use participle or prepositional phrases (e.g., 'standing on the grass', 'sitting on the bench', 'mounted on the wall', 'in a blue shirt') instead of relative clauses (avoid 'who is...', 'which was...').
+- Form: Write one compact English noun phrase. Use participle or prepositional phrases (e.g., 'standing on the grass', 'mounted on the wall', 'in a blue shirt') instead of relative clauses (avoid 'who is...', 'which was...').
 - Article & capitalization: Begin with an article ('The', 'A', or 'An'); use 'The' for a specific instance.
 - Punctuation: Do NOT end with a period or trailing punctuation.
 - Categories: Use specific basic-level categories; only fallback to broad terms ('animal', 'vehicle', 'object') if the target is genuinely too distant or blurry to identify.
 - Dual-track disambiguation:
   * Single target in scene: set disambiguation_cue to null; describe target with its intrinsic attributes, action, and physical location.
-  * Multiple same-category objects in scene: you MUST provide a natural disambiguation_cue (e.g., 'the first / second / third', 'leftmost / rightmost', 'middle', 'closest to camera', 'to the right / left of [landmark]') to uniquely distinguish it.
-- Perspective: Express 'left', 'right', 'top', and 'bottom' strictly from the viewer's 2D perspective of the image.
+  * Multiple same-category objects in scene: you MUST provide a natural spatial disambiguation cue (such as its sequence order along a line/group, extreme boundary on the left/right/top/bottom, relative depth in the front/back row, or relative direction to neighboring objects) to uniquely distinguish it.
+- Perspective: Express all directions strictly from the viewer's 2D perspective of the image.
 Output JSON only."""
 
 DISAMBIGUATION_PROMPT_HASH = hashlib.sha256(
