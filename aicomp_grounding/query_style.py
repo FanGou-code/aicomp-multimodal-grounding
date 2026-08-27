@@ -65,16 +65,16 @@ The red rectangle is an external indicator only. Never mention the rectangle, ma
 
 Analyze the scene and return JSON:
 {
-  "target_category": "specific basic-level category (e.g. security camera, deer, person, umbrella)",
-  "visible_attributes": "salient color, clothing, or material (e.g. white, checkered shirt, metal)",
-  "action_or_state": "participle action, state, or posture (e.g. sitting, mounted on stone pillar, parked)",
-  "spatial_landmark": "immediate adjacent landmark or region (e.g. beside the lamp, in the foreground, below awning; or null)",
+  "target_category": "specific basic-level category (e.g. person, car, dog, deer, swan, umbrella, sign, security camera)",
+  "visible_attributes": "salient color, clothing, pattern, or material (e.g. white, black, blue, red, checkered, metal, wooden)",
+  "action_or_state": "participle action, state, or posture (e.g. standing, walking, sitting, running, swimming, flying, parked, mounted, held in hand)",
+  "spatial_landmark": "immediate adjacent landmark, mount, or region (e.g. beside the lamp, on the grass/road, in the water, below awning, near the fence, in the foreground/background; or null)",
   "disambiguation_cue": "natural positional/ordinal cue when multiple same-category objects exist (e.g. first, second, third, leftmost, rightmost, middle, closest, nearest, farthest, on the left/right, to the right/left of [landmark]; or null if unique)",
   "final_query": "natural compact English noun phrase of 6-20 words combining the non-null elements"
 }
 
 Query rules:
-- Form: Write one compact English noun phrase. Use participle or prepositional phrases (e.g., 'sitting on the bench', 'mounted on the wall', 'in a blue shirt') instead of relative clauses (avoid 'who is...', 'which was...').
+- Form: Write one compact English noun phrase. Use participle or prepositional phrases (e.g., 'standing on the grass', 'sitting on the bench', 'mounted on the wall', 'in a blue shirt') instead of relative clauses (avoid 'who is...', 'which was...').
 - Article & capitalization: Begin with an article ('The', 'A', or 'An'); use 'The' for a specific instance.
 - Punctuation: Do NOT end with a period or trailing punctuation.
 - Categories: Use specific basic-level categories; only fallback to broad terms ('animal', 'vehicle', 'object') if the target is genuinely too distant or blurry to identify.
