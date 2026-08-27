@@ -61,7 +61,11 @@ from aicomp_grounding.api_client import (
     OpenAIProtocolClient,
     SlidingWindowRateLimiter,
 )
-from aicomp_grounding.query_style import STYLE_PROMPT_HASH, build_style_prompt
+from aicomp_grounding.query_style import (
+    DISAMBIGUATION_PROMPT_HASH,
+    DISAMBIGUATION_QUERY_PROMPT,
+    STYLE_PROMPT_HASH,
+)
 
 GENERATION_CONFIG = {
     "query_max_tokens": 4096,
@@ -326,7 +330,7 @@ def _annotate_frame(
     *,
     previous: dict | None,
     retry_failed: bool,
-    style_fields: dict | None = None,
+    seen_queries: set[str] | None = None,
 ) -> dict:
     keep_history = bool(previous and retry_failed)
     api_calls = list(previous.get("api_calls", [])) if keep_history else []
@@ -337,19 +341,7 @@ def _annotate_frame(
         annotation_attempt_numbers(previous, retry_failed=retry_failed), start=1
     ):
         attempts = attempt_number
-        if not style_fields or not style_fields.get("annotation_style"):
-            raise ValueError(
-                "Query generation requires an expanded style-plan source with annotation_style"
-            )
-        prompt = build_style_prompt(
-            style_fields["annotation_style"],
-            min_words=int(style_fields.get("annotation_min_words", 7)),
-            max_words=int(style_fields.get("annotation_max_words", 13)),
-            template_family=style_fields.get("annotation_style_family", "OFFICIAL"),
-            fallback_style=style_fields.get(
-                "annotation_fallback_style", "attribute_action"
-            ),
-        )
+        prompt = DISAMBIGUATION_QUERY_PROMPT
         try:
             response = client.complete(
                 messages=_messages(
@@ -369,10 +361,17 @@ def _annotate_frame(
         except ValueError as exc:
             last_error = str(exc)
             continue
+        query = candidates["query"]
+        if seen_queries and query in seen_queries:
+            last_error = (
+                f"Query {query!r} duplicates another frame in this sequence; "
+                "describe the target's immediate dynamic posture or closest local landmark in this specific frame"
+            )
+            continue
         uncertain = bool(candidates["uncertain"])
         return {
             "status": "completed",
-            "query": candidates["query"],
+            "query": query,
             "uncertain": uncertain,
             "attempts": attempts,
             "error": "",
@@ -490,6 +489,11 @@ def annotate_shard(
                 frames,
                 retry_failed=retry_failed,
             )
+            seen_queries = {
+                frame["query"]
+                for frame in frames.values()
+                if frame.get("status") == "completed" and frame.get("query")
+            }
             preview_sample_id = max(
                 sample_ids,
                 key=lambda sample_id: (
@@ -508,13 +512,16 @@ def annotate_shard(
                         preview_dir / f"{sequence_id}.jpg", quality=92, optimize=True
                     )
                 previous_frame = frames.get(sample_id)
-                frames[sample_id] = _annotate_frame(
+                res_frame = _annotate_frame(
                     client,
                     marked_rgb,
                     previous=previous_frame,
                     retry_failed=retry_failed,
-                    style_fields=item,
+                    seen_queries=seen_queries,
                 )
+                frames[sample_id] = res_frame
+                if res_frame.get("status") == "completed" and res_frame.get("query"):
+                    seen_queries.add(res_frame["query"])
                 save_checkpoint()
                 frame = frames[sample_id]
                 if progress is None:

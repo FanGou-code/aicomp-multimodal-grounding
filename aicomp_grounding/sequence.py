@@ -108,41 +108,26 @@ def _parse_json_object(text: str, *, label: str) -> dict:
 
 def parse_frame_query_candidates(text: str) -> dict[str, object]:
     payload = _parse_json_object(text, label="Frame query")
-    expected = {"query", "alternate_query", "uncertain"}
-    optional = {"style"}
-    if set(payload) - expected - optional:
-        raise ValueError(f"Frame query must contain exactly {sorted(expected)}")
-    if "style" in payload and not isinstance(payload["style"], str):
-        raise ValueError("Frame query style must be a string when present")
-    query = clean_query_text(payload["query"])
+    raw_query = payload.get("final_query") or payload.get("query")
+    if not isinstance(raw_query, str):
+        raise ValueError("Frame query response must contain a 'final_query' or 'query' string")
+    query = clean_query_text(raw_query)
     valid, reason = validate_annotation_query(query)
     if not valid:
         raise ValueError(f"Invalid primary query {query!r}: {reason}")
     valid, reason = validate_query_style(query)
     if not valid:
         raise ValueError(f"Primary query {query!r}: {reason}")
-    alternate_value = payload["alternate_query"]
-    alternate = None
-    if alternate_value is not None:
-        alternate = clean_query_text(alternate_value)
-        valid, reason = validate_annotation_query(alternate)
-        if not valid:
-            # The alternate is a secondary candidate; a scaffolding violation
-            # there should not sink the whole frame's valid primary query.
-            print(
-                f"Warning: dropping alternate query {alternate!r} "
-                f"({reason}); keeping primary {query!r}",
-                flush=True,
-            )
-            alternate = None
-        elif alternate.casefold() == query.casefold():
-            raise ValueError("Alternate query duplicates the primary query")
-    if not isinstance(payload["uncertain"], bool):
-        raise ValueError("Frame query uncertain must be a boolean")
+    uncertain = bool(payload.get("uncertain", False))
     return {
         "query": query,
-        "alternate_query": alternate,
-        "uncertain": payload["uncertain"],
+        "alternate_query": None,
+        "uncertain": uncertain,
+        "target_category": payload.get("target_category"),
+        "visible_attributes": payload.get("visible_attributes"),
+        "action_or_state": payload.get("action_or_state"),
+        "spatial_landmark": payload.get("spatial_landmark"),
+        "disambiguation_cue": payload.get("disambiguation_cue"),
     }
 
 

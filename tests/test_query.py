@@ -24,7 +24,7 @@ class QueryValidationTests(unittest.TestCase):
     def test_cleans_wrapping_markup(self):
         self.assertEqual(
             clean_query_text('`"The small red chair beside the wooden desk."`'),
-            "The small red chair beside the wooden desk.",
+            "The small red chair beside the wooden desk",
         )
 
 

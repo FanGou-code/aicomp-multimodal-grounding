@@ -28,7 +28,8 @@ STYLE_MIN_WORDS = 5
 def clean_query_text(text: str) -> str:
     if not isinstance(text, str):
         return ""
-    return text.strip().strip("`").strip().strip('"').strip("'").strip()
+    cleaned = text.strip().strip("`").strip().strip('"').strip("'").strip()
+    return cleaned.rstrip(".?!;").strip()
 
 
 def validate_generated_query(text: str, *, min_words: int = 1, max_words: int = 55) -> tuple[bool, str]:
@@ -56,16 +57,12 @@ def validate_generated_query(text: str, *, min_words: int = 1, max_words: int = 
 
 
 def validate_query_style(text: str) -> tuple[bool, str]:
-    """Reject bare-label queries that lack positional disambiguation.
-
-    Short queries (below ``STYLE_MIN_WORDS``) must carry at least one spatial,
-    ordinal, or multi-object cue so the target is grounded in the scene rather
-    than described by an isolated label. Longer queries pass unconditionally;
-    they already carry enough context by length.
-    """
+    """Reject bare-label queries that lack positional disambiguation."""
     cleaned = clean_query_text(text)
     if not cleaned:
         return False, "empty query"
+    if re.match(r"^(?:The|A|An)\s+[A-Za-z]+$", cleaned, re.IGNORECASE):
+        return False, f"query is an isolated bare noun label {cleaned!r}; add appearance/spatial/landmark modifiers"
     words = _WORD.findall(cleaned)
     if len(words) >= STYLE_MIN_WORDS:
         return True, ""

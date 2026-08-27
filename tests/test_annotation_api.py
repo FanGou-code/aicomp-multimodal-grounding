@@ -147,28 +147,16 @@ class FrameGenerationTests(unittest.TestCase):
         image = Image.new("RGB", (320, 180), "gray")
         return build_marked_annotation_view(image, [0.1, 0.1, 0.4, 0.6])
 
-    @staticmethod
-    def _style_fields(style="attribute_action"):
-        family = {
-            "attribute_action": "ATTRIBUTE_ACTION",
-            "scene_location": "SCENE_REGION",
-            "ordinal": "FROM_LEFT_TO_RIGHT",
-        }[style]
-        return {
-            "annotation_style": style,
-            "annotation_style_family": family,
-            "annotation_min_words": 7,
-            "annotation_max_words": 13,
-            "annotation_fallback_style": "scene_location",
-        }
-
     def test_single_model_generates_query_with_one_image(self):
         marked = self._marked()
         client = self.FakeClient(
             [json.dumps({
-                "query": "The pedestrian wearing a yellow waterproof jacket",
-                "alternate_query": None,
-                "uncertain": False,
+                "target_category": "person",
+                "visible_attributes": "yellow waterproof jacket",
+                "action_or_state": "walking",
+                "spatial_landmark": "on the street",
+                "disambiguation_cue": None,
+                "final_query": "The pedestrian wearing a yellow waterproof jacket",
             })],
             "glm-4.6v",
         )
@@ -177,7 +165,6 @@ class FrameGenerationTests(unittest.TestCase):
             marked,
             previous=None,
             retry_failed=False,
-            style_fields=self._style_fields(),
         )
 
         self.assertEqual(result["status"], "completed")
@@ -199,13 +186,11 @@ class FrameGenerationTests(unittest.TestCase):
         client = self.FakeClient(
             [
                 json.dumps({
-                    "query": "thing",
-                    "alternate_query": None,
+                    "final_query": "thing",
                     "uncertain": False,
                 }),
                 json.dumps({
-                    "query": "The small brown monkey beside the rocks",
-                    "alternate_query": None,
+                    "final_query": "The small brown monkey beside the rocks",
                     "uncertain": False,
                 }),
             ],
@@ -216,7 +201,6 @@ class FrameGenerationTests(unittest.TestCase):
             marked,
             previous=None,
             retry_failed=False,
-            style_fields=self._style_fields(),
         )
 
         self.assertEqual(result["status"], "completed")
@@ -230,9 +214,9 @@ class FrameGenerationTests(unittest.TestCase):
         marked = self._marked()
         client = self.FakeClient(
             [
-                json.dumps({"query": "entity", "alternate_query": None, "uncertain": False}),
-                json.dumps({"query": "thing", "alternate_query": None, "uncertain": False}),
-                json.dumps({"query": "item", "alternate_query": None, "uncertain": False}),
+                json.dumps({"final_query": "entity", "uncertain": False}),
+                json.dumps({"final_query": "thing", "uncertain": False}),
+                json.dumps({"final_query": "item", "uncertain": False}),
             ],
             "glm-4.6v",
         )
@@ -241,7 +225,6 @@ class FrameGenerationTests(unittest.TestCase):
             marked,
             previous=None,
             retry_failed=False,
-            style_fields=self._style_fields(),
         )
 
         self.assertEqual(result["status"], "failed")
@@ -267,9 +250,9 @@ class FrameGenerationTests(unittest.TestCase):
         client = self.FakeClient(
             [
                 # first attempt: 1-word label → style gate rejects
-                json.dumps({"query": "cone", "alternate_query": None, "uncertain": False}),
+                json.dumps({"final_query": "The cone", "uncertain": False}),
                 # second attempt: passes style gate
-                json.dumps({"query": "The third cone from left to right in the row", "alternate_query": None, "uncertain": False}),
+                json.dumps({"final_query": "The third cone from left to right in the row", "uncertain": False}),
             ],
             "glm-4.6v",
         )
@@ -278,23 +261,18 @@ class FrameGenerationTests(unittest.TestCase):
             marked,
             previous=None,
             retry_failed=False,
-            style_fields=self._style_fields(),
         )
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["attempts"], 2)
         self.assertIn("cone", result["query"])
         self.assertEqual(len(client.calls), 2)
 
-    def test_style_fields_inject_group_specific_prompt(self):
+    def test_sequence_duplicate_triggers_retry(self):
         marked = self._marked()
         client = self.FakeClient(
             [
-                json.dumps({
-                    "query": "The third cone from left to right",
-                    "alternate_query": None,
-                    "uncertain": False,
-                    "style": "ordinal",
-                })
+                json.dumps({"final_query": "The deer standing near the tree", "uncertain": False}),
+                json.dumps({"final_query": "The deer grazing on the grass near the tree", "uncertain": False}),
             ],
             "glm-4.6v",
         )
@@ -303,16 +281,12 @@ class FrameGenerationTests(unittest.TestCase):
             marked,
             previous=None,
             retry_failed=False,
-            style_fields={
-                "annotation_style": "ordinal",
-                "annotation_style_family": "FROM_LEFT_TO_RIGHT",
-                "annotation_min_words": 8,
-                "annotation_max_words": 12,
-                "annotation_fallback_style": "scene_location",
-            },
+            seen_queries={"The deer standing near the tree"},
         )
         self.assertEqual(result["status"], "completed")
-        self.assertIn("FROM_LEFT_TO_RIGHT", client.calls[0]["messages"][1]["content"][-1]["text"])
+        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(result["query"], "The deer grazing on the grass near the tree")
+
 
 if __name__ == "__main__":
     unittest.main()

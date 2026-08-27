@@ -44,45 +44,24 @@ GLM-4.6V API）。32B 模型推理计划已取消，不再安排 32B zero-shot �
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-27，取消 32B 推理计划，专注新标注生成）
+## 当前状态（最后更新 2026-08-27，重构新一代自适应视觉消歧标注与架构极净化）
 
-### 当前专注：新标注生成（2026-08-27）
-- **决策**：取消 32B 模型推理计划（smoke、zero-shot 全量、打榜与推理参数调优均不再安排）。
-  `qwen3vl32` 适配器保留在代码层，8B identity 不受影响。
-- **执行顺序**：`build_scene_cards.py` 场景卡 → `build_style_plan.py` 生成
-  expanded data root → `generate_queries.py` 10 序列 pilot →
-  `audit_query_style.py` 风格审计 → 全量 Train/Val 生成与 `--publish`。
-- **执行边界**：API 场景卡与 Query 生成由用户亲手执行；仓库侧只推进代码、单测与文档。
-
-### 移除反向闭环验证模块（2026-08-27）
-- **决策与依据**：场景卡已在源头完成单目标与多目标的语法路由（多目标走序数/地标，单目标走属性），
-  规划层已消除二义性。反向验证存在对密集微小目标（中位数 25x30 像素）的检出误杀，且翻倍消耗 API。
-- **清理范围**：彻底移除 `generate_queries.py` 中的 `_verify_query`、`--verify-queries`、
-  `VERIFICATION_PROMPT`；移除 `sequence.py` 中的 `parse_verification_bbox` 及对应单测；
-  简化 `_annotate_frame` 与 `annotate_shard`。
-- **单测状态**：215 项单测全部通过（4 skip）。
-
-### 新标注策略接入（2026-08-25）
-- 新增 `aicomp_grounding/query_style.py`：语义组、官方模板族、场景卡解析、
-  deterministic style plan、扩展标注源、分组提示词。
-- 新增脚本：
-  `scripts/build_scene_cards.py`（400 序列 x 抽样帧场景卡）；
-  `scripts/build_style_plan.py`（生成可被现有 generate_queries 直接消费的
-  expanded data root）。
-- `generate_queries.py` 只处理带 `annotation_style` 字段的 expanded item；
-  旧自由生成模式已移除，新流程统一使用模板族提示词。
-- 生成扩展样本 ID 规则为 `001_00000001_q1`，原始 bbox/图路径不变，
-  训练核心与 approved schema 不需要改。
-- 验证状态：单测全绿（4 skip），API 场景卡和实际 Query 生成由用户自己执行。
-
-### 标注验证修复（本轮）
-- **根因**：Zhipu `glm-4.6v` endpoint 默认思考；验证任务在 4096 token 内只吐
-  reasoning，`message.content` 为空，被客户端判为 `API response has no final content`。
-- **修复**：`api_client.py` 支持 `thinking_mode`，请求体发送 `thinking=disabled`；
-  生成与验证共用该配置。验证消息改为“原图在前、任务与 JSON 合同在后”。
-- **Prompt**：生成 prompt 增加可执行混比约束（约 2/3 空间关系、约 1/3 序数），
-  减少固定模板刷屏，并优先最短清晰表述。
-- **重跑**：pilot 需换新 run-tag（如 `glm46v-style-pilot-2`），不要复用旧目录。
+### 当前专注：自适应消歧新标注生产（2026-08-27）
+- **架构极简**：彻底废除离线两阶段场景卡与槽位规划，移除 `_q1, _q2, _q3` 伪扩展，
+  回归 **1 帧 1 条 Query**，总计 3,594 帧（Train 2,875 帧 + Val 719 帧）。
+- **生成契约**：统一采用「自适应思维链 + 场景条件双轨制」提示词（`DISAMBIGUATION_QUERY_PROMPT`）。
+  单目标场景输出属性与空间地标（`disambiguation_cue: null`）；多同类共存场景强制输出序数/极值定位锚点。
+  严密落实观察者视角、首词冠词、无定语从句（避免 `who/which`）与防红框视觉污染。
+- **Python 硬性门控**：
+  1. 词数门控：严格限制 $6 \le \text{words} \le 20$；
+  2. 反偷懒门控：拦截孤立裸词标签（如单独的 `"The person"` 自动重试）；
+  3. 序列级防复读：同一视频序列内连续帧去重拦截；
+  4. 标点清理：代码层强制执行 `query.rstrip('.?!;')`。
+- **执行闭环**：
+  1. 32 序列等距跨域抽样 Pilot（约 280 帧）；
+  2. 运行 `scripts/audit_query_style.py --full` 审计量化分布并人工抽检；
+  3. 确认健康后启动全量 3,594 帧生成并 `--publish` 发布 `approved.json`。
+- **单测状态**：212 项单测全部通过（4 skip）。
 
 ### 成绩一览
 
@@ -92,12 +71,11 @@ GLM-4.6V API）。32B 模型推理计划已取消，不再安排 32B zero-shot �
 | **Iteration 02**（α48/3ep/min_lr，同标注） | Test **0.7322** |
 | **双模型 WBF**（基线+Iter02 融合） | Test **0.7453** ← 当前最佳 |
 
-**总路线**：标注对齐+数据扩展 → 32B 训练 → 后期融合（WBF 与 DINO 替换均属后期）
+**总路线**：标注重构+质量对齐 → 32B 训练 → 后期融合（WBF 与 DINO 替换均属后期）
 
-**阶段一：标注对齐 + 数据扩展（共享地基，零 GPU，只花 GLM-4.6V API）**
-- 风格对齐：10 序列 pilot → `audit_query_style.py` 对齐官方
-  （均值 ≈10 词 / 空间 ≥60% / 序数 ~33%）→ 人工抽检 → 全量重生成 Train/Val →
-  更新 `.gitignore` 白名单分发并提交。
+**阶段一：高质量自适应消歧标注生成（共享地基，零 GPU，只花 GLM-4.6V API）**
+- 风格对齐：32 序列等距抽样 pilot → `audit_query_style.py` 审计 → 人工抽检 → 全量重生成 Train/Val →
+  更新 `outputs/annotations/<run_id>/{train,val}/approved.json` 并提交。
 - 帧扩展：GT 插值把每序列 10 帧扩到数百帧（gap ≤15 帧）。
 - 序列全量：500 序列（现 400）+ SHA-256 同源审计。
 
@@ -259,6 +237,24 @@ GLM-4.6V API）。32B 模型推理计划已取消，不再安排 32B zero-shot �
 * 魔搭准备流程改为：临时盘下载 `data.tar` -> 全量解压到持久盘 -> 删除压缩包，
   不再在云端执行 Depth-JET 生成和全量 SHA-256 查重。
 * 全量 SHA-256 查重明确只在本地首次准备数据时执行。
+
+### 2026-08-27（仓库，重构自适应视觉消歧标注系统与架构极净化）
+
+* **架构与流程极净化**：
+  - 彻底废除离线两阶段场景卡（`build_scene_cards.py`）与槽位规划（`build_style_plan.py`），移除 `_q1, _q2, _q3` 伪样本膨胀。
+  - 回归 **1 帧 1 Query**，全集总规模严格对应真实抽帧（`train.json` 2,875 帧 + `val.json` 719 帧 = 3,594 帧）。
+* **自适应思维链提示词（`DISAMBIGUATION_QUERY_PROMPT`）**：
+  - 输出结构化 JSON：`target_category` → `visible_attributes` → `action_or_state` → `spatial_landmark` → `disambiguation_cue` → `final_query`。
+  - 确立「场景条件双轨制」：单目标场景专注描述属性与地标，`disambiguation_cue` 填 `null`；多同类共存场景强制输出序数/极值定位锚点（如 `leftmost`, `second from the left`）。
+  - 严守语法与视觉安全护栏：紧凑名词短语（分词/介词后置定语），严禁定语从句（避免 `who/which`），首词冠词，无句末句号，严格观察者视角，严防红框标记颜色污染。
+* **本地 Python 端确定性验收门控（Deterministic QC Gatekeeper）**：
+  - 词数门控：严格限制 $6 \le \text{words} \le 20$；
+  - 反偷懒门控：拦截孤立裸词标签（如单独的 `"The person"` 自动重试）；
+  - 序列级防复读：在同一视频序列内，如果当前帧生成的 Query 与已生成帧完全一致，强制触发重试并注入差异化提示；
+  - 标点自动清理：`final_query.rstrip('.?!;')`。
+* **测试与文档**：
+  - 更新 `tests/test_query_style.py`、`tests/test_annotation_api.py`、`tests/test_query.py` 等单测，全量 212 项单测 100% 通过（4 skip）。
+  - 统一更新 `README.md`、`docs/architecture.md`、`docs/handoff.md`。
 
 ### 2026-08-26（仓库，训练/推理实时进度日志统一）
 

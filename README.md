@@ -97,7 +97,7 @@ aicomp_grounding/
   io.py                 原子 JSON 读写
   prompts.py            Qwen 定位 Prompt 协议（qwen3vl 适配器使用）
   query.py              Query 与训练样本结构校验
-  query_style.py        语义组、场景卡、style plan 与分组提示词
+  query_style.py        Query 样式分类、审计指标与自适应消歧提示词
   sequence.py           Query 生成响应与文本 QC
   sharding.py           场景级均衡分片
   api_client.py         通用 OpenAI 协议客户端、限流与退避
@@ -122,9 +122,8 @@ scripts/
   prepare_rgbdt.py      RGBDT 图像检查与 Depth JET 伪彩转换
   build_indexes.py      构建 5 个切分 JSON 索引并执行 SHA-256 去重审计
   filter_overlap.py     SHA-256 剔除与 Test 同源的 Train/Val 样本
-  build_scene_cards.py   400 序列抽样帧场景卡生成（API 教师模型）
-  build_style_plan.py    合并目标分布与场景卡，生成 expanded 标注源
-  generate_queries.py   自动 Query 生成与 approved 发布
+  generate_queries.py   自适应消歧 Query 生成与 approved 发布
+  audit_query_style.py  Query 样式分布与语义组审计
   upload_dataset.py     ModelScope 数据集上传工具
 
 tests/                  离线单元测试与工作流契约测试
@@ -279,44 +278,33 @@ python scripts/build_indexes.py --data-dir data
 export API_KEY="<your API key>"
 ```
 
-新风格计划链路：
+执行生成与审计：
 
 ```bash
-# 1. 生成场景卡（需要 API_KEY；每个序列抽样 3 帧）
-python -u scripts/build_scene_cards.py \
-  --split train --frame-count 3 --concurrency 4
-python -u scripts/build_scene_cards.py \
-  --split val --frame-count 3 --concurrency 4
-
-# 2. 生成 style plan 与 expanded data root
-python scripts/build_style_plan.py \
-  --split train \
-  --scene-cards outputs/annotation_analysis/scene_cards/train/cards.json \
-  --queries-per-frame 3
-
-python scripts/build_style_plan.py \
-  --split val \
-  --scene-cards outputs/annotation_analysis/scene_cards/val/cards.json \
-  --queries-per-frame 3
-
-# 3. 先跑 10 序列 pilot
+# 1. 运行 32 序列跨域抽样 Pilot（约 280 帧）
 python -u scripts/generate_queries.py \
-  --data-root outputs/annotation_analysis/expanded_train \
   --split train \
-  --limit-sequences 10 \
-  --run-tag glm46v-style-plan-pilot
+  --limit-sequences 32 \
+  --concurrency 4 \
+  --run-tag pilot-v4
 
+# 2. 审计 Pilot 输出样式与语义组分布
+python scripts/audit_query_style.py \
+  --queries outputs/annotations/annot_<run_id>/train/merged.json \
+  --full
+
+# 3. 全量生成与 --publish 发布 approved.json
 python -u scripts/generate_queries.py \
-  --data-root outputs/annotation_analysis/expanded_train \
   --split train \
+  --concurrency 4 \
   --publish \
-  --run-tag glm46v-style-plan-gen
+  --run-tag v4-train
 
 python -u scripts/generate_queries.py \
-  --data-root outputs/annotation_analysis/expanded_val \
   --split val \
+  --concurrency 4 \
   --publish \
-  --run-tag glm46v-style-plan-gen
+  --run-tag v4-val
 ```
 
 产物位于：
