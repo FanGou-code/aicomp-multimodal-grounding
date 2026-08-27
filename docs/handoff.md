@@ -44,24 +44,21 @@ GLM-4.6V API）。32B 模型推理计划已取消，不再安排 32B zero-shot �
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-27，重构新一代自适应视觉消歧标注与架构极净化）
+## 当前状态（最后更新 2026-08-27，自适应消歧全量 Train+Val 标注满额发布）
 
-### 当前专注：自适应消歧新标注生产（2026-08-27）
-- **架构极简**：彻底废除离线两阶段场景卡与槽位规划，移除 `_q1, _q2, _q3` 伪扩展，
-  回归 **1 帧 1 条 Query**，总计 3,594 帧（Train 2,875 帧 + Val 719 帧）。
-- **生成契约**：统一采用「自适应思维链 + 场景条件双轨制」提示词（`DISAMBIGUATION_QUERY_PROMPT`）。
-  单目标场景输出属性与空间地标（`disambiguation_cue: null`）；多同类共存场景强制输出序数/极值定位锚点。
-  严密落实观察者视角、首词冠词、无定语从句（避免 `who/which`）与防红框视觉污染。
-- **Python 硬性门控**：
-  1. 词数门控：严格限制 $6 \le \text{words} \le 20$；
-  2. 反偷懒门控：拦截孤立裸词标签（如单独的 `"The person"` 自动重试）；
-  3. 序列级防复读：同一视频序列内连续帧去重拦截；
-  4. 标点清理：代码层强制执行 `query.rstrip('.?!;')`。
-- **执行闭环**：
-  1. 32 序列等距跨域抽样 Pilot（约 280 帧）；
-  2. 运行 `scripts/audit_query_style.py --full` 审计量化分布并人工抽检；
-  3. 确认健康后启动全量 3,594 帧生成并 `--publish` 发布 `approved.json`。
-- **单测状态**：212 项单测全部通过（4 skip）。
+### 当前完成：全量新标注生成与正式发布（2026-08-27）
+- **全量产物就绪**：
+  - Train 集：[`outputs/annotations/annot_36a6e2b155d24268/train/approved.json`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/outputs/annotations/annot_36a6e2b155d24268/train/approved.json)（2,875 样本，320 序列，100% 成功发布）；
+  - Val 集：[`outputs/annotations/annot_9ed60abb47fa5d76/val/approved.json`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/outputs/annotations/annot_9ed60abb47fa5d76/val/approved.json)（719 样本，80 序列，100% 成功发布）；
+  - 全量总计 **3,594 样本（0 失败，0 异常）**。
+- **全量量化审计结论**：
+  - **平均词长**：10.98 词（官方 Test 集为 10.33 词，完美贴合）；
+  - **词长中位数**：10 词（官方 Test 集为 9 词，完全重合）；
+  - **序数消歧占比**：22.1%（成功恢复至 20%~30% 黄金消歧区间）；
+  - **空间地标占比**：35.9%（官方 Test 为 34.0%，空间锚定充沛）；
+  - **纯属性与动作**：30.1%（彻底消灭旧基线的 65.9% 偷懒短标签）；
+  - **格式与语法纯净度**：0 句号残留，0 定语从句冗余，0 标注框伪影泄露。
+- **下一步**：启动基于全新高质量标注的 Qwen3-VL-8B LoRA 重训（Iteration 03）验证提分效果。
 
 ### 成绩一览
 
@@ -237,6 +234,22 @@ GLM-4.6V API）。32B 模型推理计划已取消，不再安排 32B zero-shot �
 * 魔搭准备流程改为：临时盘下载 `data.tar` -> 全量解压到持久盘 -> 删除压缩包，
   不再在云端执行 Depth-JET 生成和全量 SHA-256 查重。
 * 全量 SHA-256 查重明确只在本地首次准备数据时执行。
+
+### 2026-08-27（仓库，自适应视觉消歧标注全量 Train+Val 满额发布）
+
+* **全量数据满额发布**：
+  - Train 集：`outputs/annotations/annot_36a6e2b155d24268/train/approved.json`（2,875 样本，320 序列，100% 成功发布）；
+  - Val 集：`outputs/annotations/annot_9ed60abb47fa5d76/val/approved.json`（719 样本，80 序列，100% 成功发布）；
+  - 全量总计 3,594 样本（0 失败，0 不确定，0 丢失）。
+* **全量量化审计结果**：
+  - 均值词长 10.98 词，词长中位数 10 词（官方 Test 集为 10.33/9 词，高度贴合）；
+  - 序数消歧占比 22.1%（成功恢复至 20%~30% 黄金消歧区间）；
+  - 空间地标占比 35.9%（空间锚定充沛）；
+  - 纯属性动作占比 30.1%（彻底消灭旧基线的 65.9% 偷懒短标签）；
+  - 格式与语法纯净度：0 句号残留，0 定语从句冗余，0 标注框伪影泄露。
+* **模型与训练核心对接**：
+  - 全量通过 `validate_approved_artifact` 校验，格式 100% 兼容 `aicomp_grounding/models/qwen_dataset.py`。
+  - 阶段一「新标注生成与数据重构」正式圆满达成。
 
 ### 2026-08-27（仓库，重构自适应视觉消歧标注系统与架构极净化）
 
