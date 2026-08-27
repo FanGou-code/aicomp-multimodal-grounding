@@ -211,10 +211,10 @@ class ApprovedDataGateTests(unittest.TestCase):
                 root / "outputs" / "output_lora" / plan["metadata"]["training_run_id"],
             )
 
-    def test_training_plan_keeps_modal_default_output_layout(self):
+    def test_training_plan_default_output_layout(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            run_id = "annot_modal"
+            run_id = "annot_test_run"
             for split, scene in (("train", "001"), ("val", "002")):
                 artifact = _artifact(split, scene, run_id)
                 artifact["metadata"]["image_fingerprint"] = (
@@ -233,7 +233,7 @@ class ApprovedDataGateTests(unittest.TestCase):
                 data_root=root / "data",
                 annotation_root=root / "outputs" / "annotations",
                 annotation_run_id=run_id,
-                run_tag="modal-layout",
+                run_tag="exp-layout",
                 seed=42,
                 resume=True,
                 verify_images=False,
