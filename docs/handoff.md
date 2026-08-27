@@ -29,9 +29,11 @@
 `docs/architecture.md`（结构不变量）→ 根 `README.md`（用法）→ 就近 README；
 GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.md` 为准。
 
-**当前阶段与下一步**：32B 适配器代码已接入（`qwen3vl32`，纯兼容，8B 指纹零漂移），
-等待 GPU 冒烟（`--model qwen3vl32 --smoke-test`）；阶段一「标注对齐+数据扩展」零 GPU
-可并行推进（pilot → 风格审计 → 全量重生成）。反向闭环验证（`_verify_query`）模块已移除：
+**当前阶段与下一步**：当前专注阶段一「新标注生成与数据扩展」（零 GPU，只花
+GLM-4.6V API）。32B 模型推理计划已取消，不再安排 32B zero-shot 全量推理、冒烟
+或打榜；`qwen3vl32` 适配器代码保留，训练是否启动待新标注完成后再评估。
+新标注链路为：场景卡 → style plan / expanded data root → 10 序列 pilot →
+风格审计 → 全量 Train/Val 重生成与 approved 发布。反向闭环验证（`_verify_query`）模块已移除：
 场景卡与风格规划已在规划层消除二义性，移除反向验证避免了微小目标误杀（False Rejection）
 并减少 50% API 耗时与 Token 消耗。新风格计划链路已接入：
 预定义句式族 → 400 序列场景卡 → 确定性 style plan → 扩展样本 ID →
@@ -39,11 +41,18 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 详见下方「当前状态」。
 
 **运行边界**：本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU
-训练/推理用 `offline/`；`modal` 命令由用户本人执行。32B 权重（~66G）不落持久盘，
-每次开机从魔搭内网拉到实例临时盘 `/root/models`；`checkpoint`/标注/提交包必须留
+训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-27，移除反向闭环验证模块与流水线精简）
+## 当前状态（最后更新 2026-08-27，取消 32B 推理计划，专注新标注生成）
+
+### 当前专注：新标注生成（2026-08-27）
+- **决策**：取消 32B 模型推理计划（smoke、zero-shot 全量、打榜与推理参数调优均不再安排）。
+  `qwen3vl32` 适配器保留在代码层，8B identity 不受影响。
+- **执行顺序**：`build_scene_cards.py` 场景卡 → `build_style_plan.py` 生成
+  expanded data root → `generate_queries.py` 10 序列 pilot →
+  `audit_query_style.py` 风格审计 → 全量 Train/Val 生成与 `--publish`。
+- **执行边界**：API 场景卡与 Query 生成由用户亲手执行；仓库侧只推进代码、单测与文档。
 
 ### 移除反向闭环验证模块（2026-08-27）
 - **决策与依据**：场景卡已在源头完成单目标与多目标的语法路由（多目标走序数/地标，单目标走属性），
@@ -86,13 +95,13 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 **总路线**：标注对齐+数据扩展 → 32B 训练 → 后期融合（WBF 与 DINO 替换均属后期）
 
 **阶段一：标注对齐 + 数据扩展（共享地基，零 GPU，只花 GLM-4.6V API）**
-- 风格对齐：`--verify-queries` pilot（10 序列）→ `audit_query_style.py` 对齐官方
+- 风格对齐：10 序列 pilot → `audit_query_style.py` 对齐官方
   （均值 ≈10 词 / 空间 ≥60% / 序数 ~33%）→ 人工抽检 → 全量重生成 Train/Val →
   更新 `.gitignore` 白名单分发并提交。
-- 帧扩展：GT 插值把每序列 10 帧扩到数百帧（gap ≤15 帧，`--verify-queries` 门控）。
+- 帧扩展：GT 插值把每序列 10 帧扩到数百帧（gap ≤15 帧）。
 - 序列全量：500 序列（现 400）+ SHA-256 同源审计。
 
-**阶段二：二代目训练与选型（32B 代码已接入，范围暂缩为只新增 32B）**
+**阶段二：二代目选型（32B 推理计划取消；训练待新标注后评估）**
 - **代码侧已落地**（`feat/qwen32b` 分支，commit `5dcd791`）：新增 `qwen3vl32`
   薄适配器（同 family，`qwen3_vl` / `Qwen3VLForConditionalGeneration`），纯兼容
   接入，旧适配器未动、8B 指纹零漂移（详见交接日志 2026-08-23）。
@@ -101,19 +110,20 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 | 槽位 | 模型 | 状态 | 参数/权重 |
 | --- | --- | --- | --- |
-| 1 主力 VLM | `Qwen3-VL-32B-Instruct` | **代码已接入**，待 GPU 冒烟 | 33B dense / ~66G |
+| 1 主力 VLM | `Qwen3-VL-32B-Instruct` | **代码已接入，推理计划取消；训练待新标注后评估** | 33B dense / ~66G |
 | 2 切片 VLM | `InternVL3-38B-Instruct` | 暂缓 | 38B dense / ~76G |
 | 3 辅助定位 | `GroundingDINO`（锚定，已有适配器） | 维持 | 0.2B（唯一 confidence 来源） |
 
 **阶段三：WBF（非常后期）**
-- 32B（出框后）在 Val 网格标定权重；DINO 上车需先过"出框率体检 + Val 消融 ΔACC"
-  两关（新标注 Val 719 带真值，可逐样本判定放行/剔除），全过才加权进 WBF。
+- 32B 推理计划取消，当前不承诺进入 WBF 模型池；DINO 上车需先过
+  "出框率体检 + Val 消融 ΔACC" 两关（新标注 Val 719 带真值，可逐样本判定放行/剔除），
+  全过才加权进 WBF。
 
 **存储策略（定案）**
 - 模型权重**不落持久盘**（100G 配额留给 venv/代码/标注/断点/输出）；每次 GPU 启动从
   魔搭内网拉取模型到临时工作区（同机房内网快，66G 约 6-15 分钟）。
-- **32B 具体落点**：权重约 66G 超出持久盘配额 → 下载到实例本地**临时盘 `/root/models`**
-  （非持久、关机即失，每次开机重拉）；训练/推理 `--model-path` 指向它。
+- **32B 具体落点（若后续训练）**：权重约 66G 超出持久盘配额 → 下载到实例本地
+  **临时盘 `/root/models`**（非持久、关机即失，每次开机重拉）；训练 `--model-path` 指向它。
 - 前提：实例临时盘空位 ≥ ~80G（32B 轮次）。
 - 边界：`checkpoint.json` + `outputs/output_lora` + `outputs/annotations` 与提交包
   必须留 `/mnt/workspace`（持久）——模型可失，断点不可失。
@@ -171,6 +181,12 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-27（交接，取消 32B 推理计划并聚焦新标注生成）
+
+* 32B 模型推理计划取消：不再安排 smoke、zero-shot 全量推理、打榜或推理参数调优。
+* `qwen3vl32` 适配器代码保留，8B 指纹零漂移；当前阶段与新标注生成文档同步收敛。
+* 交接文档移除 32B 推理相关状态与后续动作，并将新标注生成链路标记为当前执行主线。
 
 ### 2026-08-27（仓库，移除反向闭环验证模块）
 
@@ -290,16 +306,14 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * **验证**：212 项单测全绿（4 skip），`compileall` 与 `git diff --check` 通过。
   重跑本地 pilot 时应使用新 run-tag；`generation_config` 已变，旧 run id 不复用。
 
-### 2026-08-23（32B 冒烟验证通过、标注生成韧性加固与推理策略定案）
+### 2026-08-23（标注生成韧性加固）
 
-* **32B GPU 冒烟验证完成**：在魔搭 AMD MI300X 实例临时盘（`/root/models`）拉取 32B 权重后，成功完成 100 样本前向推理（`infer_test_base_c2dbf985d0c38646`），零 OOM、坐标解析 100% 合规。
-* **推理参数收敛定案**：质量第一前提下，确立 `--batch-size 2 --batch-save 100 --num-workers 4` 为满分辨率（9,216 Token）下的最优算力配置，同步更新 SOP 指南与代码契约。
 * **标注脚本严密加固**：
   * [`aicomp_grounding/api_client.py`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/aicomp_grounding/api_client.py)：将空响应纳入 3 次自动重试；
   * [`scripts/generate_queries.py`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/scripts/generate_queries.py)：补齐 `group_keys_by_scene` 与 `APIError` 导入，在 `_verify_query` 中增加异常捕获，优化提示词示例中的空间表述。
 * **下一步即时可执行动作**：
-  1. **本地轨**：执行 10 序列 Pilot 生成（`--limit-sequences 10 --verify-queries`）$\rightarrow$ 运行 `audit_query_style.py` 风格审计 $\rightarrow$ 启动全量 Train/Val 新标注重生成并发布；
-  2. **魔搭轨**：在 `tmux` 后台启动 32B 全量 2000 条零样本推理（`--batch-size 2 --batch-save 100`），挂机产出高分打榜包 `submission.zip`。
+  1. **本地轨**：执行 10 序列 Pilot 生成（`--limit-sequences 10`）$\rightarrow$ 运行
+     `audit_query_style.py` 风格审计 $\rightarrow$ 启动全量 Train/Val 新标注重生成并发布。
 
 ### 2026-08-23（仓库，交接总览补全）
 
@@ -311,8 +325,8 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 ### 2026-08-23（仓库，Qwen3-VL-32B 适配器接入与指南落地）
 
 * **代码**：新增 `qwen3vl32` 薄适配器（`models/qwen3vl32.py`，子类化 `qwen3vl`
-  仅覆写 name/model_name/model_revision），注册进 `ADAPTERS`；`offline/infer.py`、
-  `offline/train.py` 的 `--model` 与 `training_core.py` 训练/续跑/默认路径三处接线。
+  仅覆写 name/model_name/model_revision），注册进 `ADAPTERS`；`offline/train.py`
+  的 `--model` 与 `training_core.py` 训练/续跑/默认路径已接线。
   **纯兼容接入**：旧适配器一个字符未动，8B 指纹零漂移（`QwenIdentityContinuityTests`
   继续钉死）；新增 `Qwen32BIdentityTests` 钉死 32B identity。`cloud/` 走
   `get_adapter(model)` 自动识别，无需改。验证：211 测试全绿（4 跳过）。
@@ -323,12 +337,10 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * **存储（32B）**：~66G 超出持久盘配额 → 下载到实例本地临时盘 `/root/models`
   （非持久、关机即失），每次开机从魔搭内网重拉（~6-15 分钟）；`--model-path`
   指向临时盘；checkpoint/标注/提交留 `/mnt/workspace`。
-* **参数适配**：推理 batch 固定 1（33B dense 显存 ≈ 8B 的 4 倍），仍 OOM 降
-  `--max-pixels 1505280` 而非扩 batch；训练沿用继承配置（batch 1 + 梯度累积 16）。
-* **文档**：SOP 阶段 2.1-2.3 + README + offline/README 补 32B 训练/推理命令与临时盘
+* **训练配置**：训练沿用继承配置（batch 1 + 梯度累积 16）。
+* **文档**：SOP 阶段 2.1-2.3 + README + offline/README 补 32B 训练命令与临时盘
   下载说明（commit `5d298b4`）。
-* **下一步**：GPU 实例 `--model qwen3vl32 --smoke-test` 冒烟（66G 下载 + 33B
-  满载像素过显存验证）→ 通过后接 32B 训练。
+* **下一步**：新标注生成完成后评估是否启动 32B 训练；不做 32B 推理冒烟。
 
 ### 2026-08-23（交接，二代目选型与执行策略定案）
 
