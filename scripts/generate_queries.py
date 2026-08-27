@@ -330,7 +330,6 @@ def _annotate_frame(
     *,
     previous: dict | None,
     retry_failed: bool,
-    seen_queries: set[str] | None = None,
 ) -> dict:
     keep_history = bool(previous and retry_failed)
     api_calls = list(previous.get("api_calls", [])) if keep_history else []
@@ -362,12 +361,6 @@ def _annotate_frame(
             last_error = str(exc)
             continue
         query = candidates["query"]
-        if seen_queries and query in seen_queries:
-            last_error = (
-                f"Query {query!r} duplicates another frame in this sequence; "
-                "describe the target's immediate dynamic posture or closest local landmark in this specific frame"
-            )
-            continue
         uncertain = bool(candidates["uncertain"])
         return {
             "status": "completed",
@@ -489,11 +482,6 @@ def annotate_shard(
                 frames,
                 retry_failed=retry_failed,
             )
-            seen_queries = {
-                frame["query"]
-                for frame in frames.values()
-                if frame.get("status") == "completed" and frame.get("query")
-            }
             preview_sample_id = max(
                 sample_ids,
                 key=lambda sample_id: (
@@ -512,16 +500,12 @@ def annotate_shard(
                         preview_dir / f"{sequence_id}.jpg", quality=92, optimize=True
                     )
                 previous_frame = frames.get(sample_id)
-                res_frame = _annotate_frame(
+                frames[sample_id] = _annotate_frame(
                     client,
                     marked_rgb,
                     previous=previous_frame,
                     retry_failed=retry_failed,
-                    seen_queries=seen_queries,
                 )
-                frames[sample_id] = res_frame
-                if res_frame.get("status") == "completed" and res_frame.get("query"):
-                    seen_queries.add(res_frame["query"])
                 save_checkpoint()
                 frame = frames[sample_id]
                 if progress is None:

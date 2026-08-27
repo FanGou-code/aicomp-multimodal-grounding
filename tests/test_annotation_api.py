@@ -267,26 +267,5 @@ class FrameGenerationTests(unittest.TestCase):
         self.assertIn("cone", result["query"])
         self.assertEqual(len(client.calls), 2)
 
-    def test_sequence_duplicate_triggers_retry(self):
-        marked = self._marked()
-        client = self.FakeClient(
-            [
-                json.dumps({"final_query": "The deer standing near the tree", "uncertain": False}),
-                json.dumps({"final_query": "The deer grazing on the grass near the tree", "uncertain": False}),
-            ],
-            "glm-4.6v",
-        )
-        result = generate_queries._annotate_frame(
-            client,
-            marked,
-            previous=None,
-            retry_failed=False,
-            seen_queries={"The deer standing near the tree"},
-        )
-        self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["attempts"], 2)
-        self.assertEqual(result["query"], "The deer grazing on the grass near the tree")
-
-
 if __name__ == "__main__":
     unittest.main()
