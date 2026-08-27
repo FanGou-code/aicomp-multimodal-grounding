@@ -174,9 +174,20 @@ def resolve_image_path(raw_path: str, data_dir: Path) -> Path:
     return (data_dir / p).resolve()
 
 
-def load_scene_images(item: dict, data_dir: Path):
+import functools
+
+
+@functools.lru_cache(maxsize=32)
+def _cached_read_images(v_path: str, i_path: str, d_path: str):
     from PIL import Image
 
+    visible_img = Image.open(v_path).convert("RGB")
+    infrared_img = Image.open(i_path).convert("RGB")
+    depth_img = Image.open(d_path).convert("RGB")
+    return visible_img, infrared_img, depth_img
+
+
+def load_scene_images(item: dict, data_dir: Path):
     images_dict = item.get("images") if isinstance(item.get("images"), dict) else item
     v_raw = images_dict.get("visible")
     i_raw = images_dict.get("infrared")
@@ -196,10 +207,8 @@ def load_scene_images(item: dict, data_dir: Path):
     if not d_path.is_file():
         raise FileNotFoundError(f"Depth image not found: {d_path}")
 
-    visible_img = Image.open(v_path).convert("RGB")
-    infrared_img = Image.open(i_path).convert("RGB")
-    depth_img = Image.open(d_path).convert("RGB")
-    return visible_img, infrared_img, depth_img
+    v_img, i_img, d_img = _cached_read_images(str(v_path), str(i_path), str(d_path))
+    return v_img.copy(), i_img.copy(), d_img.copy()
 
 
 def _run_inference_loop(

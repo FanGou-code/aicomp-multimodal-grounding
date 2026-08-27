@@ -12,6 +12,8 @@ run a distinct identity.
 
 from __future__ import annotations
 
+from typing import Any
+
 from aicomp_grounding.models.qwen3vl import Qwen3VLAdapter
 
 MODEL_NAME = "Qwen/Qwen3-VL-32B-Instruct"
@@ -22,3 +24,9 @@ class Qwen3VL32Adapter(Qwen3VLAdapter):
     name = "qwen3vl32"
     model_name = MODEL_NAME
     model_revision = MODEL_REVISION
+
+    def training_hyperparameters(self) -> dict[str, Any]:
+        params = super().training_hyperparameters()
+        params["batch_size"] = 2
+        params["gradient_accumulation_steps"] = 8
+        return params
