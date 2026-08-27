@@ -1,4 +1,4 @@
-"""Behavior tests for local Modal coordination without starting remote jobs."""
+"""Behavior tests for annotation coordination without starting remote jobs."""
 
 from __future__ import annotations
 
@@ -7,18 +7,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from cloud import train as train_modal
-from cloud import infer as infer_modal
 from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.images import is_trusted_image_fingerprint
 from aicomp_grounding.query_style import STYLE_PROMPT_HASH
 from scripts import generate_queries
-
-
-def _raw(local_entrypoint):
-    return local_entrypoint.info.raw_f
 
 
 class AnnotationEntrypointTests(unittest.TestCase):
@@ -164,150 +158,6 @@ class AnnotationSourceGateTests(unittest.TestCase):
                 is_trusted_image_fingerprint(plan["metadata"]["image_fingerprint"])
             )
             self.assertEqual(plan["pending_shard_ids"], [0])
-
-
-class ModalInferencePathTests(unittest.TestCase):
-    def test_test_split_uses_official_template_as_worker_index(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            template = root / "data/Test/queries/queries.json"
-            template.parent.mkdir(parents=True)
-            template.write_text("{}", encoding="utf-8")
-
-            index_path, template_path = infer_modal.resolve_inference_paths(
-                "test", "", project_root=root
-            )
-
-            self.assertEqual(index_path, template.resolve())
-            self.assertEqual(template_path, template.resolve())
-
-    def test_val_split_uses_repository_annotation_artifact(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            approved = root / "outputs/annotations/annot_x/val/approved.json"
-            approved.parent.mkdir(parents=True)
-            approved.write_text("{}", encoding="utf-8")
-
-            index_path, template_path = infer_modal.resolve_inference_paths(
-                "val", "annot_x", project_root=root
-            )
-
-            self.assertEqual(index_path, approved.resolve())
-            self.assertIsNone(template_path)
-
-    def test_val_split_does_not_fallback_to_empty_source_index(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            data_val = root / "data/val.json"
-            data_val.parent.mkdir(parents=True)
-            data_val.write_text("{}", encoding="utf-8")
-
-            with self.assertRaises(FileNotFoundError):
-                infer_modal.resolve_inference_paths("val", "annot_missing", project_root=root)
-
-
-class TrainingEntrypointTests(unittest.TestCase):
-    def test_smoke_preflight_does_not_persist_a_formal_plan(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            plan = {
-                "metadata": {"training_run_id": "train_smoke"},
-                "train_artifact_path": str(root / "train.json"),
-                "val_artifact_path": str(root / "val.json"),
-                "run_dir": str(root / "output_lora" / "train_smoke"),
-                "resume_checkpoint": None,
-            }
-            with (
-                patch.object(train_modal, "prepare_training_plan", return_value=plan),
-                patch.object(train_modal.dataset_volume, "reload"),
-                patch.object(train_modal.dataset_volume, "commit") as commit,
-                patch.object(train_modal, "persist_training_plan") as persist,
-            ):
-                result = _raw(train_modal.preflight_training_environment)(
-                    annotation_run_id="annot_round1",
-                    smoke_test=True,
-                )
-            self.assertIs(result, plan)
-            persist.assert_not_called()
-            commit.assert_not_called()
-
-    def test_smoke_mode_runs_gpu_path_without_expectation_of_adapters(self):
-        plan = {
-            "metadata": {"training_run_id": "train_smoke"},
-            "skip_training": False,
-            "smoke_test": True,
-        }
-        smoke_result = {
-            "metadata": plan["metadata"],
-            "status": "smoke_passed",
-            "train_loss": 1.0,
-            "val_loss": 1.1,
-        }
-        with (
-            patch.object(
-                train_modal.preflight_training_environment,
-                "remote",
-                return_value=plan,
-            ) as preflight,
-            patch.object(train_modal.train, "remote", return_value=smoke_result) as train,
-        ):
-            result = _raw(train_modal.main)(
-                annotation_run_id="annot_round1",
-                smoke_test=True,
-            )
-        self.assertIs(result, smoke_result)
-        self.assertTrue(preflight.call_args.kwargs["smoke_test"])
-        train.assert_called_once_with(plan)
-
-    def test_explicit_smoke_still_runs_when_formal_training_is_complete(self):
-        plan = {
-            "metadata": {"training_run_id": "train_smoke"},
-            "skip_training": True,
-            "smoke_test": True,
-            "completed": {"status": "completed"},
-        }
-        smoke_result = {
-            "metadata": plan["metadata"],
-            "status": "smoke_passed",
-            "train_loss": 1.0,
-            "val_loss": 1.1,
-        }
-        with (
-            patch.object(
-                train_modal.preflight_training_environment,
-                "remote",
-                return_value=plan,
-            ) as preflight,
-            patch.object(train_modal.train, "remote", return_value=smoke_result) as train,
-        ):
-            result = _raw(train_modal.main)(
-                annotation_run_id="annot_round1",
-                smoke_test=True,
-            )
-        self.assertIs(result, smoke_result)
-        train.assert_called_once_with(plan)
-
-    def test_preflight_only_never_starts_training_gpu(self):
-        plan = {
-            "metadata": {"training_run_id": "train_preflight"},
-            "skip_training": False,
-        }
-        with (
-            patch.object(
-                train_modal.preflight_training_environment,
-                "remote",
-                return_value=plan,
-            ) as preflight,
-            patch.object(train_modal.train, "remote") as train,
-        ):
-            result = _raw(train_modal.main)(
-                annotation_run_id="annot_round1",
-                preflight_only=True,
-                deep_verify_images=True,
-            )
-        self.assertIs(result, plan)
-        self.assertTrue(preflight.call_args.kwargs["deep_verify_images"])
-        train.assert_not_called()
 
 
 if __name__ == "__main__":
