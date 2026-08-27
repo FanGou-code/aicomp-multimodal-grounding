@@ -5,6 +5,7 @@
 #   source offline/rocm_env.sh
 
 export TORCH_BLAS_PREFER_HIPBLASLT=1
-export PYTORCH_TUNABLE_OPS=1
-export PYTORCH_TUNABLE_OPS_TUNING_ITER=200
+export GPU_MAX_HW_QUEUES=2
 export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export PYTORCH_TUNABLE_OPS=0
