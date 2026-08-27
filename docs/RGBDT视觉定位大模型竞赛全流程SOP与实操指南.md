@@ -72,9 +72,6 @@ modelscope download --model Qwen/Qwen3-VL-32B-Instruct \
 
 modelscope download --model OpenGVLab/InternVL3_5-8B-HF \
   --local_dir "$MODEL_ROOT/OpenGVLab/InternVL3_5-8B-HF"
-
-modelscope download --model AI-ModelScope/GroundingDINO \
-  --local_dir "$MODEL_ROOT/AI-ModelScope/grounding-dino-base"
 ```
 
 下载前检查临时盘空间：
