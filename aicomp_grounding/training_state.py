@@ -287,7 +287,7 @@ def assert_single_cuda_device_map(device_map: dict | None) -> None:
     }
     if invalid:
         raise RuntimeError(
-            f"Model was offloaded outside the primary CUDA GPU: {sorted(invalid)}"
+            f"Model was offloaded outside the primary CUDA/HIP GPU: {sorted(invalid)}"
         )
 
 

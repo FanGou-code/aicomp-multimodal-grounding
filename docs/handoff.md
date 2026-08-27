@@ -38,16 +38,18 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-27，阶段一圆满完成，全面转向 Qwen3-VL-32B 训练）
+## 当前状态（最后更新 2026-08-28，ROCm/32B 训练稳定性收敛）
 
-### 当前专注：Qwen3-VL-32B 大模型微调（2026-08-27）
+### 当前专注：Qwen3-VL-32B 大模型微调（2026-08-28）
 - **决策**：停止 Qwen3-VL-8B 的迭代训练，集中算力与资源推进 Qwen3-VL-32B 旗舰模型训练。
 - **标注资产基准**：统一使用全新发布的自适应消歧标注 `annot_dc189f029d962b27`（Train 2,875 帧 + Val 719 帧）。
 - **32B 训练架构就绪**：
   - 适配器：`aicomp_grounding/models/qwen3vl32.py`（模型 `Qwen/Qwen3-VL-32B-Instruct`，Revision `0cfaf48183f5...`）；
-  - 显存与参数：单卡 H100 80GB / A100 80GB，`bfloat16` 精度，LoRA Rank 16 / Alpha 48，`batch_size=1`，`grad_accum=16`，支持梯度检查点；
+  - 显存与参数：AMD MI300X 192GB 实测，`bfloat16` 精度，LoRA Rank 16 / Alpha 48，`batch_size=1`，`grad_accum=16`，`eval_batch_size=1`，支持梯度检查点；
+  - 32B 稳定默认：训练 `num_workers=0`（避免 HIP fork），checkpoint 每 20 optimizer step 保存；
   - 训练 Plan 预检：已通过 `prepare_training_plan` 100% 验证通过。
-- **下一步**：启动 Qwen3-VL-32B LoRA 训练并监测 Loss 收敛。
+- **下一步**：DSW 拉取最新代码 → 32B full-run smoke → 启动 3 epoch 正式训练；同时把 DSW
+  `amdgpu 6.10.5 + ROCm 7.2.3` 驱动不匹配反馈给平台。
 
 ### 成绩一览
 
@@ -96,11 +98,15 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 ### 环境与运行边界（沿用）
 
 - 本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU 训练推理用 `offline/`。
-- 推理推荐单卡 `--num-shards 1 --num-workers 4`，VLM batch 16 / DINO 32，OOM 退 8/16。
+- 推理推荐单卡：Qwen 8B 等小模型 `--num-shards 1 --num-workers 4`；32B 满分辨率三图
+  推荐 `--num-shards 1 --batch-size 4 --num-workers 2`，显存接近 90% 退 batch 2。
 - 本仓库是唯一可移植实验单元；`cloud/`（Modal）账号恢复后才启用。
 - 断点续跑语义、run id 指纹连续性均未破坏；`tests/test_models.py` 钉死 Qwen identity。
 - 模型权重不落持久盘（100G 配额给 venv/代码/标注/断点/输出）；每次 GPU 启动从魔搭
   内网拉模型到临时工作区，`checkpoint`/标注/提交仍必须留 `/mnt/workspace`。
+- DSW 平台现状：`/opt/rocm 7.2.3` + torch `2.11.0+git` + HIP `7.2.53211`，但 amdgpu
+  内核驱动为 `6.10.5`，`rocm-smi` 读不出 GPU 名称（`get_name` libdrm 报错）；该问题
+  属于平台镜像/宿主机组合，等待平台提供匹配镜像。
 
 ## Iteration 02 改动明细（已落地 main，尚未训练）
 
@@ -145,6 +151,19 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-28（仓库，ROCm/32B 稳定性参数与运行时身份收敛）
+
+* `offline/train.py` 新增 `--num-workers`（默认 0）与 `--checkpoint-interval`（默认 20）；
+  `run_training` 支持非负 worker 与正 checkpoint interval。
+* 训练 DataLoader 默认不再在 32B 模型加载后 fork HIP worker；需要并发验证时显式开
+  worker 并先 smoke。
+* `config.py` 运行时版本改为动态：Python、torch、torchvision、HIP version 进入训练
+  metadata，避免 DSW 实际 torch 2.11 被记成旧 pin 的 2.13。
+* `rocm_env.sh` 注释与 README/SOP/offline README 同步：TunableOp 默认关闭，原因是
+  MI300X 上直接开启曾有内存泄漏/OOM 风险；不再描述已不存在的 allocator 配置。
+* 32B 推理推荐更新为满分辨率 `batch_size=4 / num_workers=2`，OOM 退 batch 2。
+* 全量单测 207 项通过（本地无 torch 跳过 4 项），`compileall` 与 `git diff --check` 通过。
 
 ### 2026-08-27（交接，取消 32B 推理计划并聚焦新标注生成）
 

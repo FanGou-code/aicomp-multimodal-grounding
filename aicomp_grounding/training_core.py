@@ -21,7 +21,7 @@ from pathlib import Path
 
 from aicomp_grounding.artifacts import require_exact_metadata
 from aicomp_grounding.bbox import compute_iou, validate_bbox
-from aicomp_grounding.config import MODAL_GPU_PACKAGES
+from aicomp_grounding.config import current_runtime_packages
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.images import (
     is_trusted_image_fingerprint,
@@ -238,7 +238,7 @@ def prepare_training_plan(
         raise ValueError(f"Unsupported training model: {model!r}")
     adapter = get_adapter(model, **adapter_kwargs)
     hyperparameters = adapter.training_hyperparameters()
-    hyperparameters["runtime_packages"] = list(MODAL_GPU_PACKAGES)
+    hyperparameters["runtime_packages"] = current_runtime_packages()
     root = Path(data_root).resolve()
     # Keep the historical Modal layout as the implicit default.  Portable
     # entrypoints pass the repository-level outputs/annotations explicitly so
@@ -450,6 +450,8 @@ def run_training(
     *,
     data_root: str | Path,
     commit_hook=None,
+    num_workers: int = 0,
+    checkpoint_interval: int = 20,
 ) -> dict:
     """Execute the LoRA training run described by ``training_plan``.
 
@@ -460,6 +462,11 @@ def run_training(
     import torch
     from peft import LoraConfig, PeftModel, get_peft_model
     from torch.utils.data import DataLoader, Dataset
+
+    if num_workers < 0:
+        raise ValueError("num_workers must be non-negative")
+    if checkpoint_interval <= 0:
+        raise ValueError("checkpoint_interval must be positive")
 
     data_root_path = Path(data_root).resolve()
 
@@ -537,7 +544,7 @@ def run_training(
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(random_seed)
     if not torch.cuda.is_available():
-        raise RuntimeError("LoRA training requires the requested CUDA GPU")
+        raise RuntimeError("LoRA training requires the requested CUDA/HIP GPU")
     if not torch.cuda.is_bf16_supported():
         raise RuntimeError("This training configuration requires CUDA bfloat16 support")
     device = torch.device("cuda:0")
@@ -615,9 +622,9 @@ def run_training(
             shuffle=True,
             generator=generator,
             collate_fn=collate_cpu,
-            num_workers=4,
-            pin_memory=True,
-            persistent_workers=True,
+            num_workers=num_workers,
+            pin_memory=num_workers > 0,
+            persistent_workers=num_workers > 0,
         )
 
     val_loader = DataLoader(
@@ -625,9 +632,9 @@ def run_training(
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_cpu,
-        num_workers=4,
-        pin_memory=True,
-        persistent_workers=True,
+        num_workers=num_workers,
+        pin_memory=num_workers > 0,
+        persistent_workers=num_workers > 0,
     )
     batches_per_epoch = math.ceil(len(train_dataset) / batch_size)
     steps_per_epoch = optimizer_steps_per_epoch(batches_per_epoch, grad_accum_steps)
@@ -773,7 +780,7 @@ def run_training(
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
-                if global_step % 50 == 0:
+                if global_step % checkpoint_interval == 0:
                     now_str = _log_now()
                     now_mono = time.monotonic()
                     elapsed_since_log = max(now_mono - last_log_time, 1e-4)

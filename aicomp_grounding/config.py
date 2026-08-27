@@ -7,6 +7,8 @@ constants.
 
 from __future__ import annotations
 
+import platform
+
 ANNOTATION_PROVIDER = "zhipu"
 ANNOTATION_MODEL_NAME = "glm-4.6v"
 ANNOTATION_MODEL_REVISION = "2025-12-08"
@@ -25,7 +27,7 @@ ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST = 1_800
 
 DATA_ROOT = "/data/data"
 INFERENCE_COMPUTE_DTYPE = "bfloat16"
-RUNTIME_PYTHON_VERSION = "3.12.13"
+RUNTIME_PYTHON_VERSION = platform.python_version()
 
 # Local development/validation dependencies are pinned in requirements-lock.txt.
 # MODAL_GPU_PACKAGES is the separate Modal GPU runtime package set.
@@ -38,6 +40,28 @@ MODAL_GPU_PACKAGES = (
     "torch==2.13.0",
     "torchvision==0.28.0",
 )
+
+
+def current_runtime_packages() -> list[str]:
+    """Return installed GPU package versions when available, pinned fallback otherwise."""
+    packages = list(MODAL_GPU_PACKAGES)
+    try:
+        import torch
+        import torchvision
+
+        replacements = {
+            "torch==": f"torch=={torch.__version__}",
+            "torchvision==": f"torchvision=={torchvision.__version__}",
+        }
+        packages = [
+            next((value for prefix, value in replacements.items() if pkg.startswith(prefix)), pkg)
+            for pkg in packages
+        ]
+        if torch.version.hip:
+            packages.append(f"hip=={torch.version.hip}")
+    except Exception:
+        pass
+    return packages
 
 CHECKPOINT_VERSION = 5
 ANNOTATION_PROTOCOL_VERSION = 12

@@ -1,6 +1,6 @@
 """Offline single-machine LoRA training shell around the shared training core.
 
-Runs the exact shared training pipeline on a local CUDA GPU. Practical uses:
+Runs the exact shared training pipeline on a local CUDA/HIP GPU. Practical uses:
 cheap QLoRA-style experiments on 24GB cards (with a reduced pixel budget),
 GroundingDINO-scale fine-tuning, or full runs on >=48GB local hardware.
 
@@ -70,6 +70,19 @@ def parse_args():
     parser.add_argument("--deep-verify-images", action="store_true")
     parser.add_argument("--use-all-data", action="store_true")
     parser.add_argument("--val-scenes", type=int, default=40)
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=0,
+        help="Training DataLoader worker processes. Default 0 avoids forking after "
+        "large model/CUDA-HIP context initialization; enable only after a smoke benchmark.",
+    )
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=20,
+        help="Save/log step checkpoint every N optimizer steps (default 20).",
+    )
     return parser.parse_args()
 
 
@@ -108,7 +121,12 @@ def main():
         print(f"Training run already completed: {plan['metadata']['training_run_id']}")
         return plan["completed"]
 
-    result = run_training(plan, data_root=data_root)
+    result = run_training(
+        plan,
+        data_root=data_root,
+        num_workers=args.num_workers,
+        checkpoint_interval=args.checkpoint_interval,
+    )
     if args.smoke_test:
         if result.get("status") != "smoke_passed":
             raise RuntimeError("Training smoke test did not return a passing result")

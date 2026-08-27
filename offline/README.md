@@ -35,6 +35,10 @@ python offline/train.py \
 单卡推理推荐用 DataLoader 预取（`--num-workers 4`），不要用
 `--num-shards >1` 在单卡上拉起多个模型副本：
 
+32B 满分辨率三图推荐先按
+`--num-shards 1 --batch-size 4 --num-workers 2` 冒烟；显存接近 90% 时退回
+`--batch-size 2 --num-workers 1`。
+
 ```bash
 python offline/infer.py \
   --model qwen3vl \
@@ -101,7 +105,8 @@ used when a platform starts the process from another working directory.
 
 云端 GPU 工作台通常已预装 torch / torchvision / pillow。应优先沿用平台 PyTorch，
 避免覆盖镜像自带版本；再按需补齐 VLM 适配层依赖。版本以
-`aicomp_grounding/config.py` 中的 `MODAL_GPU_PACKAGES` 为基准：
+`aicomp_grounding/config.py` 中的 `MODAL_GPU_PACKAGES` 为 pinned fallback，
+实际训练 metadata 会动态读取当前 torch / torchvision / HIP 版本：
 
 ```bash
 pip install transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 \
@@ -119,6 +124,11 @@ pip install transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 \
 ```bash
 source offline/rocm_env.sh
 ```
+
+TunableOp 默认关闭：当前 torch/ROCm 栈直接开启曾有 MI300X 显存泄漏/OOM 风险，
+如需回开必须先用持久结果文件做离线 tuning 并重新 benchmark。脚本没有配置
+allocator / expandable-segments；DSW 上宿主机 amdgpu 驱动 6.10.5 与用户态
+ROCm 7.2.3 不匹配时，优先反馈平台提供匹配镜像。
 
 也可以追加到持久虚拟环境的激活脚本，让 `source <venv>/bin/activate` 自动生效：
 

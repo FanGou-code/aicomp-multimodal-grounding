@@ -107,7 +107,7 @@ aicomp_grounding/
 offline/
   train.py              单机/离线训练入口（通用 training_core）
   infer.py              单机/离线推理与评估入口（--model 选适配器）
-  rocm_env.sh           AMD MI300X 环境脚本（hipBLASLt / tunable ops / allocator）
+  rocm_env.sh           AMD MI300X 环境脚本（hipBLASLt / hardware queue / TunableOp 策略）
 
 docs/
   architecture.md       仓库架构、adapter 约定与协作接入指南
@@ -348,7 +348,9 @@ python offline/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
   --model qwen3vl32 \
   --seed 42 \
-  --run-tag qwen32b-iter01
+  --run-tag qwen32b-iter01 \
+  --num-workers 0 \
+  --checkpoint-interval 20
 ```
 
 训练产物保存在：
@@ -392,8 +394,8 @@ python offline/infer.py \
   --lora-path outputs/output_lora/<QWEN32_RUN_ID>/best/epoch_03 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
   --num-shards 1 \
-  --num-workers 4 \
-  --batch-size 1 \
+  --num-workers 2 \
+  --batch-size 4 \
   --run-tag qwen32-infer
 
 # 2. Qwen3-VL-8B 推理

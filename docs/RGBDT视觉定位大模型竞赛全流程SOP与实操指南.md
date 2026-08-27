@@ -113,6 +113,8 @@ python offline/train.py \
   --model qwen3vl32 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
   --data-dir data \
+  --num-workers 0 \
+  --checkpoint-interval 20 \
   --smoke-test
 
 python offline/train.py \
@@ -120,7 +122,9 @@ python offline/train.py \
   --model qwen3vl32 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
   --data-dir data \
-  --run-tag exp-qwen32-01
+  --run-tag exp-qwen32-01 \
+  --num-workers 0 \
+  --checkpoint-interval 20
 ```
 
 ### InternVL3.5-8B
@@ -208,16 +212,16 @@ python offline/infer.py \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
-  --limit 100 --num-shards 1 --num-workers 4 \
-  --batch-size 2 --batch-save 100 --run-tag qwen32-zero-smoke
+  --limit 100 --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen32-zero-smoke
 
 python offline/infer.py \
   --model qwen3vl32 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
-  --num-shards 1 --num-workers 4 \
-  --batch-size 2 --batch-save 100 --run-tag qwen32-zero-full
+  --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen32-zero-full
 ```
 
 微调后：
@@ -229,8 +233,8 @@ python offline/infer.py \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
-  --limit 100 --num-shards 1 --num-workers 4 \
-  --batch-size 2 --batch-save 100 --run-tag qwen32-lora-smoke
+  --limit 100 --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen32-lora-smoke
 
 python offline/infer.py \
   --model qwen3vl32 \
@@ -238,8 +242,8 @@ python offline/infer.py \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
-  --num-shards 1 --num-workers 4 \
-  --batch-size 2 --batch-save 100 --run-tag qwen32-lora-full
+  --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen32-lora-full
 ```
 
 ### InternVL3.5-8B
