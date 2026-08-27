@@ -104,13 +104,9 @@ aicomp_grounding/
   test_data.py          官方 Test 模板与索引合同
   training_state.py     训练身份、调度与 checkpoint 校验
 
-cloud/
-  train.py              云端端（Modal）：H100 LoRA 3 轮训练入口
-  infer.py              云端端（Modal）：Batch-4 / 8 卡分片推理入口（--model 选适配器）
-
 offline/
-  train.py              离线端：单机训练入口（与云端共用 training_core）
-  infer.py              离线端：通用单 GPU 推理与评估入口（--model 选适配器）
+  train.py              单机/离线训练入口（通用 training_core）
+  infer.py              单机/离线推理与评估入口（--model 选适配器）
   rocm_env.sh           AMD MI300X 环境脚本（hipBLASLt / tunable ops / allocator）
 
 docs/
@@ -133,28 +129,23 @@ tests/                  离线单元测试与工作流契约测试
 
 - Linux bash/zsh（或兼容 Shell）
 - Python 3.12
-- 可访问的 Modal 账户（仅训练与云端推理需要）
+- NVIDIA CUDA 或 AMD ROCm GPU（训练与推理需要）
 - Zhipu AI API Key，仅用于训练 Query 生成
 - [RGBDT500](https://github.com/xuefeng-zhu5/RGBDT500) 数据集
 
-本地开发与 CPU 校验依赖由 `requirements-lock.txt` 固定。Modal GPU 运行时依赖由
-`aicomp_grounding/config.py` 中的 `MODAL_GPU_PACKAGES` 提供，并由 Modal 构建远端镜像。
+本地开发依赖由 `requirements-lock.txt` 固定：
 
 ```bash
 conda create -n qwen_vg python=3.12 -y
 conda activate qwen_vg
 python -m pip install -r requirements-lock.txt
-
-modal setup
-modal volume create rgbdt-dataset
-modal volume create hf-model-cache
 ```
 
-### 离线 GPU 环境
+### GPU 训练与推理环境
 
-离线推理可在预装 PyTorch 的 NVIDIA CUDA 或 AMD ROCm GPU 环境中执行。若平台镜像已提供
+训练与推理可在预装 PyTorch 的 NVIDIA CUDA 或 AMD ROCm GPU 环境中执行。若平台镜像已提供
 torch / torchvision / pillow，应优先沿用平台版本，避免覆盖镜像自带依赖；再按需补齐
-VLM 适配层依赖。版本以 `aicomp_grounding/config.py` 中的 `MODAL_GPU_PACKAGES` 为基准：
+VLM 适配层依赖：
 
 ```bash
 pip install transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 \
@@ -324,69 +315,46 @@ outputs/annotations/<ANNOTATION_RUN_ID>/<split>/
 
 默认开启 Resume。若存在失败项，保持原参数并增加 `--retry-failed --publish`，只重新请求失败帧。
 
-### 3. 上传到 Modal Volume
+### 3. LoRA 训练
 
-`rgbdt-dataset` 挂载到容器 `/data`，项目数据根目录固定为 `/data/data`。上传运行所需数据：
-
-```bash
-modal volume put --force rgbdt-dataset data/Train data/Train
-modal volume put --force rgbdt-dataset data/Test/Images data/Test/Images
-modal volume put --force rgbdt-dataset data/Test/queries/queries.json data/Test/queries/queries.json
-modal volume put --force rgbdt-dataset data/Processed/Train data/Processed/Train
-modal volume put --force rgbdt-dataset data/Processed/Test/depth_jet data/Processed/Test/depth_jet
-```
-
-`train.json`、`val.json`、`split_manifest.json` 与 `excluded_overlap.json` 不需要上传到
-Modal Volume；这些文件只在本地生成标注与审计时使用。
-
-上传 approved 标注：
+先运行 CPU Preflight，确认 approved 数据和模型配置可用：
 
 ```bash
-ANNOTATION_RUN_ID="annot_ac72f1d926bb2d23"
+ANNOTATION_RUN_ID="annot_dc189f029d962b27"
 
-modal volume put --force rgbdt-dataset \
-  "outputs/annotations/$ANNOTATION_RUN_ID" \
-  "data/outputs/annotations/$ANNOTATION_RUN_ID"
-```
-
-### 4. LoRA 训练
-
-先运行 CPU Preflight，确认 Volume、approved 数据和模型配置可用：
-
-```bash
-modal run cloud/train.py \
+python offline/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
-  --model qwen3vl \
+  --model qwen3vl32 \
   --seed 42 \
-  --run-tag exp-h100-final \
+  --run-tag qwen32b-iter01 \
   --preflight-only
 ```
 
 运行单 batch 前向和反向冒烟测试：
 
 ```bash
-modal run cloud/train.py \
+python offline/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
-  --model qwen3vl \
+  --model qwen3vl32 \
   --seed 42 \
-  --run-tag exp-h100-final \
+  --run-tag qwen32b-iter01 \
   --smoke-test
 ```
 
 启动完整 3 轮训练：
 
 ```bash
-modal run cloud/train.py \
+python offline/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
-  --model qwen3vl \
+  --model qwen3vl32 \
   --seed 42 \
-  --run-tag exp-h100-final
+  --run-tag qwen32b-iter01
 ```
 
-训练产物保存在 Modal Volume：
+训练产物保存在：
 
 ```text
-/data/data/output_lora/<TRAINING_RUN_ID>/
+outputs/output_lora/<TRAINING_RUN_ID>/
   plan.json
   checkpoints/epoch_01/
   checkpoints/epoch_02/
@@ -398,35 +366,37 @@ modal run cloud/train.py \
 
 训练支持按 batch 精确恢复（mid-epoch deterministic resume）。`best/` 对应全量验证集 `ACC@0.5` 最优（`val_loss` 平局辅助）的 Adapter。
 
-### 5. 推理与评估
+### 4. 推理与评估
 
-#### 5.1 Modal 云端流水线推理
-
-验证集评估（Val 评估）：
+#### 4.1 验证集评估（Val 评估）
 
 ```bash
-modal run cloud/infer.py \
-  --split val \
-  --annotation-run-id "$ANNOTATION_RUN_ID" \
-  --adapter-path "/data/data/output_lora/<TRAINING_RUN_ID>/best/epoch_03"
+python offline/infer.py \
+  --model qwen3vl32 \
+  --test-json data/val.json \
+  --data-dir data \
+  --lora-path outputs/output_lora/<TRAINING_RUN_ID>/best/epoch_03 \
+  --run-tag qwen32b-val-eval
 ```
 
-官方测试集推理与自动提交构建（支持 8 卡并行分片）：
+#### 4.2 官方测试集推理（单模型打榜）
+
+单卡推荐 `--num-shards 1` + `--num-workers 4`，DataLoader 会预取图像与 GPU 推理并行：
 
 ```bash
-modal run cloud/infer.py \
-  --split test \
-  --num-shards 8 \
-  --adapter-path "/data/data/output_lora/<TRAINING_RUN_ID>/best/epoch_03"
-```
+# 1. Qwen3-VL-32B 推理
+python offline/infer.py \
+  --model qwen3vl32 \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --lora-path outputs/output_lora/<QWEN32_RUN_ID>/best/epoch_03 \
+  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
+  --num-shards 1 \
+  --num-workers 4 \
+  --batch-size 1 \
+  --run-tag qwen32-infer
 
-#### 5.2 离线 / 魔搭 DSW 单机与多卡推理
-
-单卡 MI300X 推荐 `--num-shards 1` + `--num-workers 4`，DataLoader 会预取图像
-与 GPU 推理并行；单卡上不要用 `--num-shards >1`。
-
-```bash
-# 1. Qwen3-VL 推理
+# 2. Qwen3-VL-8B 推理
 python offline/infer.py \
   --model qwen3vl \
   --test-json data/Test/queries/queries.json \
@@ -438,7 +408,7 @@ python offline/infer.py \
   --batch-size 4 \
   --run-tag qwen-infer
 
-# 2. InternVL3.5 推理
+# 3. InternVL3.5 推理
 python offline/infer.py \
   --model internvl35 \
   --test-json data/Test/queries/queries.json \
@@ -450,7 +420,7 @@ python offline/infer.py \
   --batch-size 4 \
   --run-tag internvl-infer
 
-# 3. GroundingDINO 推理 (Zero-shot)
+# 4. GroundingDINO 推理 (Zero-shot)
 python offline/infer.py \
   --model groundingdino \
   --test-json data/Test/queries/queries.json \
@@ -460,21 +430,9 @@ python offline/infer.py \
   --num-workers 4 \
   --batch-size 8 \
   --run-tag dino-infer
-
-# 4. Qwen3-VL-32B 推理
-python offline/infer.py \
-  --model qwen3vl32 \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --lora-path outputs/output_lora/<QWEN32_RUN_ID>/best/epoch_03 \
-  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --num-shards 1 \
-  --num-workers 4 \
-  --batch-size 1 \
-  --run-tag qwen32-infer
 ```
 
-#### 5.3 多模型加权框融合 (WBF)
+#### 4.3 多模型加权框融合 (WBF)
 
 ```bash
 python -m aicomp_grounding.fusion.wbf \
@@ -485,7 +443,7 @@ python -m aicomp_grounding.fusion.wbf \
   --output-dir outputs/fusion
 ```
 
-### 6. 构建提交包
+### 5. 构建提交包
 
 若所有预测均有效，使用严格模式构建提交 ZIP：
 
@@ -516,10 +474,10 @@ python -m aicomp_grounding.submission \
 
 ## 运行产物与恢复
 
-| 阶段 | 本地或 Volume 路径 | 恢复单位 |
+| 阶段 | 存储路径 | 恢复单位 |
 | --- | --- | --- |
 | Query 生成 | `outputs/annotations/<id>/<split>/` | 场景/帧 |
-| LoRA 训练 | `outputs/output_lora/<id>/`（Modal 中为 `/data/data/output_lora/<id>/`） | Batch / Epoch |
+| LoRA 训练 | `outputs/output_lora/<id>/` | Batch / Epoch |
 | 推理 | `outputs/inference/<id>/` | 增量预测 checkpoint |
 | 提交 | `outputs/submission/<id>/` | 完整 ZIP |
 
@@ -533,23 +491,22 @@ Run ID 由数据、模型、Prompt、参数、seed 和 run-tag 共同确定。�
 python -m unittest discover -s tests -v
 ```
 
-测试覆盖数据准备、Test 模板合同、bbox、Query QC、API 请求、Resume/Retry、训练状态、推理分片、提交构建和 Modal 入口编排。
+测试覆盖数据准备、Test 模板合同、bbox、Query QC、API 请求、Resume/Retry、训练状态、推理分片和提交构建。
 
 可额外执行语法编译检查：
 
 ```bash
-python -m compileall aicomp_grounding scripts cloud offline
+python -m compileall aicomp_grounding scripts offline
 ```
 
 ## 模型与服务
 
 - Student models:
   - [Qwen3-VL-32B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-32B-Instruct)
-- [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
+  - [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
   - [InternVL3.5-8B](https://huggingface.co/OpenGVLab/InternVL3_5-8B-HF)
   - [GroundingDINO-B](https://huggingface.co/IDEA-Research/grounding-dino-base)
 - Query annotator: [GLM-4.6V](https://huggingface.co/zai-org/GLM-4.6V)
 - Annotation API: [Zhipu AI](https://open.bigmodel.cn/)
-- GPU runtime: [Modal](https://modal.com/)
 
 模型、数据集及第三方服务分别遵循其原始许可证和使用条款。本仓库不分发评估数据、模型权重或 API 凭据。
