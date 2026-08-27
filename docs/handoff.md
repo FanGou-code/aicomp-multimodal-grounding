@@ -47,9 +47,10 @@ GLM-4.6V API）。32B 模型推理计划已取消，不再安排 32B zero-shot �
 ## 当前状态（最后更新 2026-08-27，自适应消歧全量 Train+Val 标注满额发布）
 
 ### 当前完成：全量新标注生成与正式发布（2026-08-27）
-- **全量产物就绪**：
-  - Train 集：[`outputs/annotations/annot_36a6e2b155d24268/train/approved.json`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/outputs/annotations/annot_36a6e2b155d24268/train/approved.json)（2,875 样本，320 序列，100% 成功发布）；
-  - Val 集：[`outputs/annotations/annot_9ed60abb47fa5d76/val/approved.json`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/outputs/annotations/annot_9ed60abb47fa5d76/val/approved.json)（719 样本，80 序列，100% 成功发布）；
+- **全量产物就绪（统一规范归档）**：
+  - 统一 Run ID：`annot_dc189f029d962b27`
+  - Train 集：[`outputs/annotations/annot_dc189f029d962b27/train/approved.json`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/outputs/annotations/annot_dc189f029d962b27/train/approved.json)（2,875 样本，320 序列，100% 成功发布）；
+  - Val 集：[`outputs/annotations/annot_dc189f029d962b27/val/approved.json`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/outputs/annotations/annot_dc189f029d962b27/val/approved.json)（719 样本，80 序列，100% 成功发布）；
   - 全量总计 **3,594 样本（0 失败，0 异常）**。
 - **全量量化审计结论**：
   - **平均词长**：10.98 词（官方 Test 集为 10.33 词，完美贴合）；
@@ -238,8 +239,9 @@ GLM-4.6V API）。32B 模型推理计划已取消，不再安排 32B zero-shot �
 ### 2026-08-27（仓库，自适应视觉消歧标注全量 Train+Val 满额发布）
 
 * **全量数据满额发布**：
-  - Train 集：`outputs/annotations/annot_36a6e2b155d24268/train/approved.json`（2,875 样本，320 序列，100% 成功发布）；
-  - Val 集：`outputs/annotations/annot_9ed60abb47fa5d76/val/approved.json`（719 样本，80 序列，100% 成功发布）；
+  - 统一 Run ID：`annot_dc189f029d962b27`
+  - Train 集：`outputs/annotations/annot_dc189f029d962b27/train/approved.json`（2,875 样本，320 序列，100% 成功发布）；
+  - Val 集：`outputs/annotations/annot_dc189f029d962b27/val/approved.json`（719 样本，80 序列，100% 成功发布）；
   - 全量总计 3,594 样本（0 失败，0 不确定，0 丢失）。
 * **全量量化审计结果**：
   - 均值词长 10.98 词，词长中位数 10 词（官方 Test 集为 10.33/9 词，高度贴合）；
