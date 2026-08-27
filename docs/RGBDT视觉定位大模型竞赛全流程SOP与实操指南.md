@@ -91,14 +91,14 @@ df -h /root
 
 ```bash
 python offline/train.py \
-  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --annotation-run-id annot_dc189f029d962b27 \
   --model qwen3vl \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
   --smoke-test
 
 python offline/train.py \
-  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --annotation-run-id annot_dc189f029d962b27 \
   --model qwen3vl \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
@@ -109,14 +109,14 @@ python offline/train.py \
 
 ```bash
 python offline/train.py \
-  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --annotation-run-id annot_dc189f029d962b27 \
   --model qwen3vl32 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
   --data-dir data \
   --smoke-test
 
 python offline/train.py \
-  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --annotation-run-id annot_dc189f029d962b27 \
   --model qwen3vl32 \
   --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
   --data-dir data \
@@ -127,14 +127,14 @@ python offline/train.py \
 
 ```bash
 python offline/train.py \
-  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --annotation-run-id annot_dc189f029d962b27 \
   --model internvl35 \
   --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
   --data-dir data \
   --smoke-test
 
 python offline/train.py \
-  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --annotation-run-id annot_dc189f029d962b27 \
   --model internvl35 \
   --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
   --data-dir data \
