@@ -156,29 +156,9 @@ python offline/train.py \
 --num-workers 4
 ```
 
-每个模型按两类执行：零样本（不带 LoRA）和微调后（带 LoRA）。每类先 smoke，再全量。
+每个模型按微调后（带 LoRA）执行。每类先 smoke，再全量。
 
 ### Qwen3-VL-8B
-
-零样本：
-
-```bash
-python offline/infer.py \
-  --model qwen3vl \
-  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --limit 100 --num-shards 1 --num-workers 4 \
-  --batch-size 16 --batch-save 100 --run-tag qwen8-zero-smoke
-
-python offline/infer.py \
-  --model qwen3vl \
-  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --num-shards 1 --num-workers 4 \
-  --batch-size 16 --batch-save 100 --run-tag qwen8-zero-full
-```
 
 微调后：
 
@@ -204,26 +184,6 @@ python offline/infer.py \
 
 ### Qwen3-VL-32B
 
-零样本：
-
-```bash
-python offline/infer.py \
-  --model qwen3vl32 \
-  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag qwen32-zero-smoke
-
-python offline/infer.py \
-  --model qwen3vl32 \
-  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag qwen32-zero-full
-```
-
 微调后：
 
 ```bash
@@ -248,26 +208,6 @@ python offline/infer.py \
 
 ### InternVL3.5-8B
 
-零样本：
-
-```bash
-python offline/infer.py \
-  --model internvl35 \
-  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --limit 100 --num-shards 1 --num-workers 4 \
-  --batch-size 16 --batch-save 100 --run-tag internvl-zero-smoke
-
-python offline/infer.py \
-  --model internvl35 \
-  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --num-shards 1 --num-workers 4 \
-  --batch-size 16 --batch-save 100 --run-tag internvl-zero-full
-```
-
 微调后：
 
 ```bash
@@ -288,28 +228,6 @@ python offline/infer.py \
   --data-dir data \
   --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag internvl-lora-full
-```
-
-### GroundingDINO-B
-
-GroundingDINO-B 仅做零样本：
-
-```bash
-python offline/infer.py \
-  --model groundingdino \
-  --model-path /root/models/AI-ModelScope/grounding-dino-base \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --limit 100 --num-shards 1 --num-workers 4 \
-  --batch-size 32 --batch-save 100 --run-tag dino-zero-smoke
-
-python offline/infer.py \
-  --model groundingdino \
-  --model-path /root/models/AI-ModelScope/grounding-dino-base \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --num-shards 1 --num-workers 4 \
-  --batch-size 32 --batch-save 100 --run-tag dino-zero-full
 ```
 
 ## 6. 提交包
