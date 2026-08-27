@@ -69,7 +69,7 @@ Analyze the scene and return JSON:
   "visible_attributes": "salient color, clothing, or material (e.g. white, checkered shirt, metal)",
   "action_or_state": "participle action, state, or posture (e.g. sitting, mounted on stone pillar, parked)",
   "spatial_landmark": "immediate adjacent landmark or region (e.g. beside the lamp, in the foreground, below awning; or null)",
-  "disambiguation_cue": "ordinal or extreme position ONLY when multiple same-category objects exist (e.g. leftmost, second from left, closest to camera; or null if unique)",
+  "disambiguation_cue": "natural positional/ordinal cue when multiple same-category objects exist (e.g. first, second, third, leftmost, rightmost, middle, closest, nearest, farthest, on the left/right, to the right/left of [landmark]; or null if unique)",
   "final_query": "natural compact English noun phrase of 6-20 words combining the non-null elements"
 }
 
@@ -80,7 +80,7 @@ Query rules:
 - Categories: Use specific basic-level categories; only fallback to broad terms ('animal', 'vehicle', 'object') if the target is genuinely too distant or blurry to identify.
 - Dual-track disambiguation:
   * Single target in scene: set disambiguation_cue to null; describe target with its intrinsic attributes, action, and physical location.
-  * Multiple same-category objects in scene: you MUST provide a natural disambiguation_cue (e.g., 'the leftmost', 'second from the left', 'closest to the camera', 'to the right of [landmark]') to uniquely distinguish it.
+  * Multiple same-category objects in scene: you MUST provide a natural disambiguation_cue (e.g., 'the first / second / third', 'leftmost / rightmost', 'middle', 'closest to camera', 'to the right / left of [landmark]') to uniquely distinguish it.
 - Perspective: Express 'left', 'right', 'top', and 'bottom' strictly from the viewer's 2D perspective of the image.
 Output JSON only."""
 
