@@ -29,37 +29,25 @@
 `docs/architecture.md`（结构不变量）→ 根 `README.md`（用法）→ 就近 README；
 GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.md` 为准。
 
-**当前阶段与下一步**：当前专注阶段一「新标注生成与数据扩展」（零 GPU，只花
-GLM-4.6V API）。32B 模型推理计划已取消，不再安排 32B zero-shot 全量推理、冒烟
-或打榜；`qwen3vl32` 适配器代码保留，训练是否启动待新标注完成后再评估。
-新标注链路为：场景卡 → style plan / expanded data root → 10 序列 pilot →
-风格审计 → 全量 Train/Val 重生成与 approved 发布。反向闭环验证（`_verify_query`）模块已移除：
-场景卡与风格规划已在规划层消除二义性，移除反向验证避免了微小目标误杀（False Rejection）
-并减少 50% API 耗时与 Token 消耗。新风格计划链路已接入：
-预定义句式族 → 400 序列场景卡 → 确定性 style plan → 扩展样本 ID →
-分组提示词生成，旧自由生成模式已移除。API 调用与全量生成由用户亲自执行。
-详见下方「当前状态」。
+**当前阶段与下一步**：阶段一「自适应视觉消歧新标注生产」已 100% 满额发布
+（统一资产目录 `annot_dc189f029d962b27`，共 3,594 帧）。
+当前正式进入阶段二：**全面停止 Qwen3-VL-8B 训练，全力转向 Qwen3-VL-32B 大模型训练**。
+执行路线为：准备 32B 基座模型缓存 → 预检 32B 训练 Plan → 执行 Qwen3-VL-32B LoRA 训练（3 epochs / bfloat16）→ 测试集推理与打榜。
 
 **运行边界**：本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-27，自适应消歧全量 Train+Val 标注满额发布）
+## 当前状态（最后更新 2026-08-27，阶段一圆满完成，全面转向 Qwen3-VL-32B 训练）
 
-### 当前完成：全量新标注生成与正式发布（2026-08-27）
-- **全量产物就绪（统一规范归档）**：
-  - 统一 Run ID：`annot_dc189f029d962b27`
-  - Train 集：[`outputs/annotations/annot_dc189f029d962b27/train/approved.json`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/outputs/annotations/annot_dc189f029d962b27/train/approved.json)（2,875 样本，320 序列，100% 成功发布）；
-  - Val 集：[`outputs/annotations/annot_dc189f029d962b27/val/approved.json`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/outputs/annotations/annot_dc189f029d962b27/val/approved.json)（719 样本，80 序列，100% 成功发布）；
-  - 全量总计 **3,594 样本（0 失败，0 异常）**。
-- **全量量化审计结论**：
-  - **平均词长**：10.98 词（官方 Test 集为 10.33 词，完美贴合）；
-  - **词长中位数**：10 词（官方 Test 集为 9 词，完全重合）；
-  - **序数消歧占比**：22.1%（成功恢复至 20%~30% 黄金消歧区间）；
-  - **空间地标占比**：35.9%（官方 Test 为 34.0%，空间锚定充沛）；
-  - **纯属性与动作**：30.1%（彻底消灭旧基线的 65.9% 偷懒短标签）；
-  - **格式与语法纯净度**：0 句号残留，0 定语从句冗余，0 标注框伪影泄露。
-- **下一步**：启动基于全新高质量标注的 Qwen3-VL-8B LoRA 重训（Iteration 03）验证提分效果。
+### 当前专注：Qwen3-VL-32B 大模型微调（2026-08-27）
+- **决策**：停止 Qwen3-VL-8B 的迭代训练，集中算力与资源推进 Qwen3-VL-32B 旗舰模型训练。
+- **标注资产基准**：统一使用全新发布的自适应消歧标注 `annot_dc189f029d962b27`（Train 2,875 帧 + Val 719 帧）。
+- **32B 训练架构就绪**：
+  - 适配器：`aicomp_grounding/models/qwen3vl32.py`（模型 `Qwen/Qwen3-VL-32B-Instruct`，Revision `0cfaf48183f5...`）；
+  - 显存与参数：单卡 H100 80GB / A100 80GB，`bfloat16` 精度，LoRA Rank 16 / Alpha 48，`batch_size=1`，`grad_accum=16`，支持梯度检查点；
+  - 训练 Plan 预检：已通过 `prepare_training_plan` 100% 验证通过。
+- **下一步**：启动 Qwen3-VL-32B LoRA 训练并监测 Loss 收敛。
 
 ### 成绩一览
 
