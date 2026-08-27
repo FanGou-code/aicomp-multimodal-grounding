@@ -2,9 +2,11 @@
 
 Same ``Qwen3VLForConditionalGeneration`` class, processor, grounding prompt
 protocol, 0-1000 box parsing, and LoRA target modules as the 8B reference
-adapter (``qwen3vl``). Only the model identity differs, so this subclasses the
+adapter (``qwen3vl``). The model identity differs, so this subclasses the
 reference and overrides ``name`` / ``model_name`` / ``model_revision``; the
-load / predict / training paths are inherited unchanged.
+load / predict paths are inherited unchanged. Training uses the same effective
+batch size as the 8B reference, but keeps batch/eval memory conservative for
+the larger dense model.
 
 This keeps the historical 8B fingerprints byte-identical while giving the 32B
 run a distinct identity.
@@ -27,6 +29,7 @@ class Qwen3VL32Adapter(Qwen3VLAdapter):
 
     def training_hyperparameters(self) -> dict[str, Any]:
         params = super().training_hyperparameters()
-        params["batch_size"] = 2
-        params["gradient_accumulation_steps"] = 8
+        params["batch_size"] = 1
+        params["gradient_accumulation_steps"] = 16
+        params["eval_batch_size"] = 1
         return params

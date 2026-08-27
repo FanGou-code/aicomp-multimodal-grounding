@@ -107,6 +107,12 @@ class TrainableAdapterContractTests(unittest.TestCase):
             self.assertEqual(hyperparameters["lora_alpha"], 48)
             self.assertIn("q_proj", adapter.lora_target_modules())
 
+    def test_qwen32_training_uses_conservative_memory_budget(self):
+        hyperparameters = get_adapter("qwen3vl32").training_hyperparameters()
+        self.assertEqual(hyperparameters["batch_size"], 1)
+        self.assertEqual(hyperparameters["gradient_accumulation_steps"], 16)
+        self.assertEqual(hyperparameters["eval_batch_size"], 1)
+
 
 class InternVLContractTests(unittest.TestCase):
     def test_question_has_numbered_image_slots_and_official_prompt(self):
