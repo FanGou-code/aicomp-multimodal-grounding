@@ -31,13 +31,9 @@ python offline/train.py \
 `outputs/output_lora/<training_run_id>/`。如平台将输出挂载到其他目录，可通过
 `--output-root` 指定新的仓库级输出根。
 
-直接调推理本体（`--model` 选适配器：qwen3vl / qwen3vl32 / internvl35 / groundingdino / mock）：
+直接调推理本体（`--model` 选适配器：qwen3vl / internvl35 / groundingdino / mock）：
 单卡推理推荐用 DataLoader 预取（`--num-workers 4`），不要用
 `--num-shards >1` 在单卡上拉起多个模型副本：
-
-32B 满分辨率三图推荐先按
-`--num-shards 1 --batch-size 4 --num-workers 2` 冒烟；显存接近 90% 时退回
-`--batch-size 2 --num-workers 1`。
 
 ```bash
 python offline/infer.py \
@@ -96,7 +92,7 @@ used when a platform starts the process from another working directory.
 | `data/Test` 测试集 | 含在 43G 内 | 同上 |
 | `data/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成（确定性输出） |
 | `data/train.json`、`data/val.json`、`data/split_manifest.json`、`data/excluded_overlap.json` | KB 级 | 仅本地预处理/审计使用，云端不需要；官方 `Test/queries/queries.json` 随 `data/Test` 提供 |
-| 基础模型权重 | Qwen-8B 17G / **Qwen-32B ~66G** / InternVL 17G / DINO 0.7G | 全部下载到 `/root/models`（非持久），每次开机重新拉取 |
+| 基础模型权重 | Qwen-8B 17G / InternVL 17G / DINO 0.7G | 全部下载到 `/root/models`（非持久），每次开机重新拉取 |
 
 **不需要**：LoRA 权重（融合只交换各自 predictions.json）、Zhipu API Key
 （标注已随仓库分发，仅重新生成标注时才需要）、Modal 凭据。

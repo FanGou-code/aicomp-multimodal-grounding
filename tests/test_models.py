@@ -27,10 +27,6 @@ from aicomp_grounding.models.qwen3vl import (
     MODEL_NAME,
     MODEL_REVISION,
 )
-from aicomp_grounding.models.qwen3vl32 import (
-    MODEL_NAME as QWEN32B_MODEL_NAME,
-    MODEL_REVISION as QWEN32B_MODEL_REVISION,
-)
 from aicomp_grounding.prompts import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
 from aicomp_grounding.submission import build_submission
 
@@ -39,7 +35,7 @@ class RegistryTests(unittest.TestCase):
     def test_registry_exposes_expected_models(self):
         self.assertEqual(
             available_models(),
-            ["groundingdino", "internvl35", "mock", "qwen3vl", "qwen3vl32"],
+            ["groundingdino", "internvl35", "mock", "qwen3vl"],
         )
 
     def test_unknown_model_raises_with_valid_options(self):
@@ -81,37 +77,14 @@ class QwenIdentityContinuityTests(unittest.TestCase):
         )
 
 
-class Qwen32BIdentityTests(unittest.TestCase):
-    """Pin the 32B adapter identity: same family, distinct fingerprint."""
-
-    def test_model_constants_match_second_generation(self):
-        self.assertEqual(QWEN32B_MODEL_NAME, "Qwen/Qwen3-VL-32B-Instruct")
-        self.assertEqual(
-            QWEN32B_MODEL_REVISION, "0cfaf48183f594c314753d30a4c4974bc75f3ccb"
-        )
-
-    def test_identity_is_distinct_from_8b_but_same_prompt(self):
-        identity_8b = get_adapter("qwen3vl").identity()
-        identity_32b = get_adapter("qwen3vl32").identity()
-        self.assertNotEqual(identity_8b["model_name"], identity_32b["model_name"])
-        self.assertNotEqual(identity_8b["model_revision"], identity_32b["model_revision"])
-        self.assertEqual(identity_8b["prompt_hash"], identity_32b["prompt_hash"])
-
-
 class TrainableAdapterContractTests(unittest.TestCase):
     def test_vlm_adapters_expose_training_contract(self):
-        for name in ("qwen3vl", "qwen3vl32", "internvl35"):
+        for name in ("qwen3vl", "internvl35"):
             adapter = get_adapter(name)
             hyperparameters = adapter.training_hyperparameters()
             self.assertEqual(hyperparameters["lora_rank"], 16)
             self.assertEqual(hyperparameters["lora_alpha"], 48)
             self.assertIn("q_proj", adapter.lora_target_modules())
-
-    def test_qwen32_training_uses_conservative_memory_budget(self):
-        hyperparameters = get_adapter("qwen3vl32").training_hyperparameters()
-        self.assertEqual(hyperparameters["batch_size"], 1)
-        self.assertEqual(hyperparameters["gradient_accumulation_steps"], 16)
-        self.assertEqual(hyperparameters["eval_batch_size"], 1)
 
 
 class InternVLContractTests(unittest.TestCase):

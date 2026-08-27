@@ -230,7 +230,7 @@ def prepare_training_plan(
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id or ""):
         raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
     adapter_kwargs = {}
-    if model in ("qwen3vl", "qwen3vl32"):
+    if model == "qwen3vl":
         pass
     elif model == "internvl35":
         adapter_kwargs["max_num_tiles"] = 12
@@ -487,7 +487,7 @@ def run_training(
     eval_batch_size = hyperparameters["eval_batch_size"]
     best_metric_name = hyperparameters["best_epoch_primary_metric"]
 
-    if model_name in ("qwen3vl", "qwen3vl32"):
+    if model_name == "qwen3vl":
         adapter = get_adapter(
             model_name,
             max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
@@ -554,7 +554,6 @@ def run_training(
     if model_path is None:
         rel_subpath = {
             "qwen3vl": "Qwen/Qwen3-VL-8B-Instruct",
-            "qwen3vl32": "Qwen/Qwen3-VL-32B-Instruct",
             "internvl35": "OpenGVLab/InternVL3_5-8B-HF",
         }[model_name]
         for candidate in [

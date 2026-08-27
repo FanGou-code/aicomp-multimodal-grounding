@@ -416,7 +416,7 @@ def _run_shard_worker(
     args_dict, items, shard_id, checkpoint_dir, shard_metadata = payload
     args = argparse.Namespace(**args_dict)
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3vl32"):
+    if args.model == "qwen3vl":
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
     adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
@@ -479,7 +479,7 @@ def main():
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
 
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3vl32"):
+    if args.model == "qwen3vl":
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
 

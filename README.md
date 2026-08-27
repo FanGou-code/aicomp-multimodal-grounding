@@ -1,10 +1,10 @@
 # RGBDT Multimodal Visual Grounding
 
 基于统一 adapter 接口的 RGB、红外与深度视觉定位项目。当前模型层支持
-`Qwen3-VL-8B-Instruct`、`Qwen3-VL-32B-Instruct`、`InternVL3.5-8B`、`GroundingDINO-B`
+`Qwen3-VL-8B-Instruct`、`InternVL3.5-8B`、`GroundingDINO-B`
 与用于本地端到端测试的 mock 模型；推理入口通过 `--model` 选择 adapter，输出统一为
 归一化边界框，最终可由 WBF 多模型加权框融合生成结果包。训练入口通过 `--model`
-支持 `qwen3vl`、`qwen3vl32` 与 `internvl35`。
+支持 `qwen3vl` 与 `internvl35`。
 
 给定一组对齐的 RGB、Infrared、Depth 图像和英文 Query，模型输出目标的归一化边界框：
 
@@ -33,7 +33,6 @@ flowchart LR
 
 | Adapter | 基座模型 | Revision | 输入模态 | 任务支持 | 核心视觉 / 微调配置 |
 | --- | --- | --- | --- | --- | --- |
-| `qwen3vl32` | `Qwen/Qwen3-VL-32B-Instruct` | `0cfaf481` | RGB + Infrared + Depth + Query | 训练 / 推理 | 同 8B：原图 1080p 无损像素预算 (`3072*28*28`)，LoRA (r=16, α=48)，BF16 (SDPA)；权重不落持久盘 |
 | `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | `0c351dd` | RGB + Infrared + Depth + Query | 训练 / 推理 | 原图 1080p 无损像素预算 (`3072*28*28`)，LoRA (r=16, α=48)，BF16 (SDPA) |
 | `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | `741a7d0` | RGB + Infrared + Depth + Query | 训练 / 推理 | 动态切块 (`max_num_tiles=12`)，LoRA (r=16, α=48)，BF16 (SDPA) |
 | `groundingdino` | `IDEA-Research/grounding-dino-base` | `12bdfa3` | RGB + Query | 推理 (Zero-shot) | 原生判别式检测器，输出置信度得分供 WBF 融合 |
@@ -324,9 +323,9 @@ ANNOTATION_RUN_ID="annot_dc189f029d962b27"
 
 python offline/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
-  --model qwen3vl32 \
+  --model qwen3vl \
   --seed 42 \
-  --run-tag qwen32b-iter01 \
+  --run-tag exp-qwen8-retrain \
   --preflight-only
 ```
 
@@ -335,9 +334,9 @@ python offline/train.py \
 ```bash
 python offline/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
-  --model qwen3vl32 \
+  --model qwen3vl \
   --seed 42 \
-  --run-tag qwen32b-iter01 \
+  --run-tag exp-qwen8-retrain \
   --smoke-test
 ```
 
@@ -346,10 +345,10 @@ python offline/train.py \
 ```bash
 python offline/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
-  --model qwen3vl32 \
+  --model qwen3vl \
   --seed 42 \
-  --run-tag qwen32b-iter01 \
-  --num-workers 0 \
+  --run-tag exp-qwen8-retrain \
+  --num-workers 4 \
   --checkpoint-interval 20
 ```
 
@@ -374,11 +373,11 @@ outputs/output_lora/<TRAINING_RUN_ID>/
 
 ```bash
 python offline/infer.py \
-  --model qwen3vl32 \
+  --model qwen3vl \
   --test-json data/val.json \
   --data-dir data \
   --lora-path outputs/output_lora/<TRAINING_RUN_ID>/best/epoch_03 \
-  --run-tag qwen32b-val-eval
+  --run-tag qwen8-val-eval
 ```
 
 #### 4.2 官方测试集推理（单模型打榜）
@@ -386,19 +385,7 @@ python offline/infer.py \
 单卡推荐 `--num-shards 1` + `--num-workers 4`，DataLoader 会预取图像与 GPU 推理并行：
 
 ```bash
-# 1. Qwen3-VL-32B 推理
-python offline/infer.py \
-  --model qwen3vl32 \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --lora-path outputs/output_lora/<QWEN32_RUN_ID>/best/epoch_03 \
-  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --num-shards 1 \
-  --num-workers 2 \
-  --batch-size 4 \
-  --run-tag qwen32-infer
-
-# 2. Qwen3-VL-8B 推理
+# 1. Qwen3-VL-8B 推理
 python offline/infer.py \
   --model qwen3vl \
   --test-json data/Test/queries/queries.json \
@@ -410,7 +397,7 @@ python offline/infer.py \
   --batch-size 4 \
   --run-tag qwen-infer
 
-# 3. InternVL3.5 推理
+# 2. InternVL3.5 推理
 python offline/infer.py \
   --model internvl35 \
   --test-json data/Test/queries/queries.json \
@@ -422,7 +409,7 @@ python offline/infer.py \
   --batch-size 4 \
   --run-tag internvl-infer
 
-# 4. GroundingDINO 推理 (Zero-shot)
+# 3. GroundingDINO 推理 (Zero-shot)
 python offline/infer.py \
   --model groundingdino \
   --test-json data/Test/queries/queries.json \
@@ -504,7 +491,6 @@ python -m compileall aicomp_grounding scripts offline
 ## 模型与服务
 
 - Student models:
-  - [Qwen3-VL-32B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-32B-Instruct)
   - [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
   - [InternVL3.5-8B](https://huggingface.co/OpenGVLab/InternVL3_5-8B-HF)
   - [GroundingDINO-B](https://huggingface.co/IDEA-Research/grounding-dino-base)

@@ -13,7 +13,7 @@
 
 **成绩**：Qwen3-VL-8B LoRA 基线 Test **0.7439**、Iteration 02 **0.7322**、
 双模型 WBF **0.7453**（当前最佳）。瓶颈已定位为**旧标注 Query 风格与官方测试集漂移**
-（数据天花板而非模型天花板），执行路线为：标注对齐+数据扩展 → 32B 训练 → 后期 WBF。
+（数据天花板而非模型天花板），执行路线为：标注对齐+数据扩展 → 8B 新标注重训 → 后期 WBF。
 
 **结构**：
 
@@ -31,25 +31,20 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 **当前阶段与下一步**：阶段一「自适应视觉消歧新标注生产」已 100% 满额发布
 （统一资产目录 `annot_dc189f029d962b27`，共 3,594 帧）。
-当前正式进入阶段二：**全面停止 Qwen3-VL-8B 训练，全力转向 Qwen3-VL-32B 大模型训练**。
-执行路线为：准备 32B 基座模型缓存 → 预检 32B 训练 Plan → 执行 Qwen3-VL-32B LoRA 训练（3 epochs / bfloat16）→ 测试集推理与打榜。
+当前正式进入 **Qwen3-VL-8B 新标注重训 + 打榜**阶段。
+执行路线为：Qwen3-VL-8B LoRA 训练（3 epochs / bfloat16）→ 测试集推理与打榜；32B 路线已全面移除。
 
 **运行边界**：本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-28，ROCm/32B 训练稳定性收敛）
+## 当前状态（最后更新 2026-08-28，8B 新标注重训与打榜）
 
-### 当前专注：Qwen3-VL-32B 大模型微调（2026-08-28）
-- **决策**：停止 Qwen3-VL-8B 的迭代训练，集中算力与资源推进 Qwen3-VL-32B 旗舰模型训练。
+### 当前专注：Qwen3-VL-8B 大模型微调（2026-08-28）
+- **决策**：移除 `qwen3vl32` 适配器与 32B 相关文档，集中算力跑 Qwen3-VL-8B 新标注训练。
 - **标注资产基准**：统一使用全新发布的自适应消歧标注 `annot_dc189f029d962b27`（Train 2,875 帧 + Val 719 帧）。
-- **32B 训练架构就绪**：
-  - 适配器：`aicomp_grounding/models/qwen3vl32.py`（模型 `Qwen/Qwen3-VL-32B-Instruct`，Revision `0cfaf48183f5...`）；
-  - 显存与参数：AMD MI300X 192GB 实测，`bfloat16` 精度，LoRA Rank 16 / Alpha 48，`batch_size=1`，`grad_accum=16`，`eval_batch_size=1`，支持梯度检查点；
-  - 32B 稳定默认：训练 `num_workers=0`（避免 HIP fork），checkpoint 每 20 optimizer step 保存；
-  - 训练 Plan 预检：已通过 `prepare_training_plan` 100% 验证通过。
-- **下一步**：DSW 拉取最新代码 → 32B full-run smoke → 启动 3 epoch 正式训练；同时把 DSW
-  `amdgpu 6.10.5 + ROCm 7.2.3` 驱动不匹配反馈给平台。
+- **8B 训练参数**：`batch_size=1`，`grad_accum=16`，LoRA Rank 16 / Alpha 48，`num_workers=4`，checkpoint 每 20 optimizer step 保存。
+- **下一步**：8B full-run smoke → 3 epoch 正式训练 → Val/Test 推理与提交。
 
 ### 成绩一览
 
@@ -59,7 +54,7 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 | **Iteration 02**（α48/3ep/min_lr，同标注） | Test **0.7322** |
 | **双模型 WBF**（基线+Iter02 融合） | Test **0.7453** ← 当前最佳 |
 
-**总路线**：标注重构+质量对齐 → 32B 训练 → 后期融合（WBF 与 DINO 替换均属后期）
+**总路线**：标注重构+质量对齐 → 8B 重训 → 后期融合（WBF 与 DINO 替换均属后期）
 
 **阶段一：高质量自适应消歧标注生成（共享地基，零 GPU，只花 GLM-4.6V API）**
 - 风格对齐：32 序列等距抽样 pilot → `audit_query_style.py` 审计 → 人工抽检 → 全量重生成 Train/Val →
@@ -67,30 +62,14 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 - 帧扩展：GT 插值把每序列 10 帧扩到数百帧（gap ≤15 帧）。
 - 序列全量：500 序列（现 400）+ SHA-256 同源审计。
 
-**阶段二：二代目选型（32B 推理计划取消；训练待新标注后评估）**
-- **代码侧已落地**（`feat/qwen32b` 分支，commit `5dcd791`）：新增 `qwen3vl32`
-  薄适配器（同 family，`qwen3_vl` / `Qwen3VLForConditionalGeneration`），纯兼容
-  接入，旧适配器未动、8B 指纹零漂移（详见交接日志 2026-08-23）。
-- **范围决策**：当前只新增 32B 一个二代目；InternVL3-38B 与 GroundingDINO 1.5
-  替换**暂缓**（队友在 main 并行做 DINO/InternVL 既有方向的训练推理，不阻塞）。
-
-| 槽位 | 模型 | 状态 | 参数/权重 |
-| --- | --- | --- | --- |
-| 1 主力 VLM | `Qwen3-VL-32B-Instruct` | **代码已接入，推理计划取消；训练待新标注后评估** | 33B dense / ~66G |
-| 2 切片 VLM | `InternVL3-38B-Instruct` | 暂缓 | 38B dense / ~76G |
-| 3 辅助定位 | `GroundingDINO`（锚定，已有适配器） | 维持 | 0.2B（唯一 confidence 来源） |
-
 **阶段三：WBF（非常后期）**
-- 32B 推理计划取消，当前不承诺进入 WBF 模型池；DINO 上车需先过
+- WBF 与 DINO 替换保持为后续项；DINO 上车需先过
   "出框率体检 + Val 消融 ΔACC" 两关（新标注 Val 719 带真值，可逐样本判定放行/剔除），
   全过才加权进 WBF。
 
 **存储策略（定案）**
 - 模型权重**不落持久盘**（100G 配额留给 venv/代码/标注/断点/输出）；每次 GPU 启动从
   魔搭内网拉取模型到临时工作区（同机房内网快，66G 约 6-15 分钟）。
-- **32B 具体落点（若后续训练）**：权重约 66G 超出持久盘配额 → 下载到实例本地
-  **临时盘 `/root/models`**（非持久、关机即失，每次开机重拉）；训练 `--model-path` 指向它。
-- 前提：实例临时盘空位 ≥ ~80G（32B 轮次）。
 - 边界：`checkpoint.json` + `outputs/output_lora` + `outputs/annotations` 与提交包
   必须留 `/mnt/workspace`（持久）——模型可失，断点不可失。
 - 权衡：每次启动烧数分钟 GPU 墙钟用于下载，对 100h 免费额度占比可忽略。
@@ -98,8 +77,7 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 ### 环境与运行边界（沿用）
 
 - 本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU 训练推理用 `offline/`。
-- 推理推荐单卡：Qwen 8B 等小模型 `--num-shards 1 --num-workers 4`；32B 满分辨率三图
-  推荐 `--num-shards 1 --batch-size 4 --num-workers 2`，显存接近 90% 退 batch 2。
+- 推理推荐单卡：Qwen 8B 等小模型 `--num-shards 1 --num-workers 4`。
 - 本仓库是唯一可移植实验单元；`cloud/`（Modal）账号恢复后才启用。
 - 断点续跑语义、run id 指纹连续性均未破坏；`tests/test_models.py` 钉死 Qwen identity。
 - 模型权重不落持久盘（100G 配额给 venv/代码/标注/断点/输出）；每次 GPU 启动从魔搭
@@ -152,24 +130,25 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 ## 交接日志（追加式，新的写最上面）
 
-### 2026-08-28（仓库，ROCm/32B 稳定性参数与运行时身份收敛）
+### 2026-08-28（仓库，全面移除 Qwen3-VL-32B 路线）
+
+* 删除 `aicomp_grounding/models/qwen3vl32.py`、模型注册、CLI 路径、训练核心模型分支
+  与 32B 相关测试。
+* README、SOP、offline README 与 handoff 当前状态清理 32B 内容；32B 路线不再维护。
+* SOP 8B 训练命令改为 `num_workers=4 / checkpoint_interval=20`，与新标注
+  `annot_dc189f029d962b27` 对齐。
+
+### 2026-08-28（仓库，训练稳定参数与运行时身份收敛）
 
 * `offline/train.py` 新增 `--num-workers`（默认 0）与 `--checkpoint-interval`（默认 20）；
   `run_training` 支持非负 worker 与正 checkpoint interval。
-* 训练 DataLoader 默认不再在 32B 模型加载后 fork HIP worker；需要并发验证时显式开
+* 训练 DataLoader 默认不再在大模型加载后 fork HIP worker；需要并发验证时显式开
   worker 并先 smoke。
 * `config.py` 运行时版本改为动态：Python、torch、torchvision、HIP version 进入训练
   metadata，避免 DSW 实际 torch 2.11 被记成旧 pin 的 2.13。
 * `rocm_env.sh` 注释与 README/SOP/offline README 同步：TunableOp 默认关闭，原因是
   MI300X 上直接开启曾有内存泄漏/OOM 风险；不再描述已不存在的 allocator 配置。
-* 32B 推理推荐更新为满分辨率 `batch_size=4 / num_workers=2`，OOM 退 batch 2。
 * 全量单测 207 项通过（本地无 torch 跳过 4 项），`compileall` 与 `git diff --check` 通过。
-
-### 2026-08-27（交接，取消 32B 推理计划并聚焦新标注生成）
-
-* 32B 模型推理计划取消：不再安排 smoke、zero-shot 全量推理、打榜或推理参数调优。
-* `qwen3vl32` 适配器代码保留，8B 指纹零漂移；当前阶段与新标注生成文档同步收敛。
-* 交接文档移除 32B 推理相关状态与后续动作，并将新标注生成链路标记为当前执行主线。
 
 ### 2026-08-27（仓库，移除反向闭环验证模块）
 
@@ -340,47 +319,12 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 仅文档变更，未改代码；测试 211 项全绿（4 跳过），`compileall` 与 `git diff --check`
   通过。
 
-### 2026-08-23（仓库，Qwen3-VL-32B 适配器接入与指南落地）
+### 2026-08-23（交接，模型路线与团队策略定案）
 
-* **代码**：新增 `qwen3vl32` 薄适配器（`models/qwen3vl32.py`，子类化 `qwen3vl`
-  仅覆写 name/model_name/model_revision），注册进 `ADAPTERS`；`offline/train.py`
-  的 `--model` 与 `training_core.py` 训练/续跑/默认路径已接线。
-  **纯兼容接入**：旧适配器一个字符未动，8B 指纹零漂移（`QwenIdentityContinuityTests`
-  继续钉死）；新增 `Qwen32BIdentityTests` 钉死 32B identity。`cloud/` 走
-  `get_adapter(model)` 自动识别，无需改。验证：211 测试全绿（4 跳过）。
-* **模型 identity**：`Qwen/Qwen3-VL-32B-Instruct` @ `0cfaf481`（HF 主分支 HEAD；
-  若魔搭 pin 不同 revision，改 `qwen3vl32.py` 常量后再记录 run）。
-* **范围收窄**：当前只新增 32B 一个二代目；InternVL3-38B 与 GroundingDINO 1.5 替换
-  暂缓（队友并行 DINO/InternVL 既有方向，不阻塞）。
-* **存储（32B）**：~66G 超出持久盘配额 → 下载到实例本地临时盘 `/root/models`
-  （非持久、关机即失），每次开机从魔搭内网重拉（~6-15 分钟）；`--model-path`
-  指向临时盘；checkpoint/标注/提交留 `/mnt/workspace`。
-* **训练配置**：训练沿用继承配置（batch 1 + 梯度累积 16）。
-* **文档**：SOP 阶段 2.1-2.3 + README + offline/README 补 32B 训练命令与临时盘
-  下载说明（commit `5d298b4`）。
-* **下一步**：新标注生成完成后评估是否启动 32B 训练；不做 32B 推理冒烟。
-
-### 2026-08-23（交接，二代目选型与执行策略定案）
-
-* 三人小队定为"一队一模型"，只叠加不删除：旧脚本/配置/产物全保留，新增 `qwen3vl32`
-  /`internvl3_38` 一类二代目适配器后不改旧适配器。
-* **模型选型定案**（详见「当前状态·下一步」）：
-  * 槽位 1 主力 = `Qwen3-VL-32B-Instruct`（33B dense，~66G 权重，网格范式 + 全图余量）；
-  * 槽位 2 切片 = `InternVL3-38B-Instruct`（38B dense，~76G，切片范式去相关）；
-    78B 放弃——静态 156G + 三图全图 KV ~20G ≈ 180G+，batch=1 训练顶爆，且单卡过慢。
-  * 槽位 3 辅助 = `GroundingDINO` 锚定（唯一 confidence 来源），后期替换更强定位器
-    （候选 `GroundingDINO 1.5-Open-Set`）。
-* **选型依据**：比赛不限"系列"（仅限开源权重 + 推理禁商业闭源 API），但"四输入 +
-  原生出框 + 192G 可训"筛掉了 GLM-4.6V（借 API 非自持权重，且 106B 塞不进 192G；
-  仅保留为打标教师）、Molmo（单图像/点指协议）、Qwen3.8（无框输出）、更大 MoE
-  （单卡不可训）。参数量与 zero-shot 能力同家族内正向相关，但受"单卡可训"与
-  "全图不降采样"两条硬度约束。
-* **执行顺序替换旧排序**：标注三件套（风格对齐 + GT 插值扩帧 + 序列全量）→ 32B/38B
-  训练 → WBF（后期）。旧"三模型 WBF 优先"降级为后期动作；新标注上的 A/B 超参实验
-  降级为可选诊断，不再优先。
+* 团队按"一队一模型"推进，当前聚焦 Qwen3-VL-8B；DINO/InternVL 方向由队友并行，
+  不阻塞主路线。
 * **存储策略定案**：模型不落持久盘（100G 配额给 venv/代码/标注/断点/输出），每次 GPU
-  启动从魔搭内网拉模型到临时工作区（同机房内网快）；`checkpoint`/标注/提交仍在
-  `/mnt/workspace`。前提：实例临时盘 ≥ ~80G 空位。
+  启动从魔搭内网拉模型到临时工作区；`checkpoint`/标注/提交留在 `/mnt/workspace`。
 * **DINO 判定流程**：出框率体检（官方风格 query 上 `--limit` 冒烟）→ Val 消融
   ΔACC（3 模型 vs 2 模型）→ 放行则加权进 WBF，否则直接剔除。
 * 本轮仅文档更新，未改代码；测试基线 209 全绿不受影响。
@@ -391,7 +335,7 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
   融合结果已提交打榜验证，确认双 checkpoint 融合管线可用。
 * **触顶判断**：Qwen3-VL-8B 在当前标注下基本触顶（±0.01 量级）；但属数据天花板而非
   模型天花板——8B 预训练含空间推理知识，当前标注 74% 不练它。换对齐标注 8B 可望
-  0.76-0.78；32B/72B 属"降维打击"，合规（官方允许 Qwen-VL）。
+  0.76-0.78；更大模型路线后续再评估。
 * **策略定案（下次执行时以此为准，替代早先"基线超参重训"的旧结论）**：
   ① 先做三模型 WBF（InternVL+DINO 推理 + fusion/wbf.py，权重新标注 Val 网格标定，
   预期 0.755-0.765）；② 新标注轮次照跑（pilot→审计→全量）；③ 新标注上跑 **A/B

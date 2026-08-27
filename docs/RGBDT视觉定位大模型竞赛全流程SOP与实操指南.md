@@ -67,9 +67,6 @@ mkdir -p "$MODEL_ROOT"
 modelscope download --model Qwen/Qwen3-VL-8B-Instruct \
   --local_dir "$MODEL_ROOT/Qwen/Qwen3-VL-8B-Instruct"
 
-modelscope download --model Qwen/Qwen3-VL-32B-Instruct \
-  --local_dir "$MODEL_ROOT/Qwen/Qwen3-VL-32B-Instruct"
-
 modelscope download --model OpenGVLab/InternVL3_5-8B-HF \
   --local_dir "$MODEL_ROOT/OpenGVLab/InternVL3_5-8B-HF"
 ```
@@ -92,6 +89,8 @@ python offline/train.py \
   --model qwen3vl \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
+  --num-workers 4 \
+  --checkpoint-interval 20 \
   --smoke-test
 
 python offline/train.py \
@@ -99,28 +98,8 @@ python offline/train.py \
   --model qwen3vl \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
-  --run-tag exp-qwen-01
-```
-
-### Qwen3-VL-32B
-
-```bash
-python offline/train.py \
-  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
-  --model qwen3vl32 \
-  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --data-dir data \
-  --num-workers 0 \
-  --checkpoint-interval 20 \
-  --smoke-test
-
-python offline/train.py \
-  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
-  --model qwen3vl32 \
-  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --data-dir data \
-  --run-tag exp-qwen32-01 \
-  --num-workers 0 \
+  --run-tag exp-qwen8-retrain \
+  --num-workers 4 \
   --checkpoint-interval 20
 ```
 
@@ -177,30 +156,6 @@ python offline/infer.py \
   --data-dir data \
   --num-shards 1 --num-workers 4 \
   --batch-size 16 --batch-save 100 --run-tag qwen8-lora-full
-```
-
-### Qwen3-VL-32B
-
-微调后：
-
-```bash
-python offline/infer.py \
-  --model qwen3vl32 \
-  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag qwen32-lora-smoke
-
-python offline/infer.py \
-  --model qwen3vl32 \
-  --model-path /root/models/Qwen/Qwen3-VL-32B-Instruct \
-  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
-  --test-json data/Test/queries/queries.json \
-  --data-dir data \
-  --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag qwen32-lora-full
 ```
 
 ### InternVL3.5-8B
