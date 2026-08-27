@@ -310,7 +310,7 @@ def _validate_frame_result(
     call_models = {call["model"] for call in calls}
     if not call_models <= {generator_model}:
         raise ValueError(f"Frame {sample_id!r} used an unexpected annotation model")
-    if len(frame["api_calls"]) < frame["attempts"]:
+    if not (1 <= len(frame["api_calls"]) <= frame["attempts"]):
         raise ValueError(f"Frame {sample_id!r} attempt history is inconsistent")
     valid, reason = validate_annotation_query(frame["query"])
     if not valid:
