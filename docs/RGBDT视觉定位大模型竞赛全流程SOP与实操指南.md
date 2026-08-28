@@ -15,7 +15,15 @@
 
 模型全部下载到 `/root/models`，关机即失，每次 GPU 实例开机后重新下载。
 
-## 1. 准备数据集
+## 1. 克隆项目仓库（首次执行）
+
+```bash
+cd /mnt/workspace
+git clone https://YOUR_GITHUB_TOKEN@github.com/FanGou-code/aicomp-multimodal-grounding.git
+cd aicomp-multimodal-grounding
+```
+
+## 2. 准备数据集
 
 ```bash
 cd /mnt/workspace/aicomp-multimodal-grounding
@@ -31,7 +39,7 @@ test -d data/Train
 test -d data/Processed/Train
 ```
 
-## 2. 创建并激活环境
+## 3. 创建并激活环境
 
 首次执行：
 
@@ -56,7 +64,7 @@ source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
 ```
 
-## 3. 下载模型
+## 4. 下载模型
 
 GPU 实例开机后执行：
 
@@ -77,7 +85,7 @@ modelscope download --model OpenGVLab/InternVL3_5-8B-HF \
 df -h /root
 ```
 
-## 4. 训练
+## 5. 训练
 
 训练命令统一使用 `offline/train.py`。先跑 smoke，再启动完整训练。
 
@@ -121,7 +129,7 @@ python offline/train.py \
   --run-tag exp-internvl-01
 ```
 
-## 5. 推理
+## 6. 推理
 
 推理统一使用：
 
@@ -182,7 +190,7 @@ python offline/infer.py \
   --batch-size 16 --batch-save 100 --run-tag internvl-lora-full
 ```
 
-## 6. 提交包
+## 7. 提交包
 
 推理完成后，使用预测结果生成 `submission.zip`：
 
