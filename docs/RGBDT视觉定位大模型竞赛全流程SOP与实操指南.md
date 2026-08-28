@@ -9,7 +9,8 @@
 /mnt/workspace/                            持久盘
 /mnt/workspace/aicomp_env/                持久虚拟环境
 /mnt/workspace/aicomp-multimodal-grounding/ 仓库
-/mnt/workspace/aicomp-multimodal-grounding/data/ 数据集（仓库内）
+/mnt/workspace/aicomp-multimodal-grounding/data/ 数据集（仓库内，持久）
+/root/                                     非持久临时工作区
 /root/models/                              非持久模型目录
 ```
 
@@ -23,16 +24,17 @@ git clone https://YOUR_GITHUB_TOKEN@github.com/FanGou-code/aicomp-multimodal-gro
 cd aicomp-multimodal-grounding
 ```
 
-## 2. 准备数据集
+## 2. 准备数据集（首次执行）
 
 ```bash
 cd /mnt/workspace/aicomp-multimodal-grounding
-mkdir -p /tmp/rgbdt-download data
+mkdir -p /root/rgbdt-download data
 
 modelscope download --dataset Fang001/rgbdt-grounding-dataset data.tar \
-  --local_dir /tmp/rgbdt-download
+  --local_dir /root/rgbdt-download
 
-tar -xf /tmp/rgbdt-download/data.tar -C data --no-same-owner
+tar -xf /root/rgbdt-download/data.tar -C data --no-same-owner
+rm -rf /root/rgbdt-download
 
 test -f data/Test/queries/queries.json
 test -d data/Train
