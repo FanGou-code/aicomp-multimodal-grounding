@@ -130,6 +130,12 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-08-28（仓库，离线推理 --resume 默认值对齐为 True）
+
+* `offline/infer.py` 的 `--resume` 参数改为 `argparse.BooleanOptionalAction`，默认值调整为 `True`，与 `offline/train.py` 对齐。
+* 离线推理与训练均支持使用原命令断点续跑；显式重新运行传入 `--no-resume`。
+* 新增 `tests/test_inference_checkpoint.py` 对应单测；全量单测 205 项通过（4 skip）。
+
 ### 2026-08-28（仓库，全面移除 Qwen3-VL-32B 路线）
 
 * 删除 `aicomp_grounding/models/qwen3vl32.py`、模型注册、CLI 路径、训练核心模型分支
