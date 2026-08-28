@@ -152,6 +152,20 @@ class DepthReferenceTests(unittest.TestCase):
             self.assertEqual(len(errors), 1)
             self.assertIn("test.json not found", errors[0])
 
+    def test_offline_infer_resume_defaults_to_true(self):
+        from offline.infer import parse_args
+        with unittest.mock.patch("sys.argv", ["infer.py"]):
+            args = parse_args()
+            self.assertTrue(args.resume)
+
+        with unittest.mock.patch("sys.argv", ["infer.py", "--no-resume"]):
+            args = parse_args()
+            self.assertFalse(args.resume)
+
+        with unittest.mock.patch("sys.argv", ["infer.py", "--resume"]):
+            args = parse_args()
+            self.assertTrue(args.resume)
+
 
 if __name__ == "__main__":
     unittest.main()

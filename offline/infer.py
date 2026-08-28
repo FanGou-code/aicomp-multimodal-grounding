@@ -140,8 +140,9 @@ def parse_args():
     )
     parser.add_argument(
         "--resume",
-        action="store_true",
-        help="Resume from existing predictions.json in output-dir if present.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resume from existing predictions.json or checkpoint.json in output-dir if present (default: on).",
     )
     parser.add_argument(
         "--batch-save",
