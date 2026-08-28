@@ -22,7 +22,7 @@ cd /mnt/workspace/aicomp-multimodal-grounding
 mkdir -p /tmp/rgbdt-download data
 
 modelscope download --dataset Fang001/rgbdt-grounding-dataset data.tar \
-  --token YOUR_MODELSCOPE_TOKEN --local_dir /tmp/rgbdt-download
+  --local_dir /tmp/rgbdt-download
 
 tar -xf /tmp/rgbdt-download/data.tar -C data --no-same-owner
 
