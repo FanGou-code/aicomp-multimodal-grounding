@@ -126,7 +126,7 @@ class InternVL35Adapter:
     ) -> None:
         import torch
         from peft import PeftModel
-        from transformers import AutoModelForVision2Seq, AutoProcessor
+        from transformers import AutoProcessor
 
         source = model_path or self.model_name
         from_hub = model_path is None
@@ -138,12 +138,31 @@ class InternVL35Adapter:
         )
         processor.tokenizer.padding_side = "left"
 
-        model = AutoModelForVision2Seq.from_pretrained(
-            source,
-            **({"revision": self.model_revision} if from_hub else {}),
-            torch_dtype=torch.bfloat16,
-            attn_implementation="sdpa",
-        ).to(device)
+        try:
+            from transformers import InternVLForConditionalGeneration
+
+            model_class = InternVLForConditionalGeneration
+        except ImportError:
+            from transformers import AutoModelForImageTextToText
+
+            model_class = AutoModelForImageTextToText
+
+        revision_kwargs = {"revision": self.model_revision} if from_hub else {}
+        try:
+            model = model_class.from_pretrained(
+                source,
+                **revision_kwargs,
+                dtype=torch.bfloat16,
+                attn_implementation="sdpa",
+            )
+        except TypeError:
+            model = model_class.from_pretrained(
+                source,
+                **revision_kwargs,
+                torch_dtype=torch.bfloat16,
+                attn_implementation="sdpa",
+            )
+        model = model.to(device)
 
         if lora_path is not None:
             model = PeftModel.from_pretrained(model, str(lora_path)).to(device)

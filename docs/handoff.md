@@ -149,6 +149,8 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
   中的路径同步更新。
 * InternVL adapter 修正 `<IMG_CONTEXT>` 图片占位符，并保留官方 left-padding
   解码语义；`max_new_tokens` 对齐到 100。
+* InternVL 加载改用显式 `InternVLForConditionalGeneration`，兼容 transformers
+  4.57/v5，修复 DSW v5 下 `AutoModelForVision2Seq` 的 ImportError。
 * 补充社区核对后：InternVL 此前误改的逐样本 `attention_mask` 解码已回退，
   生成 token 继续按官方 left-padding 后的全局 `input_ids.shape[1]` 切片。
 * DINO adapter 修正直接消费 post-process XYXY、显式
