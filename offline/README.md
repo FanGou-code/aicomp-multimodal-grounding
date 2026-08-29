@@ -19,7 +19,7 @@ Modal 由 `cloud/` 适配器使用 Volume 布局，离线端不依赖该布局�
 
 ```bash
 python offline/train.py \
-  --annotation-run-id annot_dc189f029d962b27 \
+  --annotation-run-id <ANNOTATION_RUN_ID> \
   --model qwen3vl \
   --data-dir data \
   --annotation-root outputs/annotations \
@@ -58,8 +58,8 @@ python offline/infer.py --model internvl35 --test-json data/Test/queries/queries
 ```bash
 python offline/infer.py \
   --model qwen3vl \
-  --test-json outputs/annotations/annot_dc189f029d962b27/val/approved.json \
-  --annotation-run-id annot_dc189f029d962b27 \
+  --test-json outputs/annotations/<ANNOTATION_RUN_ID>/val/approved.json \
+  --annotation-run-id <ANNOTATION_RUN_ID> \
   --data-dir data \
   --lora-path YOUR_LORA_PATH
 ```
@@ -68,8 +68,8 @@ All relative paths resolve from the repository root. `--project-root` can be
 used when a platform starts the process from another working directory.
 
 模型适配器的约定（坐标解析、prompt、identity/指纹）见
-`aicomp_grounding/models/`；InternVL / GroundingDINO 的 GPU 路径尚未冒烟，
-首次使用先跑小切片验证。
+`aicomp_grounding/models/`；InternVL 与 GroundingDINO 的协议契约已单测对齐，
+真实 GPU 路径仍应在首跑时用小切片验证。
 
 单机多卡推理才使用 `--num-shards N`，且 N 应等于可见 GPU 数；单卡 MI300X
 固定为 `--num-shards 1`。多进程路径会写入独立的
@@ -82,7 +82,7 @@ used when a platform starts the process from another working directory.
 ## 仓库内容与外部数据清单
 
 **仓库自带**：全部代码 / 测试 / 黄金标注集
-（`outputs/annotations/annot_dc189f029d962b27/{train,val}/approved.json`）。
+（`outputs/annotations/<approved_annotation_id>/{train,val}/approved.json`）。
 
 **需要另外获取**：
 
@@ -92,7 +92,7 @@ used when a platform starts the process from another working directory.
 | `data/Test` 测试集 | 含在 43G 内 | 同上 |
 | `data/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成（确定性输出） |
 | `data/train.json`、`data/val.json`、`data/split_manifest.json`、`data/excluded_overlap.json` | KB 级 | 仅本地预处理/审计使用，云端不需要；官方 `Test/queries/queries.json` 随 `data/Test` 提供 |
-| 基础模型权重 | Qwen-8B 17G / InternVL 17G / DINO 0.7G | 全部下载到 `/root/models`（非持久），每次开机重新拉取 |
+| 基础模型权重 | Qwen-8B 17G / InternVL 17G / DINO 0.7G | 下载到持久目录 `/mnt/workspace/models` |
 
 **不需要**：LoRA 权重（融合只交换各自 predictions.json）、Zhipu API Key
 （标注已随仓库分发，仅重新生成标注时才需要）、Modal 凭据。

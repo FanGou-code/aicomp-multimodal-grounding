@@ -13,13 +13,12 @@ from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.models import ADAPTERS, available_models, get_adapter
 from aicomp_grounding.models.base import ModelInput, Prediction
 from aicomp_grounding.models.groundingdino import (
-    cxcywh_to_xyxy,
+    normalize_grounding_query,
     select_top_detection,
 )
 from aicomp_grounding.models.internvl35 import (
     INTERNVL_IMAGE_TOKEN,
     build_grounding_question,
-    extract_generated_tokens,
     parse_internvl_box,
 )
 from aicomp_grounding.models.mock import _stable_box
@@ -99,13 +98,6 @@ class InternVLContractTests(unittest.TestCase):
         self.assertIn("<ref>the red car</ref>", question)
         self.assertIn("visible RGB, infrared, and depth", question)
 
-    def test_extract_generated_tokens_uses_each_prompt_length(self):
-        tokens = [[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]]
-        self.assertEqual(
-            extract_generated_tokens(tokens, [3, 2]),
-            [[4, 5, 6], [9, 10, 11, 12]],
-        )
-
     def test_parse_box_with_tags_scales_from_1000(self):
         text = 'The target is <ref>the car</ref><box>[[100,200,300,400]]</box>.'
         self.assertEqual(
@@ -127,20 +119,30 @@ class InternVLContractTests(unittest.TestCase):
 
 
 class GroundingDINOContractTests(unittest.TestCase):
-    def test_cxcywh_to_xyxy(self):
-        self.assertEqual(cxcywh_to_xyxy([0.5, 0.5, 0.2, 0.4]), [0.4, 0.3, 0.6, 0.7])
+    def test_normalize_grounding_query_matches_official_demo(self):
+        self.assertEqual(
+            normalize_grounding_query(" The Red Car "),
+            "the red car.",
+        )
+        self.assertEqual(
+            normalize_grounding_query("the red car."),
+            "the red car.",
+        )
 
-    def test_select_top_detection_picks_highest_score(self):
-        # Dyadic values keep the arithmetic exact in binary floating point.
-        # The 0.9 score sits on the second box (cx=cy=0.25, w=h=0.125).
-        boxes = [[0.5, 0.5, 0.25, 0.25], [0.25, 0.25, 0.125, 0.125]]
+    def test_select_top_detection_picks_highest_postprocessed_xyxy(self):
+        # post_process_grounded_object_detection already returns normalized XYXY.
+        boxes = [[0.5, 0.5, 0.75, 0.75], [0.25, 0.25, 0.375, 0.375]]
         bbox, score = select_top_detection(boxes, [0.3, 0.9])
-        self.assertEqual(bbox, [0.1875, 0.1875, 0.3125, 0.3125])
+        self.assertEqual(bbox, [0.25, 0.25, 0.375, 0.375])
         self.assertEqual(score, 0.9)
 
-    def test_select_top_detection_rejects_everything_below_threshold(self):
+    def test_select_top_detection_rejects_invalid_or_low_score(self):
         self.assertEqual(
-            select_top_detection([[0.5, 0.5, 0.1, 0.1]], [0.05]), (None, None)
+            select_top_detection([[0.8, 0.8, 0.4, 0.4]], [0.9]),
+            (None, None),
+        )
+        self.assertEqual(
+            select_top_detection([[0.1, 0.1, 0.5, 0.5]], [0.05]), (None, None)
         )
         self.assertEqual(select_top_detection([], []), (None, None))
 

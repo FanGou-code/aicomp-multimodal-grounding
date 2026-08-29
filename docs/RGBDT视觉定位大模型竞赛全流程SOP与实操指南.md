@@ -75,6 +75,9 @@ modelscope download --model Qwen/Qwen3-VL-8B-Instruct \
 
 modelscope download --model OpenGVLab/InternVL3_5-8B-HF \
   --local_dir "$MODEL_ROOT/OpenGVLab/InternVL3_5-8B-HF"
+
+modelscope download --model AI-ModelScope/grounding-dino-base \
+  --local_dir "$MODEL_ROOT/AI-ModelScope/grounding-dino-base"
 ```
 
 下载前检查持久盘空间：
@@ -127,9 +130,13 @@ python offline/train.py \
   --run-tag exp-internvl-01
 ```
 
+### GroundingDINO-B
+
+GroundingDINO 走零样本推理，不执行 `offline/train.py`，也不需要 LoRA。
+
 ## 6. 推理
 
-推理统一使用：
+VLM 三图模型统一使用：
 
 ```text
 --test-json data/Test/queries/queries.json
@@ -140,7 +147,8 @@ python offline/train.py \
 --batch-save 100
 ```
 
-每个模型按微调后（带 LoRA）执行。每类先 smoke，再全量。
+每个 VLM 按微调后（带 LoRA）执行。GroundingDINO 使用
+`--num-workers 4 --batch-size 8` 且不传 `--lora-path`。每类先 smoke，再全量。
 
 ### Qwen3-VL-8B
 
@@ -188,6 +196,26 @@ python offline/infer.py \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
   --batch-size 4 --batch-save 100 --run-tag internvl-lora-full
+```
+
+### GroundingDINO-B（Zero-shot）
+
+```bash
+python offline/infer.py \
+  --model groundingdino \
+  --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --limit 100 --num-shards 1 --num-workers 4 \
+  --batch-size 8 --batch-save 100 --run-tag dino-smoke
+
+python offline/infer.py \
+  --model groundingdino \
+  --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --num-shards 1 --num-workers 4 \
+  --batch-size 8 --batch-save 100 --run-tag dino-full
 ```
 
 ## 7. 提交包

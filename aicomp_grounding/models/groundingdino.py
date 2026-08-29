@@ -7,13 +7,14 @@ the interface but ignored by design — see docs/handoff.md for the
 rationale (single-image architecture; pseudo-color/thermal are
 out-of-distribution for its Swin encoder).
 
-Pure coordinate helpers are unit-tested; the GPU path uses the plain
-transformers ``AutoModelForObjectDetection`` API and has not yet been
-smoke-tested (do a val slice first).
+Pure post-process selection helper is unit-tested; the GPU path uses the
+explicit transformers ``GroundingDinoForObjectDetection`` class and has not
+yet been smoke-tested (do a val slice first).
 """
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -27,31 +28,53 @@ BOX_THRESHOLD = 0.25
 TEXT_THRESHOLD = 0.30
 
 
-def cxcywh_to_xyxy(box: list[float]) -> list[float]:
-    """Convert a normalized center-size box to normalized XYXY."""
-    cx, cy, w, h = box
-    return [
-        cx - w / 2.0,
-        cy - h / 2.0,
-        cx + w / 2.0,
-        cy + h / 2.0,
-    ]
+def normalize_grounding_query(query: str) -> str:
+    """Normalize a GroundingDINO caption the way the official demo does."""
+    text = query.strip().lower()
+    if not text.endswith("."):
+        text += "."
+    return text
 
 
 def select_top_detection(
-    boxes_cxcywh: list[list[float]],
+    boxes_xyxy: list[list[float]],
     scores: list[float],
 ) -> tuple[list[float] | None, float | None]:
-    """Pick the highest-confidence valid box; (None, None) when nothing passes."""
-    if not boxes_cxcywh or not scores:
+    """Pick the highest-confidence valid post-processed XYXY box."""
+    if not boxes_xyxy or not scores:
         return None, None
     best_index = max(range(len(scores)), key=lambda i: scores[i])
     if scores[best_index] < BOX_THRESHOLD:
         return None, None
-    xyxy = validate_bbox(cxcywh_to_xyxy(boxes_cxcywh[best_index]))
+    xyxy = validate_bbox(boxes_xyxy[best_index])
     if xyxy is None:
         return None, None
     return xyxy, float(scores[best_index])
+
+
+def _load_local_processor(source: str):
+    """Load a GroundingDINO processor from a local snapshot directory.
+
+    ModelScope snapshots sometimes omit ``preprocessor_config.json``, which
+    makes ``AutoProcessor.from_pretrained`` fail even though the tokenizer and
+    model files are present. Rebuild the processor from its standard parts.
+    """
+    from transformers import (
+        AutoTokenizer,
+        GroundingDinoImageProcessor,
+        GroundingDinoProcessor,
+    )
+
+    if (Path(source) / "preprocessor_config.json").is_file():
+        from transformers import AutoProcessor
+
+        return AutoProcessor.from_pretrained(source)
+
+    tokenizer = AutoTokenizer.from_pretrained(source)
+    return GroundingDinoProcessor(
+        image_processor=GroundingDinoImageProcessor(),
+        tokenizer=tokenizer,
+    )
 
 
 class GroundingDINOAdapter:
@@ -88,22 +111,41 @@ class GroundingDINOAdapter:
         model_path: str | None = None,
     ) -> None:
         import torch
-        from transformers import AutoModelForObjectDetection, AutoProcessor
+        from transformers import AutoProcessor
 
         if lora_path is not None:
             raise ValueError("GroundingDINO path is zero-shot only; no LoRA support")
 
         source = model_path or self.model_name
         from_hub = model_path is None
-        processor = AutoProcessor.from_pretrained(
-            source, **({"revision": self.model_revision} if from_hub else {})
+        processor = (
+            AutoProcessor.from_pretrained(source, revision=self.model_revision)
+            if from_hub
+            else _load_local_processor(source)
         )
-        model = AutoModelForObjectDetection.from_pretrained(
-            source,
-            **({"revision": self.model_revision} if from_hub else {}),
-            # Swin detectors are float32-trained; fp16 here is not worth the risk.
-            torch_dtype=torch.float32,
-        ).to(device)
+        try:
+            from transformers import GroundingDinoForObjectDetection
+
+            model_class = GroundingDinoForObjectDetection
+        except ImportError:
+            from transformers import AutoModelForObjectDetection
+
+            model_class = AutoModelForObjectDetection
+
+        revision_kwargs = {"revision": self.model_revision} if from_hub else {}
+        try:
+            model = model_class.from_pretrained(
+                source,
+                **revision_kwargs,
+                dtype=torch.float32,
+            )
+        except TypeError:
+            model = model_class.from_pretrained(
+                source,
+                **revision_kwargs,
+                torch_dtype=torch.float32,
+            )
+        model = model.to(device)
         model.eval()
         self._processor = processor
         self._model = model
@@ -118,17 +160,22 @@ class GroundingDINOAdapter:
         for sample in samples:
             inputs = self._processor(
                 images=sample.visible,
-                text=sample.query,
+                text=normalize_grounding_query(sample.query),
                 return_tensors="pt",
             ).to(self._model.device)
             with torch.no_grad():
                 outputs = self._model(**inputs)
-            # Without target_sizes the processor keeps boxes as normalized
-            # cxcywh, which is exactly what select_top_detection expects.
-            results = self._processor.post_process_grounded_object_detection(
+            # post_process converts normalized cxcywh into normalized XYXY.
+            post_process = self._processor.post_process_grounded_object_detection
+            threshold_kw = (
+                "threshold"
+                if "threshold" in inspect.signature(post_process).parameters
+                else "box_threshold"
+            )
+            results = post_process(
                 outputs,
                 inputs.input_ids,
-                box_threshold=self.box_threshold,
+                **{threshold_kw: self.box_threshold},
                 text_threshold=TEXT_THRESHOLD,
             )[0]
             bbox, score = select_top_detection(

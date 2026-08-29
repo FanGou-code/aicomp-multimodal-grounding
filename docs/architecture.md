@@ -69,7 +69,7 @@ adapter.predict([ModelInput(visible, infrared, depth, query, key)]) -> [Predicti
 ```
 
 - **输出统一为归一化 XYXY + score(可 None)**：坐标换算全部封装在 adapter 内
-  （Qwen `<|box_start|>` 0-1000、InternVL `<box>` 0-1000、DINO cxcywh 归一化）。
+  （Qwen `<|box_start|>` 0-1000、InternVL `<box>` 0-1000、DINO 直接消费 post-process XYXY）。
 - **纯逻辑（prompt 构造/解析/坐标换算）是模块级函数**，无 GPU 也能单测；
   `load/predict` 才需要 GPU。
 - **训练能力由 `TrainableGroundingAdapter` 提供**：`load_for_training`、
@@ -88,10 +88,10 @@ adapter.predict([ModelInput(visible, infrared, depth, query, key)]) -> [Predicti
 
 ### 验证状态（诚实标注）
 
-- `qwen3vl`：GPU 路径与历史产出 0.7439 的代码同源，行为等价搬运。
-- `internvl35` / `groundingdino`：**纯逻辑有单测，GPU 路径未冒烟**。首次使用
-  必须先跑 val 小切片：InternVL 对照官方 `evaluate_grounding.py` 钉坐标序，
-  DINO 验证 `post_process` 输出形状。两者的 `model_revision` 已 pin 具体 commit。
+- `qwen3vl`：GPU 路径与历史成绩对应代码同源，identity 由测试钉死。
+- `internvl35` / `groundingdino`：协议契约已单测对齐（InternVL
+  `<IMG_CONTEXT>`，DINO post-process XYXY）；真实 GPU 首跑
+  仍应先跑 val 小切片。两者的 `model_revision` 已 pin 具体 commit。
 
 ## 指纹与溯源
 

@@ -1,14 +1,11 @@
-"""InternVL3.5-8B grounding adapter (zero-shot skeleton for contributors).
+"""InternVL3.5-8B trainable grounding adapter.
 
 Verification status
 -------------------
-Pure logic (question construction, box parsing, 0-1000 scaling) is pinned by
-unit tests. The GPU path follows the official ``OpenGVLab/InternVL3_5-8B-HF``
-transformers-native usage but has NOT been smoke-tested on a GPU yet:
-whoever trains/evaluates this direction must first run a small val slice and
-cross-check coordinates against the official ``evaluate_grounding.py`` script
-(InternVL has a documented history of axis-order pitfalls; the parser below
-pins [x1, y1, x2, y2] on a 0-1000 grid).
+Prompt and modal placeholder contracts are pinned by unit tests. The GPU path
+follows the official ``OpenGVLab/InternVL3_5-8B-HF``
+transformers-native usage with [x1, y1, x2, y2] on a 0-1000 grid, but the
+real GPU val slice should still be smoke-tested before a recorded run.
 """
 
 from __future__ import annotations
@@ -83,11 +80,6 @@ def parse_internvl_box(text: str) -> list[float] | None:
     return validate_bbox(values)
 
 
-def extract_generated_tokens(generated_ids, prompt_lengths) -> list:
-    """Strip each left-padded prompt using its own actual length."""
-    return [row[length:] for row, length in zip(generated_ids, prompt_lengths)]
-
-
 class InternVL35Adapter:
     name = "internvl35"
     model_name = MODEL_NAME
@@ -104,7 +96,6 @@ class InternVL35Adapter:
         }
         self._processor = None
         self._model = None
-        self._grounding_prompt_lengths = None
 
     def prompt_hash(self) -> str:
         import hashlib
@@ -295,21 +286,13 @@ class InternVL35Adapter:
             for sample in samples
             for image in (sample.visible, sample.infrared, sample.depth)
         ]
-        inputs = processor(text=texts, images=images, padding=True, return_tensors="pt")
-        self._grounding_prompt_lengths = inputs["attention_mask"].sum(dim=1).tolist()
-        return inputs
+        return processor(text=texts, images=images, padding=True, return_tensors="pt")
 
     def decode_grounding_outputs(self, processor, generated_ids, prompt_len: int) -> list[str]:
-        lengths = self._grounding_prompt_lengths
-        if lengths is None or len(lengths) != len(generated_ids):
-            lengths = [int(prompt_len)] * len(generated_ids)
-        text_outputs = []
-        for row in extract_generated_tokens(generated_ids, lengths):
-            batch = row.unsqueeze(0) if hasattr(row, "unsqueeze") else [row]
-            text_outputs.append(
-                processor.batch_decode(batch, skip_special_tokens=False)[0]
-            )
-        return text_outputs
+        return processor.batch_decode(
+            generated_ids[:, prompt_len:],
+            skip_special_tokens=False,
+        )
 
     def parse_grounding_text(self, text: str) -> list[float] | None:
         return parse_internvl_box(text)
@@ -354,13 +337,12 @@ class InternVL35Adapter:
                 do_sample=False,
             )
 
-        prompt_lengths = inputs["attention_mask"].sum(dim=1).tolist()
-        text_outputs = []
-        for row in extract_generated_tokens(generated_ids, prompt_lengths):
-            batch = row.unsqueeze(0) if hasattr(row, "unsqueeze") else [row]
-            text_outputs.append(
-                processor.batch_decode(batch, skip_special_tokens=False)[0]
-            )
+        prompt_len = inputs["input_ids"].shape[1]
+        generated_tokens = generated_ids[:, prompt_len:]
+        text_outputs = processor.batch_decode(
+            generated_tokens,
+            skip_special_tokens=False,
+        )
         return [
             Prediction(bbox=parse_internvl_box(text), score=None)
             for text in text_outputs

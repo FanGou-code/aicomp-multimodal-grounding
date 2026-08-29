@@ -1,6 +1,6 @@
 # RGBDT Multimodal Visual Grounding
 
-基于统一 adapter 接口的 RGB、红外与深度视觉定位项目。当前模型层支持
+基于统一 adapter 接口的 RGB、红外与深度视觉定位项目。模型层支持
 `Qwen3-VL-8B-Instruct`、`InternVL3.5-8B`、`GroundingDINO-B`
 与用于本地端到端测试的 mock 模型；推理入口通过 `--model` 选择 adapter，输出统一为
 归一化边界框，最终可由 WBF 多模型加权框融合生成结果包。训练入口通过 `--model`
@@ -166,7 +166,7 @@ source offline/rocm_env.sh
 - Dataset website: [RGBDT500 Project Page](https://xuefeng-zhu5.github.io/RGBDT500/)
 - 数据规模：500 个 RGB、Depth、Thermal Infrared 同步序列，共约 203.7K 组三模态图像
 
-RGBDT500 对应 NeurIPS 2025 论文 **Collaborating Vision, Depth, and Thermal Signals for Multi-Modal Tracking: Dataset and Algorithm**。当前项目使用的本地训练输入包含其中 400 个序列，并通过 `prepare_rgbdt.py` 按场景划分为 320 个 Train 序列和 80 个 Val 序列。
+RGBDT500 对应 NeurIPS 2025 论文 **Collaborating Vision, Depth, and Thermal Signals for Multi-Modal Tracking: Dataset and Algorithm**。项目使用的本地训练输入包含其中 400 个序列，并通过 `prepare_rgbdt.py` 按场景划分为 320 个 Train 序列和 80 个 Val 序列。
 
 数据下载页要求使用者同意其 research-only 数据许可。数据的下载、使用和再分发应遵守 [RGBDT500 官方页面](https://xuefeng-zhu5.github.io/RGBDT500/) 公布的许可条款；本仓库不重新分发原始数据。
 
@@ -258,7 +258,7 @@ python scripts/build_indexes.py --data-dir data
 `data/excluded_overlap.json`；该步骤只适合在本地
 首次准备数据时执行，不应该放进云端日常训练/推理流程。
 
-> 当前 `annot_dc189f029d962b27` 标注集已核查：Train 2,875 条、Val 719 条与 Test 的 SHA-256 匹配均为 **0**，无同源帧进入训练。
+> 发布后的 approved 标注集会执行 Train/Val 与 Test 的同源 SHA-256 审计，避免同源帧进入训练。
 
 ### 2. Query 生成
 
@@ -308,8 +308,8 @@ outputs/annotations/<ANNOTATION_RUN_ID>/<split>/
   approved.json
 ```
 
-> 仓库通过 `.gitignore` 白名单分发 `annot_dc189f029d962b27` 的
-> `train/val approved.json`；这些文件保持字节级一致并纳入指纹校验。
+> 仓库通过 `.gitignore` 白名单分发 approved 标注资产；
+> 这些文件保持字节级一致并纳入指纹校验。
 > 其余生成中间文件（shards / merged 等）仍在本地生成，不入库。
 
 默认开启 Resume。若存在失败项，保持原参数并增加 `--retry-failed --publish`，只重新请求失败帧。
@@ -319,7 +319,7 @@ outputs/annotations/<ANNOTATION_RUN_ID>/<split>/
 先运行 CPU Preflight，确认 approved 数据和模型配置可用：
 
 ```bash
-ANNOTATION_RUN_ID="annot_dc189f029d962b27"
+ANNOTATION_RUN_ID="<ANNOTATION_RUN_ID>"
 
 python offline/train.py \
   --annotation-run-id "$ANNOTATION_RUN_ID" \
@@ -392,7 +392,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<QWEN_RUN_ID>/best/epoch_03 \
-  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --num-shards 1 \
   --num-workers 2 \
   --batch-size 4 \
@@ -404,7 +404,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path outputs/output_lora/<INTERNVL_RUN_ID>/best/epoch_03 \
-  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --num-shards 1 \
   --num-workers 2 \
   --batch-size 4 \
@@ -415,7 +415,7 @@ python offline/infer.py \
   --model groundingdino \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
-  --model-path /root/models/AI-ModelScope/grounding-dino-base \
+  --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base \
   --num-shards 1 \
   --num-workers 4 \
   --batch-size 8 \

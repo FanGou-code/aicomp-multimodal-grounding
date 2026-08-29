@@ -72,11 +72,11 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
   全过才加权进 WBF。
 
 **存储策略（定案）**
-- 模型权重**不落持久盘**（100G 配额留给 venv/代码/标注/断点/输出）；每次 GPU 启动从
-  魔搭内网拉取模型到临时工作区（同机房内网快，66G 约 6-15 分钟）。
+- 模型权重落持久盘 `/mnt/workspace/models`；100G 配额覆盖
+  venv/代码/标注/断点/输出/模型权重。
 - 边界：`checkpoint.json` + `outputs/output_lora` + `outputs/annotations` 与提交包
-  必须留 `/mnt/workspace`（持久）——模型可失，断点不可失。
-- 权衡：每次启动烧数分钟 GPU 墙钟用于下载，对 100h 免费额度占比可忽略。
+  必须留 `/mnt/workspace`（持久）。
+- 权衡：持久盘占用需在下载模型前检查，避免与数据/断点/输出争用空间。
 
 ### 环境与运行边界（沿用）
 
@@ -84,8 +84,8 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 - 推理推荐单卡：Qwen 8B 等三图 VLM `--num-shards 1 --num-workers 2 --batch-size 4`。
 - 本仓库是唯一可移植实验单元；`cloud/`（Modal）账号恢复后才启用。
 - 断点续跑语义、run id 指纹连续性均未破坏；`tests/test_models.py` 钉死 Qwen identity。
-- 模型权重不落持久盘（100G 配额给 venv/代码/标注/断点/输出）；每次 GPU 启动从魔搭
-  内网拉模型到临时工作区，`checkpoint`/标注/提交仍必须留 `/mnt/workspace`。
+- 模型权重落 `/mnt/workspace/models`；`checkpoint`/标注/提交也留 `/mnt/workspace`，
+  不依赖 `/root` 临时下载。
 - DSW 平台现状：`/opt/rocm 7.2.3` + torch `2.11.0+git` + HIP `7.2.53211`，但 amdgpu
   内核驱动为 `6.10.5`，`rocm-smi` 读不出 GPU 名称（`get_name` libdrm 报错）；该问题
   属于平台镜像/宿主机组合，等待平台提供匹配镜像。
@@ -133,6 +133,22 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-30（仓库，模型持久化与 InternVL/DINO 适配收敛）
+
+* 模型权重改为持久目录 `/mnt/workspace/models`；README、offline README、SOP
+  中的路径同步更新。
+* InternVL adapter 修正 `<IMG_CONTEXT>` 图片占位符，并保留官方 left-padding
+  解码语义；`max_new_tokens` 对齐到 100。
+* 补充社区核对后：InternVL 此前误改的逐样本 `attention_mask` 解码已回退，
+  生成 token 继续按官方 left-padding 后的全局 `input_ids.shape[1]` 切片。
+* DINO adapter 修正直接消费 post-process XYXY、显式
+  `GroundingDinoForObjectDetection`、本地 processor fallback、阈值参数兼容，
+  并按官方 demo 增加 query `strip/lower/补句号` 预处理。
+* README 移除成绩/run id 等现状记录；architecture 验证状态与 DINO XYXY
+  描述同步；SOP 补齐 DINO 下载与推理命令；research-v2 修正 InternVL 坐标序。
+* 全量单测 211 项通过（4 skip）；`compileall` 与 `git diff --check` 通过。
+* 未在真实 GPU 上执行 InternVL/DINO Val 切片；该项仍待 GPU 环境验证。
 
 ### 2026-08-29（仓库，接手本地状态与新标注训练 preflight）
 
