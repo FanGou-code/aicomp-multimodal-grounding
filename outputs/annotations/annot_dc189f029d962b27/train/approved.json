@@ -6,7 +6,7 @@
     "split": "train",
     "source_fingerprint": "ffc8d127dec5a28fa1b885c7b9f8a617770275c117c52d6035c6556b79905a0f",
     "preparation_fingerprint": "4d314b59e99545c277f4e3bc7fee373c55c4377b9743fa8fc861e4e4f708b72b",
-    "image_fingerprint": "verification-skipped",
+    "image_fingerprint": "manifest_49bbae456860e2dedc04beb57065139521df1c8bbe77a0eb88d0952f62fce94e",
     "dataset_fingerprint": "b40dc9e0fec9e5b1cc2983df1dddbbb626730b2399cf123db1250babdc04b93d",
     "sample_count": 2875,
     "sequence_count": 320,

@@ -135,7 +135,9 @@ python offline/train.py \
 --test-json data/Test/queries/queries.json
 --data-dir data
 --num-shards 1
---num-workers 4
+--num-workers 2
+--batch-size 4
+--batch-save 100
 ```
 
 每个模型按微调后（带 LoRA）执行。每类先 smoke，再全量。
@@ -151,8 +153,8 @@ python offline/infer.py \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
-  --limit 100 --num-shards 1 --num-workers 4 \
-  --batch-size 16 --batch-save 100 --run-tag qwen8-lora-smoke
+  --limit 100 --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen8-lora-smoke
 
 python offline/infer.py \
   --model qwen3vl \
@@ -160,8 +162,8 @@ python offline/infer.py \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
-  --num-shards 1 --num-workers 4 \
-  --batch-size 16 --batch-save 100 --run-tag qwen8-lora-full
+  --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen8-lora-full
 ```
 
 ### InternVL3.5-8B
@@ -175,8 +177,8 @@ python offline/infer.py \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
-  --limit 100 --num-shards 1 --num-workers 4 \
-  --batch-size 16 --batch-save 100 --run-tag internvl-lora-smoke
+  --limit 100 --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag internvl-lora-smoke
 
 python offline/infer.py \
   --model internvl35 \
@@ -184,8 +186,8 @@ python offline/infer.py \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
-  --num-shards 1 --num-workers 4 \
-  --batch-size 16 --batch-save 100 --run-tag internvl-lora-full
+  --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag internvl-lora-full
 ```
 
 ## 7. 提交包

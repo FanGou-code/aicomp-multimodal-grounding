@@ -32,7 +32,7 @@ python offline/train.py \
 `--output-root` 指定新的仓库级输出根。
 
 直接调推理本体（`--model` 选适配器：qwen3vl / internvl35 / groundingdino / mock）：
-单卡推理推荐用 DataLoader 预取（`--num-workers 4`），不要用
+VLM 单卡推理标准用 DataLoader 预取（`--num-workers 2` + `--batch-size 4`），不要用
 `--num-shards >1` 在单卡上拉起多个模型副本：
 
 ```bash
@@ -42,7 +42,7 @@ python offline/infer.py \
   --data-dir data \
   --lora-path YOUR_LORA_PATH \
   --output-dir outputs/inference \
-  --num-workers 4 \
+  --num-workers 2 \
   --batch-size 4 \
   --run-tag offline-test
 
@@ -76,7 +76,7 @@ used when a platform starts the process from another working directory.
 `shard_checkpoints/shard_<id>.checkpoint.json`，但当前恢复以最终
 `predictions.json` 为准，中断后请保持稳定会话完整跑完。
 
-`--num-workers 4` 通过 DataLoader 预取图像并与 GPU 推理并行；
+`--num-workers 2` 通过 DataLoader 预取图像并与 GPU 推理并行；
 `--num-workers 0` 使用串行加载。
 
 ## 仓库内容与外部数据清单

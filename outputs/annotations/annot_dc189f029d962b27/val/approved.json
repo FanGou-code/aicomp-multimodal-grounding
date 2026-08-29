@@ -6,7 +6,7 @@
     "split": "val",
     "source_fingerprint": "4554407cbf1f5be1e80d7b06f03880101714bc1647ed897ffe2cef01415e0d2b",
     "preparation_fingerprint": "4d314b59e99545c277f4e3bc7fee373c55c4377b9743fa8fc861e4e4f708b72b",
-    "image_fingerprint": "verification-skipped",
+    "image_fingerprint": "manifest_6322c16d27dce82c0d04f51371d398a26b40be3f5e073f31b249ed441e44a922",
     "dataset_fingerprint": "71328020a9a0a0c3da32b818fc5cd92024163898acfe2ae721d6968ff9cc1c25",
     "sample_count": 719,
     "sequence_count": 80,
