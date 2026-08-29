@@ -48,7 +48,7 @@ python3 -m venv --system-site-packages /mnt/workspace/aicomp_env
 source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
 
-pip install -r requirements.txt transformers==4.57.3 peft==0.19.1 \
+pip install transformers==4.57.3 peft==0.19.1 \
   accelerate==1.14.0 qwen-vl-utils==0.0.14 \
   -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
 
