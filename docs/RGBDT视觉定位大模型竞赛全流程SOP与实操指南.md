@@ -148,7 +148,7 @@ python offline/train.py \
 python offline/infer.py \
   --model qwen3vl \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
-  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 4 \
@@ -157,7 +157,7 @@ python offline/infer.py \
 python offline/infer.py \
   --model qwen3vl \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
-  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 4 \
@@ -172,7 +172,7 @@ python offline/infer.py \
 python offline/infer.py \
   --model internvl35 \
   --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
-  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 4 \
@@ -181,7 +181,7 @@ python offline/infer.py \
 python offline/infer.py \
   --model internvl35 \
   --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
-  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 4 \
