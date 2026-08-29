@@ -10,11 +10,9 @@
 /mnt/workspace/aicomp_env/                持久虚拟环境
 /mnt/workspace/aicomp-multimodal-grounding/ 仓库
 /mnt/workspace/aicomp-multimodal-grounding/data/ 数据集（仓库内，持久）
+/mnt/workspace/models/                     持久模型目录
 /root/                                     非持久临时工作区
-/root/models/                              非持久模型目录
 ```
-
-模型全部下载到 `/root/models`，关机即失，每次 GPU 实例开机后重新下载。
 
 ## 1. 克隆项目仓库（首次执行）
 
@@ -66,12 +64,10 @@ source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
 ```
 
-## 4. 下载模型
-
-GPU 实例开机后执行：
+## 4. 下载模型（首次执行）
 
 ```bash
-export MODEL_ROOT=/root/models
+export MODEL_ROOT=/mnt/workspace/models
 mkdir -p "$MODEL_ROOT"
 
 modelscope download --model Qwen/Qwen3-VL-8B-Instruct \
@@ -81,10 +77,10 @@ modelscope download --model OpenGVLab/InternVL3_5-8B-HF \
   --local_dir "$MODEL_ROOT/OpenGVLab/InternVL3_5-8B-HF"
 ```
 
-下载前检查临时盘空间：
+下载前检查持久盘空间：
 
 ```bash
-df -h /root
+df -h /mnt/workspace
 ```
 
 ## 5. 训练
@@ -97,7 +93,7 @@ df -h /root
 python offline/train.py \
   --annotation-run-id YOUR_ANNOTATION_RUN_ID \
   --model qwen3vl \
-  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
   --num-workers 4 \
   --checkpoint-interval 20 \
@@ -106,7 +102,7 @@ python offline/train.py \
 python offline/train.py \
   --annotation-run-id YOUR_ANNOTATION_RUN_ID \
   --model qwen3vl \
-  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
   --run-tag exp-qwen8-retrain \
   --num-workers 4 \
@@ -119,14 +115,14 @@ python offline/train.py \
 python offline/train.py \
   --annotation-run-id YOUR_ANNOTATION_RUN_ID \
   --model internvl35 \
-  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --data-dir data \
   --smoke-test
 
 python offline/train.py \
   --annotation-run-id YOUR_ANNOTATION_RUN_ID \
   --model internvl35 \
-  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --data-dir data \
   --run-tag exp-internvl-01
 ```
@@ -151,7 +147,7 @@ python offline/train.py \
 ```bash
 python offline/infer.py \
   --model qwen3vl \
-  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
@@ -160,7 +156,7 @@ python offline/infer.py \
 
 python offline/infer.py \
   --model qwen3vl \
-  --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
@@ -175,7 +171,7 @@ python offline/infer.py \
 ```bash
 python offline/infer.py \
   --model internvl35 \
-  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
@@ -184,7 +180,7 @@ python offline/infer.py \
 
 python offline/infer.py \
   --model internvl35 \
-  --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
+  --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_03 \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
