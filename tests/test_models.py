@@ -136,6 +136,12 @@ class GroundingDINOContractTests(unittest.TestCase):
         self.assertEqual(bbox, [0.25, 0.25, 0.375, 0.375])
         self.assertEqual(score, 0.9)
 
+    def test_select_top_detection_falls_back_to_next_valid_box(self):
+        boxes = [[0.8, 0.8, 0.4, 0.4], [0.1, 0.1, 0.5, 0.5]]
+        bbox, score = select_top_detection(boxes, [0.9, 0.6])
+        self.assertEqual(bbox, [0.1, 0.1, 0.5, 0.5])
+        self.assertEqual(score, 0.6)
+
     def test_select_top_detection_rejects_invalid_or_low_score(self):
         self.assertEqual(
             select_top_detection([[0.8, 0.8, 0.4, 0.4]], [0.9]),

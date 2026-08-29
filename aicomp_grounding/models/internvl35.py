@@ -130,11 +130,11 @@ class InternVL35Adapter:
 
         source = model_path or self.model_name
         from_hub = model_path is None
+        # InternVL3.5-HF controls the patch budget in preprocessor_config
+        # (`max_patches`); do not pass the legacy max_num_tiles name here.
         processor = AutoProcessor.from_pretrained(
             source,
             **({"revision": self.model_revision} if from_hub else {}),
-            # Dynamic tiling budget per image (12 tiles ~ 1080p-class input).
-            max_num_tiles=self.max_num_tiles,
         )
         processor.tokenizer.padding_side = "left"
 
@@ -283,9 +283,54 @@ class InternVL35Adapter:
         return result
 
     def collate_training_batch(self, batch: list[dict], *, processor) -> dict:
-        padded = processor.pad(batch, padding=True, return_tensors="pt")
-        padded["labels"] = padded["labels"].long()
-        return padded
+        import torch
+
+        # Current training config uses batch_size=1; returning the item directly
+        # avoids processor.pad, which InternVLProcessor does not expose.
+        if len(batch) == 1:
+            item = dict(batch[0])
+            item["labels"] = item["labels"].long()
+            return item
+
+        pad_id = processor.tokenizer.pad_token_id
+        max_length = max(item["input_ids"].size(0) for item in batch)
+        input_ids = []
+        labels = []
+        attention_masks = []
+        pixel_values = []
+        for item in batch:
+            padding = max_length - item["input_ids"].size(0)
+            input_ids.append(
+                torch.cat(
+                    [
+                        torch.full((padding,), pad_id, dtype=item["input_ids"].dtype),
+                        item["input_ids"],
+                    ]
+                )
+            )
+            labels.append(
+                torch.cat(
+                    [
+                        torch.full((padding,), -100, dtype=item["labels"].dtype),
+                        item["labels"],
+                    ]
+                )
+            )
+            attention_masks.append(
+                torch.cat(
+                    [
+                        torch.zeros(padding, dtype=item["attention_mask"].dtype),
+                        item["attention_mask"],
+                    ]
+                )
+            )
+            pixel_values.append(item["pixel_values"])
+        return {
+            "input_ids": torch.stack(input_ids),
+            "labels": torch.stack(labels).long(),
+            "attention_mask": torch.stack(attention_masks),
+            "pixel_values": torch.cat(pixel_values, dim=0),
+        }
 
     def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:
         messages = [

@@ -149,6 +149,10 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
   中的路径同步更新。
 * InternVL adapter 修正 `<IMG_CONTEXT>` 图片占位符，并保留官方 left-padding
   解码语义；`max_new_tokens` 对齐到 100。
+* InternVL collate 不再调用不存在的 `processor.pad`：`batch_size=1` 直接返回
+  单样本，多 batch 手动 left padding 并拼接 `pixel_values`。
+* InternVL 加载不再传 `max_num_tiles`，分块预算由模型
+  `preprocessor_config.json` 的 `max_patches` 控制。
 * InternVL 加载改用显式 `InternVLForConditionalGeneration`，兼容 transformers
   4.57/v5，修复 DSW v5 下 `AutoModelForVision2Seq` 的 ImportError。
 * 补充社区核对后：InternVL 此前误改的逐样本 `attention_mask` 解码已回退，
@@ -156,9 +160,11 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * DINO adapter 修正直接消费 post-process XYXY、显式
   `GroundingDinoForObjectDetection`、本地 processor fallback、阈值参数兼容，
   并按官方 demo 增加 query `strip/lower/补句号` 预处理。
+* DINO `select_top_detection` 改为按分数降序回退，最高分非法时继续取下一个
+  合法框，不再直接返回 None。
 * README 移除成绩/run id 等现状记录；architecture 验证状态与 DINO XYXY
   描述同步；SOP 补齐 DINO 下载与推理命令；research-v2 修正 InternVL 坐标序。
-* 全量单测 211 项通过（4 skip）；`compileall` 与 `git diff --check` 通过。
+* 全量单测 212 项通过（4 skip）；`compileall` 与 `git diff --check` 通过。
 * 未在真实 GPU 上执行 InternVL/DINO Val 切片；该项仍待 GPU 环境验证。
 
 ### 2026-08-29（仓库，接手本地状态与新标注训练 preflight）

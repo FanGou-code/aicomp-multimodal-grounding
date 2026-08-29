@@ -43,13 +43,13 @@ def select_top_detection(
     """Pick the highest-confidence valid post-processed XYXY box."""
     if not boxes_xyxy or not scores:
         return None, None
-    best_index = max(range(len(scores)), key=lambda i: scores[i])
-    if scores[best_index] < BOX_THRESHOLD:
-        return None, None
-    xyxy = validate_bbox(boxes_xyxy[best_index])
-    if xyxy is None:
-        return None, None
-    return xyxy, float(scores[best_index])
+    for index in sorted(range(len(scores)), key=lambda i: scores[i], reverse=True):
+        if scores[index] < BOX_THRESHOLD:
+            break
+        xyxy = validate_bbox(boxes_xyxy[index])
+        if xyxy is not None:
+            return xyxy, float(scores[index])
+    return None, None
 
 
 def _load_local_processor(source: str):
