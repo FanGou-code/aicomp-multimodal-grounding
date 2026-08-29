@@ -383,8 +383,7 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
   run id 均不变；新增 `tests/test_training_checkpoint_retention.py`。
 * 推理提速：VLM adapter 拆分 `prepare_inputs`/`predict_from_inputs`
   （`base.py` 协议新增 `supports_prepared_inputs`），DataLoader 的 collate 在
-  worker 进程内完成 processor 预处理，消除主进程串行 CPU 瓶颈（此前
-  MI300X 实测 0.3 samples/s，GPU 利用率低）；加载时打印 image processor
+  worker 进程内完成 processor 预处理，消除主进程串行 CPU 瓶颈；加载时打印 image processor
   类型用于 fast/slow 诊断。新增 `tests/test_dataloader_inference.py`
   （本地无 torch 跳过，GPU 环境执行）。
 * 标注质量门控：`query.py` 新增 `validate_query_style`（<5 词且无空间/序数/
