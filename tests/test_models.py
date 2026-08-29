@@ -17,7 +17,9 @@ from aicomp_grounding.models.groundingdino import (
     select_top_detection,
 )
 from aicomp_grounding.models.internvl35 import (
+    INTERNVL_IMAGE_TOKEN,
     build_grounding_question,
+    extract_generated_tokens,
     parse_internvl_box,
 )
 from aicomp_grounding.models.mock import _stable_box
@@ -88,13 +90,21 @@ class TrainableAdapterContractTests(unittest.TestCase):
 
 
 class InternVLContractTests(unittest.TestCase):
-    def test_question_has_numbered_image_slots_and_official_prompt(self):
+    def test_question_has_numbered_context_image_slots_and_official_prompt(self):
         question = build_grounding_question("the red car")
-        self.assertEqual(question.count("<image>"), 3)
-        self.assertIn("Image-1: <image>", question)
-        self.assertIn("Image-3: <image>", question)
+        self.assertEqual(question.count(INTERNVL_IMAGE_TOKEN), 3)
+        self.assertIn("Image-1: " + INTERNVL_IMAGE_TOKEN, question)
+        self.assertIn("Image-3: " + INTERNVL_IMAGE_TOKEN, question)
+        self.assertNotIn("<image>", question)
         self.assertIn("<ref>the red car</ref>", question)
         self.assertIn("visible RGB, infrared, and depth", question)
+
+    def test_extract_generated_tokens_uses_each_prompt_length(self):
+        tokens = [[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]]
+        self.assertEqual(
+            extract_generated_tokens(tokens, [3, 2]),
+            [[4, 5, 6], [9, 10, 11, 12]],
+        )
 
     def test_parse_box_with_tags_scales_from_1000(self):
         text = 'The target is <ref>the car</ref><box>[[100,200,300,400]]</box>.'

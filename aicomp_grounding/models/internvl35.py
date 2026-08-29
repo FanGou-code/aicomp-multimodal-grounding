@@ -24,7 +24,11 @@ from aicomp_grounding.models.base import ModelInput, Prediction
 MODEL_NAME = "OpenGVLab/InternVL3_5-8B-HF"
 MODEL_REVISION = "741a7d03020411e666c6109218ab71e08151ef86"
 
-MAX_NEW_TOKENS = 64
+# Official grounding evaluation allots 100 tokens; InternVL may prefix prose
+# before the box, so keep the same budget here.
+MAX_NEW_TOKENS = 100
+
+INTERNVL_IMAGE_TOKEN = "<IMG_CONTEXT>"
 
 _NUMBER = r"\d+(?:\.\d+)?"
 _BOX_PATTERN = re.compile(
@@ -47,9 +51,11 @@ GROUNDING_PROMPT_SUFFIX = (
 
 
 def build_grounding_question(query: str) -> str:
-    """Full user question: three numbered <image> slots + official prompt."""
+    """Full user question with numbered InternVL image-context slots."""
     return (
-        "Image-1: <image>\nImage-2: <image>\nImage-3: <image>\n"
+        f"Image-1: {INTERNVL_IMAGE_TOKEN}\n"
+        f"Image-2: {INTERNVL_IMAGE_TOKEN}\n"
+        f"Image-3: {INTERNVL_IMAGE_TOKEN}\n"
         + MODALITY_PREAMBLE
         + GROUNDING_PROMPT_SUFFIX.format(query=query)
     )
@@ -77,6 +83,11 @@ def parse_internvl_box(text: str) -> list[float] | None:
     return validate_bbox(values)
 
 
+def extract_generated_tokens(generated_ids, prompt_lengths) -> list:
+    """Strip each left-padded prompt using its own actual length."""
+    return [row[length:] for row, length in zip(generated_ids, prompt_lengths)]
+
+
 class InternVL35Adapter:
     name = "internvl35"
     model_name = MODEL_NAME
@@ -93,6 +104,7 @@ class InternVL35Adapter:
         }
         self._processor = None
         self._model = None
+        self._grounding_prompt_lengths = None
 
     def prompt_hash(self) -> str:
         import hashlib
@@ -100,7 +112,7 @@ class InternVL35Adapter:
         payload = {
             "modality_preamble": MODALITY_PREAMBLE,
             "grounding_prompt": GROUNDING_PROMPT_SUFFIX,
-            "image_slots": ["<image>"] * 3,
+            "image_slots": [INTERNVL_IMAGE_TOKEN] * 3,
         }
         import json
 
@@ -214,26 +226,10 @@ class InternVL35Adapter:
             "]</box>"
         )
         prompt_messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "image"},
-                    {"type": "image"},
-                    {"type": "text", "text": build_grounding_question(query)},
-                ],
-            }
+            {"role": "user", "content": build_grounding_question(query)}
         ]
         training_messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "image"},
-                    {"type": "image"},
-                    {"type": "text", "text": build_grounding_question(query)},
-                ],
-            },
+            {"role": "user", "content": build_grounding_question(query)},
             {"role": "assistant", "content": answer},
         ]
         prompt_text = processor.apply_chat_template(
@@ -283,18 +279,7 @@ class InternVL35Adapter:
 
     def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:
         messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "image"},
-                    {"type": "image"},
-                    {
-                        "type": "text",
-                        "text": build_grounding_question(sample.query),
-                    },
-                ],
-            }
+            {"role": "user", "content": build_grounding_question(sample.query)}
             for sample in samples
         ]
         texts = [
@@ -310,13 +295,21 @@ class InternVL35Adapter:
             for sample in samples
             for image in (sample.visible, sample.infrared, sample.depth)
         ]
-        return processor(text=texts, images=images, padding=True, return_tensors="pt")
+        inputs = processor(text=texts, images=images, padding=True, return_tensors="pt")
+        self._grounding_prompt_lengths = inputs["attention_mask"].sum(dim=1).tolist()
+        return inputs
 
     def decode_grounding_outputs(self, processor, generated_ids, prompt_len: int) -> list[str]:
-        return processor.batch_decode(
-            generated_ids[:, prompt_len:],
-            skip_special_tokens=False,
-        )
+        lengths = self._grounding_prompt_lengths
+        if lengths is None or len(lengths) != len(generated_ids):
+            lengths = [int(prompt_len)] * len(generated_ids)
+        text_outputs = []
+        for row in extract_generated_tokens(generated_ids, lengths):
+            batch = row.unsqueeze(0) if hasattr(row, "unsqueeze") else [row]
+            text_outputs.append(
+                processor.batch_decode(batch, skip_special_tokens=False)[0]
+            )
+        return text_outputs
 
     def parse_grounding_text(self, text: str) -> list[float] | None:
         return parse_internvl_box(text)
@@ -327,15 +320,7 @@ class InternVL35Adapter:
 
         processor = self._processor
         messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "image"},
-                    {"type": "image"},
-                    {"type": "text", "text": build_grounding_question(sample.query)},
-                ],
-            }
+            {"role": "user", "content": build_grounding_question(sample.query)}
             for sample in samples
         ]
         texts = [
@@ -369,11 +354,13 @@ class InternVL35Adapter:
                 do_sample=False,
             )
 
-        prompt_len = inputs["input_ids"].shape[1]
-        generated_tokens = generated_ids[:, prompt_len:]
-        text_outputs = processor.batch_decode(
-            generated_tokens, skip_special_tokens=False
-        )
+        prompt_lengths = inputs["attention_mask"].sum(dim=1).tolist()
+        text_outputs = []
+        for row in extract_generated_tokens(generated_ids, prompt_lengths):
+            batch = row.unsqueeze(0) if hasattr(row, "unsqueeze") else [row]
+            text_outputs.append(
+                processor.batch_decode(batch, skip_special_tokens=False)[0]
+            )
         return [
             Prediction(bbox=parse_internvl_box(text), score=None)
             for text in text_outputs
