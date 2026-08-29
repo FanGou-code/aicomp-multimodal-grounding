@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -165,6 +166,13 @@ class RunIdentityTests(unittest.TestCase):
     def test_test_metadata_forbids_annotation_run(self):
         with self.assertRaisesRegex(ValueError, "forbids annotation_run_id"):
             _metadata(["001_1"], split="test", annotation_run_id="annot_round1")
+
+    def test_run_id_format_and_retry_suffix(self):
+        keys = ["001_1"]
+        base = _metadata(keys, mode="base")
+        self.assertTrue(re.fullmatch(r"infer_[0-9a-f]{16}", base["run_id"]))
+        retry = _metadata(keys, mode="retry")
+        self.assertTrue(re.fullmatch(r"infer_[0-9a-f]{16}_retry", retry["run_id"]))
 
 
 class PendingShardTests(unittest.TestCase):
