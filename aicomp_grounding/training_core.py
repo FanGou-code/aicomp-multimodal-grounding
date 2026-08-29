@@ -222,8 +222,6 @@ def prepare_training_plan(
     resume: bool,
     smoke_test: bool = False,
     verify_images: bool = True,
-    use_all_data: bool = False,
-    val_scenes: int = 40,
 ) -> dict:
     if not isinstance(smoke_test, bool):
         raise ValueError("smoke_test must be boolean")
@@ -259,43 +257,6 @@ def prepare_training_plan(
     train_artifact = load_json(train_path)
     val_artifact = load_json(val_path)
 
-    if use_all_data:
-        import random as _random_for_split
-
-        merged = {**train_artifact["data"], **val_artifact["data"]}
-        scenes: dict[str, list[str]] = {}
-        for sample_id in merged:
-            scene = sample_id.split("_")[0]
-            scenes.setdefault(scene, []).append(sample_id)
-        all_scenes = sorted(scenes)
-        _random_for_split.Random(seed + 100).shuffle(all_scenes)
-        if not 1 <= val_scenes < len(all_scenes):
-            raise ValueError(
-                f"val_scenes must be in [1, {len(all_scenes) - 1}], got {val_scenes}"
-            )
-        new_val_scenes = set(all_scenes[:val_scenes])
-        train_artifact["data"] = {
-            k: v for k, v in merged.items() if k.split("_")[0] not in new_val_scenes
-        }
-        val_artifact["data"] = {
-            k: v for k, v in merged.items() if k.split("_")[0] in new_val_scenes
-        }
-        # Regenerate dataset and image fingerprints for the new split.
-        # dataset_fingerprint: deterministic hash of sample IDs.
-        # image_fingerprint: deterministic hash of sample paths (fast; full
-        # byte-level verification is deferred to the verify_images path below).
-        from aicomp_grounding.artifacts import key_hash, stable_json_hash
-
-        train_artifact["metadata"]["dataset_fingerprint"] = key_hash(
-            train_artifact["data"].keys()
-        )
-        val_artifact["metadata"]["dataset_fingerprint"] = key_hash(
-            val_artifact["data"].keys()
-        )
-        train_image_ids = stable_json_hash(sorted(train_artifact["data"].keys()))
-        val_image_ids = stable_json_hash(sorted(val_artifact["data"].keys()))
-        train_artifact["metadata"]["image_fingerprint"] = f"key:{train_image_ids}"
-        val_artifact["metadata"]["image_fingerprint"] = f"key:{val_image_ids}"
     train_artifact, val_artifact = validate_training_artifacts(
         train_artifact,
         val_artifact,
@@ -353,14 +314,6 @@ def prepare_training_plan(
     )
     run_dir = output_base / "output_lora" / metadata["training_run_id"]
 
-    if use_all_data:
-        run_dir.mkdir(parents=True, exist_ok=True)
-        resplit_train = run_dir / "train_resplit.json"
-        resplit_val = run_dir / "val_resplit.json"
-        atomic_write_json(resplit_train, train_artifact)
-        atomic_write_json(resplit_val, val_artifact)
-        train_path = resplit_train
-        val_path = resplit_val
     completed_path = run_dir / "completed.json"
     if completed_path.is_file():
         completed = validate_completed_training_state(

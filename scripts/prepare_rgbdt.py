@@ -385,6 +385,20 @@ def prepare_test_depth(args: argparse.Namespace) -> dict:
     return stats
 
 
+def build_processed_test_index(official: dict) -> dict:
+    """Map the official Test template to the in-memory processed worker layout."""
+    processed = {}
+    for query_id, item in official.items():
+        depth_name = PurePosixPath(item["depth"]).name
+        processed[query_id] = {
+            "visible": f"Test/{item['visible']}",
+            "infrared": f"Test/{item['infrared']}",
+            "depth": f"Processed/Test/depth_jet/{depth_name}",
+            "query": item["query"],
+        }
+    return processed
+
+
 def validate_test_depth_references(
     dataset_root: Path,
     *,
@@ -398,22 +412,12 @@ def validate_test_depth_references(
     three-channel visualizations and are copied byte-for-byte. Returns a list
     of error strings (empty = all OK).
     """
-    test_json = dataset_root / "test.json"
-    if not test_json.is_file():
-        return [f"test.json not found at {test_json}"]
-
-    try:
-        data = load_json(test_json)
-    except (ValueError, OSError) as exc:
-        return [f"Invalid test.json at {test_json}: {exc}"]
-    if not data:
-        return [f"test.json is empty at {test_json}"]
-
     official_path = dataset_root / "Test" / "queries" / "queries.json"
     if not official_path.is_file():
         return [f"Official Test template not found at {official_path}"]
     try:
         official = load_json(official_path)
+        data = build_processed_test_index(official)
         validate_processed_test_index(
             data,
             official,
@@ -650,8 +654,8 @@ def prepare_dataset(
 
     test_contract = None
     if not args.skip_test_validation and not args.dry_run:
-        processed_test = load_json(args.dataset_root / "test.json")
         official_test = load_json(args.dataset_root / "Test" / "queries" / "queries.json")
+        processed_test = build_processed_test_index(official_test)
         test_contract = build_test_preparation_contract(
             args.dataset_root,
             processed_test,

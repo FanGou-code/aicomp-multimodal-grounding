@@ -10,6 +10,7 @@ from aicomp_grounding.fusion.wbf import (
     build_fusion_metadata,
     fuse_boxes,
     fuse_predictions,
+    normalize_score_files,
     wbf_fuse_key,
 )
 from aicomp_grounding.io import atomic_write_json
@@ -158,6 +159,17 @@ class FusionMetadataTests(unittest.TestCase):
                 score_files=[scores, None],
             )
             self.assertNotEqual(first["run_id"], changed_scores["run_id"])
+
+
+class ScoreCliPathsTests(unittest.TestCase):
+    def test_blank_cli_score_values_become_none(self):
+        self.assertEqual(
+            normalize_score_files(["", "scores_dino.json", ""]),
+            [None, Path("scores_dino.json"), None],
+        )
+
+    def test_no_score_values_returns_none(self):
+        self.assertIsNone(normalize_score_files(None))
 
 
 if __name__ == "__main__":

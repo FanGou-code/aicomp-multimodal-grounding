@@ -68,8 +68,6 @@ def parse_args():
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--deep-verify-images", action="store_true")
-    parser.add_argument("--use-all-data", action="store_true")
-    parser.add_argument("--val-scenes", type=int, default=40)
     parser.add_argument(
         "--num-workers",
         type=int,
@@ -104,16 +102,14 @@ def main():
         resume=args.resume,
         smoke_test=args.smoke_test,
         verify_images=args.deep_verify_images,
-        use_all_data=args.use_all_data,
-        val_scenes=args.val_scenes,
     )
-    if not args.smoke_test:
+    if not args.smoke_test and not args.preflight_only:
         persist_training_plan(plan)
 
     if args.preflight_only:
         print(
-            f"Training preflight passed: {plan['metadata']['training_run_id']} | "
-            f"already completed: {plan['skip_training']}"
+            "Training preflight passed. Preflight does not persist a run plan; "
+            "the authoritative run id is generated and persisted by the GPU/full training run."
         )
         return plan
 

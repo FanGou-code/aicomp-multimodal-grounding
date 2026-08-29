@@ -247,7 +247,6 @@ class PrepareDatasetTests(unittest.TestCase):
                     "query": "The person wearing a bright yellow jacket",
                 }
             }
-            (root / "test.json").write_text(json.dumps(test_data), encoding="utf-8")
             _write_official_template(root, test_data)
             args = _args(root)
             args.skip_test_validation = False
@@ -276,7 +275,6 @@ class PrepareDatasetTests(unittest.TestCase):
                     "query": "The person wearing a bright yellow jacket",
                 }
             }
-            (root / "test.json").write_text(json.dumps(test_data), encoding="utf-8")
             _write_official_template(root, test_data)
             args = _args(root, dry_run=False)
             args.skip_test_validation = False
@@ -341,7 +339,6 @@ class PrepareDatasetTests(unittest.TestCase):
                     "query": "The person wearing a bright yellow jacket",
                 }
             }
-            (root / "test.json").write_text(json.dumps(atomic), encoding="utf-8")
             _write_official_template(root, atomic)
             errors = validate_test_depth_references(
                 root,

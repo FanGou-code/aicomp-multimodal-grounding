@@ -97,6 +97,44 @@ def _filter_samples(
     return index, excluded
 
 
+def _index_scene_ids(index: dict) -> List[str]:
+    """Return sorted scene IDs represented by an index, dropping emptied scenes."""
+    return sorted({str(key).split("_", 1)[0] for key in index})
+
+
+def _update_split_manifest(manifest: dict, indexes: Dict[str, dict]) -> dict:
+    """Refresh manifest fields so counts, fingerprints, and scene lists stay consistent."""
+    fingerprints = manifest.setdefault("index_fingerprints", {})
+    counts = manifest.setdefault("index_sample_counts", {})
+    stats = manifest.get("stats")
+
+    for split, index in indexes.items():
+        fingerprints[split] = stable_json_hash(index)
+        counts[split] = len(index)
+
+    if isinstance(stats, dict):
+        for split in ("train", "val"):
+            sample_key = f"{split}_samples"
+            if sample_key in stats:
+                stats[sample_key] = counts.get(split, 0)
+        if "valid_samples" in stats:
+            stats["valid_samples"] = sum(int(counts.get(split, 0)) for split in ("train", "val"))
+        if "sequences" in stats:
+            scene_ids: Set[str] = set()
+            for index in indexes.values():
+                scene_ids.update(_index_scene_ids(index))
+            stats["sequences"] = len(scene_ids)
+
+    if "train_sequences" in manifest and "train" in indexes:
+        manifest["train_sequences"] = _index_scene_ids(indexes["train"])
+    if "val_sequences" in manifest and "val" in indexes:
+        manifest["val_sequences"] = _index_scene_ids(indexes["val"])
+
+    manifest["index_fingerprints"] = fingerprints
+    manifest["index_sample_counts"] = counts
+    return manifest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Remove train/val samples that overlap with Test images (SHA-256)."
@@ -123,6 +161,7 @@ def main() -> None:
         return
 
     all_records: Dict[str, List[dict]] = {}
+    cleaned_indexes: Dict[str, dict] = {}
     for split in ("train", "val"):
         index_path = data_root / f"{split}.json"
         if not index_path.is_file():
@@ -132,6 +171,7 @@ def main() -> None:
             index = json.load(handle)
         index, records = _filter_samples(index, test_hashes, data_root, split)
         all_records[split] = records
+        cleaned_indexes[split] = index
 
         if args.overwrite_indexes:
             atomic_write_json(index_path, index)
@@ -139,21 +179,11 @@ def main() -> None:
     # Keep split_manifest.json consistent with the filtered indexes so the
     # annotation and training pipelines accept the new split.
     manifest_path = data_root / "split_manifest.json"
-    if args.overwrite_indexes and manifest_path.is_file():
+    if args.overwrite_indexes and cleaned_indexes and manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        fingerprints = manifest.get("index_fingerprints", {})
-        counts = manifest.get("index_sample_counts", {})
-        for split in ("train", "val"):
-            index_path = data_root / f"{split}.json"
-            if not index_path.is_file():
-                continue
-            index = json.loads(index_path.read_text(encoding="utf-8"))
-            fingerprints[split] = stable_json_hash(index)
-            counts[split] = len(index)
-        manifest["index_fingerprints"] = fingerprints
-        manifest["index_sample_counts"] = counts
+        _update_split_manifest(manifest, cleaned_indexes)
         atomic_write_json(manifest_path, manifest)
-        print(f"[filter_overlap] Updated split_manifest.json fingerprints/counts.")
+        print("[filter_overlap] Updated split_manifest.json fingerprints/counts/scenes.")
 
     excluded_path = data_root / "excluded_overlap.json"
     summary = {

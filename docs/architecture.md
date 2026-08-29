@@ -116,7 +116,7 @@ modal run cloud/train.py --model <name> --annotation-run-id YOUR_ANNOTATION_RUN_
 
 # 4. 融合
 python -m aicomp_grounding.fusion.wbf --predictions qwen.json internvl.json dino.json \
-    --weights 1 1 1 --scores '' '' dino_scores.json --test-json data/Test/queries/queries.json
+    --weights 1 1 1 --scores '' '' '' --test-json data/Test/queries/queries.json
 ```
 
 分支约定：fork → 特性分支 → PR 回主仓库，由仓库管理员 review 合并。

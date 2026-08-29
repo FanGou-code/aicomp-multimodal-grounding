@@ -243,7 +243,7 @@ Depth-JET 生成，否则会重复扫描约 44GB 图像并卡在 I/O 上。
 
 ```bash
 # 1. 批量生成本地 Depth-JET 伪彩图
-python scripts/prepare_rgbdt.py --dataset-root data --skip-test-validation
+python scripts/prepare_rgbdt.py --dataset-root data
 
 # 2. 本地一次性构建切分 JSON 索引（不要放到云端启动阶段）
 python scripts/build_indexes.py --data-dir data
@@ -258,7 +258,7 @@ python scripts/build_indexes.py --data-dir data
 `data/excluded_overlap.json`；该步骤只适合在本地
 首次准备数据时执行，不应该放进云端日常训练/推理流程。
 
-> 当前 `annot_ac72f1d926bb2d23` 标注集已核查：Train 2,875 条、Val 719 条与 Test 的 SHA-256 匹配均为 **0**，无同源帧进入训练。
+> 当前 `annot_dc189f029d962b27` 标注集已核查：Train 2,875 条、Val 719 条与 Test 的 SHA-256 匹配均为 **0**，无同源帧进入训练。
 
 ### 2. Query 生成
 
@@ -308,7 +308,7 @@ outputs/annotations/<ANNOTATION_RUN_ID>/<split>/
   approved.json
 ```
 
-> 仓库通过 `.gitignore` 白名单分发 `annot_ac72f1d926bb2d23` 的
+> 仓库通过 `.gitignore` 白名单分发 `annot_dc189f029d962b27` 的
 > `train/val approved.json`；这些文件保持字节级一致并纳入指纹校验。
 > 其余生成中间文件（shards / merged 等）仍在本地生成，不入库。
 
@@ -428,7 +428,7 @@ python offline/infer.py \
 python -m aicomp_grounding.fusion.wbf \
   --predictions outputs/inference/<QWEN_INFER>/predictions.json outputs/inference/<INTERNVL_INFER>/predictions.json outputs/inference/<DINO_INFER>/predictions.json \
   --weights 1.0 1.0 0.8 \
-  --scores "" "" outputs/inference/<DINO_INFER>/scores.json \
+  --scores "" "" "" \
   --test-json data/Test/queries/queries.json \
   --output-dir outputs/fusion
 ```

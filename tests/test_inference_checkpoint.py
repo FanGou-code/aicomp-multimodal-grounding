@@ -60,7 +60,6 @@ class DepthReferenceTests(unittest.TestCase):
                     "query": "A red car.",
                 }
             }
-            (root / "test.json").write_text(json.dumps(test_data), encoding="utf-8")
             _write_official_template(root, test_data)
             errors = _validate_small_test(root)
             self.assertEqual(errors, [])
@@ -84,7 +83,6 @@ class DepthReferenceTests(unittest.TestCase):
                     "query": "A red car.",
                 }
             }
-            (root / "test.json").write_text(json.dumps(test_data), encoding="utf-8")
             _write_official_template(root, test_data)
             errors = _validate_small_test(root)
             self.assertEqual(len(errors), 1)
@@ -104,25 +102,34 @@ class DepthReferenceTests(unittest.TestCase):
                     "query": "A red car.",
                 }
             }
-            (root / "test.json").write_text(json.dumps(test_data), encoding="utf-8")
             _write_official_template(root, test_data)
             errors = _validate_small_test(root)
             self.assertEqual(len(errors), 1)
             self.assertIn("missing", errors[0])
 
-    def test_empty_or_escaping_test_index_is_rejected(self):
+    def test_empty_official_template_is_rejected(self):
         import json
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "data"
             root.mkdir()
-            (root / "test.json").write_text("{}", encoding="utf-8")
-            self.assertIn("empty", validate_test_depth_references(root)[0])
+            official_path = root / "Test" / "queries" / "queries.json"
+            official_path.parent.mkdir(parents=True)
+            official_path.write_text("{}", encoding="utf-8")
+            errors = validate_test_depth_references(
+                root,
+                expected_query_count=None,
+                expected_template_sha256=None,
+            )
+            self.assertIn("empty", errors[0].lower())
 
-            outside = Path(td) / "outside"
-            for name in ("visible.png", "infrared.png", "depth.png"):
-                _write_color_image(outside / name)
-            escaping = {
+    def test_escaping_official_path_is_rejected(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "data"
+            root.mkdir()
+            official = {
                 "000001_001": {
                     "visible": "../outside/visible.png",
                     "infrared": "../outside/infrared.png",
@@ -130,27 +137,22 @@ class DepthReferenceTests(unittest.TestCase):
                     "query": "The person wearing a yellow jacket",
                 }
             }
-            (root / "test.json").write_text(json.dumps(escaping), encoding="utf-8")
-            official = {
-                "000001_001": {
-                    "visible": "Images/visible/frame.png",
-                    "infrared": "Images/infrared/frame.png",
-                    "depth": "Images/depth/frame.png",
-                    "query": "The person wearing a yellow jacket",
-                }
-            }
             official_path = root / "Test" / "queries" / "queries.json"
             official_path.parent.mkdir(parents=True)
             official_path.write_text(json.dumps(official), encoding="utf-8")
-            errors = _validate_small_test(root)
+            errors = validate_test_depth_references(
+                root,
+                expected_query_count=None,
+                expected_template_sha256=None,
+            )
             self.assertEqual(len(errors), 1)
-            self.assertIn("does not map", errors[0])
+            self.assertIn("does not match", errors[0])
 
-    def test_missing_test_json_reports_error(self):
+    def test_missing_official_template_reports_error(self):
         with tempfile.TemporaryDirectory() as td:
             errors = validate_test_depth_references(Path(td))
             self.assertEqual(len(errors), 1)
-            self.assertIn("test.json not found", errors[0])
+            self.assertIn("Official Test template not found", errors[0])
 
     def test_offline_infer_resume_defaults_to_true(self):
         from offline.infer import parse_args

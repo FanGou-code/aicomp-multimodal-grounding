@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aicomp_grounding.artifacts import stable_json_hash
+
 
 def _make_rgb_image(path: Path, width: int = 10, height: int = 10, seed: int = 0) -> Path:
     from PIL import Image
@@ -161,6 +163,41 @@ class FilterOverlapTests(unittest.TestCase):
         cleaned, excluded = _filter_samples(index, test_hashes, self.root, "train")
         self.assertEqual(len(excluded), 0)
         self.assertEqual(len(cleaned), 1)
+
+    def test_manifest_update_refreshes_counts_fingerprints_and_scenes(self):
+        from scripts.filter_overlap import _update_split_manifest
+
+        manifest = {
+            "stats": {
+                "train_samples": 2,
+                "val_samples": 2,
+                "valid_samples": 4,
+                "sequences": 2,
+            },
+            "train_sequences": ["001", "002"],
+            "val_sequences": ["003", "004"],
+            "index_fingerprints": {"train": "old", "val": "old"},
+            "index_sample_counts": {"train": 2, "val": 2},
+        }
+        indexes = {
+            "train": {
+                "001_00000001": {},
+                "001_00000002": {},
+            },
+            "val": {
+                "003_00000001": {},
+            },
+        }
+
+        updated = _update_split_manifest(manifest, indexes)
+
+        self.assertEqual(updated["index_sample_counts"], {"train": 2, "val": 1})
+        self.assertEqual(updated["index_fingerprints"]["train"], stable_json_hash(indexes["train"]))
+        self.assertEqual(updated["index_fingerprints"]["val"], stable_json_hash(indexes["val"]))
+        self.assertEqual(updated["stats"]["valid_samples"], 3)
+        self.assertEqual(updated["stats"]["sequences"], 2)
+        self.assertEqual(updated["train_sequences"], ["001"])
+        self.assertEqual(updated["val_sequences"], ["003"])
 
 
 if __name__ == "__main__":

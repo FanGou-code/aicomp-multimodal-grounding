@@ -19,7 +19,7 @@ Modal 由 `cloud/` 适配器使用 Volume 布局，离线端不依赖该布局�
 
 ```bash
 python offline/train.py \
-  --annotation-run-id annot_ac72f1d926bb2d23 \
+  --annotation-run-id annot_dc189f029d962b27 \
   --model qwen3vl \
   --data-dir data \
   --annotation-root outputs/annotations \
@@ -58,8 +58,8 @@ python offline/infer.py --model internvl35 --test-json data/Test/queries/queries
 ```bash
 python offline/infer.py \
   --model qwen3vl \
-  --test-json outputs/annotations/annot_ac72f1d926bb2d23/val/approved.json \
-  --annotation-run-id annot_ac72f1d926bb2d23 \
+  --test-json outputs/annotations/annot_dc189f029d962b27/val/approved.json \
+  --annotation-run-id annot_dc189f029d962b27 \
   --data-dir data \
   --lora-path YOUR_LORA_PATH
 ```
@@ -82,7 +82,7 @@ used when a platform starts the process from another working directory.
 ## 仓库内容与外部数据清单
 
 **仓库自带**：全部代码 / 测试 / 黄金标注集
-（`outputs/annotations/annot_ac72f1d926bb2d23/{train,val}/approved.json`）。
+（`outputs/annotations/annot_dc189f029d962b27/{train,val}/approved.json`）。
 
 **需要另外获取**：
 

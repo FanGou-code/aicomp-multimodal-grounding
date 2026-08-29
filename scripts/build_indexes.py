@@ -176,6 +176,10 @@ def build_indexes(
             "val": stable_json_hash(val_data),
             "test": stable_json_hash(test_index),
         },
+        "index_sample_counts": {
+            "train": len(train_data),
+            "val": len(val_data),
+        },
     }
     atomic_write_json(dataset_root / "split_manifest.json", manifest)
     print(f"[+] data/split_manifest.json generated.")

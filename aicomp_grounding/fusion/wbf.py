@@ -150,6 +150,13 @@ def build_fusion_metadata(
     return {"algorithm": ALGORITHM, "run_id": run_id, "inputs": payload}
 
 
+def normalize_score_files(values: list[str] | None) -> list[Path | None] | None:
+    """Convert CLI score arguments; empty strings mean no score file for that model."""
+    if values is None:
+        return None
+    return [None if str(value) == "" else Path(value) for value in values]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -168,7 +175,6 @@ def main() -> None:
     )
     parser.add_argument(
         "--scores",
-        type=Path,
         nargs="+",
         default=None,
         help="Optional per-model score files (e.g. DINO confidences); use '' to skip a model.",
@@ -186,11 +192,7 @@ def main() -> None:
     if len(args.predictions) < 2:
         parser.error("WBF needs at least two prediction files")
     weights = args.weights or [1.0] * len(args.predictions)
-    score_files = None
-    if args.scores:
-        score_files = [
-            None if str(score) == "" else score for score in args.scores
-        ]
+    score_files = normalize_score_files(args.scores)
 
     metadata = build_fusion_metadata(
         args.predictions,

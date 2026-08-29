@@ -78,8 +78,8 @@ def parse_args():
         type=Path,
         default=Path("data/Test/queries/queries.json"),
         help=(
-            "Path to input dataset JSON index; accepts approved artifacts, "
-            "data/test.json, or the official Test template directly."
+            "Path to input dataset JSON index; accepts approved artifacts "
+            "or the official Test template directly."
         ),
     )
     parser.add_argument(
