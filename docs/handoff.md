@@ -149,8 +149,8 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
   中的路径同步更新。
 * InternVL adapter 修正 `<IMG_CONTEXT>` 图片占位符，并保留官方 left-padding
   解码语义；`max_new_tokens` 对齐到 100。
-* InternVL collate 不再调用不存在的 `processor.pad`：`batch_size=1` 直接返回
-  单样本，多 batch 手动 left padding 并拼接 `pixel_values`。
+* InternVL collate 不再调用不存在的 `processor.pad`：`batch_size=1` 为 text
+  tensor 补回 batch 维，多 batch 手动 left padding 并拼接 `pixel_values`。
 * InternVL 加载不再传 `max_num_tiles`，分块预算由模型
   `preprocessor_config.json` 的 `max_patches` 控制。
 * InternVL 加载改用显式 `InternVLForConditionalGeneration`，兼容 transformers

@@ -289,7 +289,9 @@ class InternVL35Adapter:
         # avoids processor.pad, which InternVLProcessor does not expose.
         if len(batch) == 1:
             item = dict(batch[0])
-            item["labels"] = item["labels"].long()
+            item["input_ids"] = item["input_ids"].unsqueeze(0)
+            item["attention_mask"] = item["attention_mask"].unsqueeze(0)
+            item["labels"] = item["labels"].unsqueeze(0).long()
             return item
 
         pad_id = processor.tokenizer.pad_token_id
