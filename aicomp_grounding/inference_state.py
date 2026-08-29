@@ -198,7 +198,10 @@ def build_run_metadata(
         "base_prediction_fingerprint": base_prediction_fingerprint,
     }
     identity_hash = stable_json_hash(identity, length=16)
-    run_id = f"infer_{split}_{mode}_{identity_hash}"
+    if mode == "retry":
+        run_id = f"infer_{identity_hash}_retry"
+    else:
+        run_id = f"infer_{identity_hash}"
     metadata = {
         "version": CHECKPOINT_VERSION,
         "python_version": RUNTIME_PYTHON_VERSION,
