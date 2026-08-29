@@ -2,7 +2,7 @@
 
 > 全仓库唯一的状态与交接记录：做到哪了、成绩、下一步。每次交接或阶段性
 > 完成时更新「当前状态」并在「交接日志」追加一条（新的写最上面）。
-> 结构与代码约定见 `architecture.md`，调研背景见 `research-v2.md`。
+> 结构与代码约定见 `architecture.md`，赛题规则见 `research.md`。
 > 交接日志保留历史记录，不作为当前状态结论；当前状态以上方最新条目为准。
 
 ## 仓库总览
@@ -38,17 +38,14 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-28，8B 新标注重训与打榜）
+## 当前状态（最后更新 2026-08-30，8B 新标注重训完成与测试集推理产物就绪）
 
-### 当前专注：Qwen3-VL-8B 大模型微调（2026-08-28）
-- **决策**：移除 `qwen3vl32` 适配器与 32B 相关文档，集中算力跑 Qwen3-VL-8B 新标注训练。
-- **标注资产基准**：统一使用全新发布的自适应消歧标注 `annot_dc189f029d962b27`（Train 2,875 帧 + Val 719 帧）。
-- **8B 训练参数**：`batch_size=1`，`grad_accum=16`，LoRA Rank 16 / Alpha 48，`num_workers=4`，checkpoint 每 20 optimizer step 保存。
-- **本地接手状态**：`annot_dc189f029d962b27` 的 approved 图片指纹已从 `verification-skipped` 修正为
-  `manifest_*` 可信引用指纹；CPU preflight 通过，正式训练 run id 为 `train_72d09d474a1c8a0c`
-  （`--run-tag exp-qwen8-retrain`，2875 Train / 719 Val，尚未开始训练）。
-- **下一步（需 GPU）**：用 `train_72d09d474a1c8a0c` 跑 `--smoke-test` → 通过后 3 epoch 正式训练 →
-  Val/Test 推理与提交。
+### 当前专注：Qwen3-VL-8B 新标注重训产物就绪与打榜提交（2026-08-30）
+- **训练完成**：基于全新发布的自适应消歧标注 `annot_dc189f029d962b27`（2,875 Train / 719 Val）完成 3 轮 LoRA 微调（run id: `train_7b312e6e90bb14db`）。
+- **验证集指标**：Epoch 01 Val ACC@0.5 90.96% (654/719) / Val Loss 0.3607；**Best 为 Epoch 02，Val ACC@0.5 达到 92.77% (667/719 hits)** / Val Loss 0.3529，Mean IoU 0.8655。系统已自动锁定并归档 `best/epoch_02`。
+- **测试集推理完成**：使用 `best/epoch_02` 权重在官方测试集（9,555 查询）上完成全量推理（run id: `infer_88e5b6123b2c0fbe`），产出 9,552 个合法预测框（有效率 99.97%），3 个未出框样本已自动填充微小安全兜底框。
+- **提交包就绪**：官方提交包已打包并校验生成：`outputs/inference/infer_88e5b6123b2c0fbe/submission.zip`，可直接下载上传官网打榜。
+- **下一步**：官方平台提交打榜 → 记录真实 Test 分数 → 根据反馈推进 TTA（测试时增强）或与 InternVL3.5/GroundingDINO 开展 WBF 加权框融合。
 
 ### 成绩一览
 
@@ -133,6 +130,18 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-30（训练与推理，Qwen3-VL-8B 新标注重训完成与测试集提交包就绪）
+
+* **8B 新标注重训完成**：基于 `annot_dc189f029d962b27` 完成 3 轮训练（run id: `train_7b312e6e90bb14db`，540 steps）。
+  - Epoch 01: Val ACC@0.5 = 90.96% (654/719), Val Loss = 0.3607；
+  - Epoch 02 (Best): **Val ACC@0.5 = 92.77% (667/719 hits)**, Val Loss = 0.3529, Mean IoU = 0.8655；
+  - 框架自动选优并锁定保存 `best/epoch_02`。
+* **官方测试集推理与打包完成**：
+  - 加载 `best/epoch_02` 权重在官方全量测试集（9,555 查询）上完成推理（run id: `infer_88e5b6123b2c0fbe`）；
+  - 输出 9,552 个有效边界框（有效率 99.97%），3 个未出框样本由系统自动填充安全兜底框；
+  - 自动构建并通过校验生成官方提交包：`outputs/inference/infer_88e5b6123b2c0fbe/submission.zip`。
+* **文档与研究资料净化**：清理 `research.md` 中非官方臆测信息，全文档引用对齐。
 
 ### 2026-08-30（仓库，模型持久化与 InternVL/DINO 适配收敛）
 
