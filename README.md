@@ -382,7 +382,8 @@ python offline/infer.py \
 
 #### 4.2 官方测试集推理（单模型打榜）
 
-单卡推荐 `--num-shards 1` + `--num-workers 4`，DataLoader 会预取图像与 GPU 推理并行：
+单卡推荐 `--num-shards 1` + `--num-workers 2` + `--batch-size 4`，DataLoader 会预取图像
+与 GPU 推理并行；GroundingDINO 继续使用 `--num-workers 4` + `--batch-size 8`：
 
 ```bash
 # 1. Qwen3-VL-8B 推理
@@ -393,7 +394,7 @@ python offline/infer.py \
   --lora-path outputs/output_lora/<QWEN_RUN_ID>/best/epoch_03 \
   --model-path /root/models/Qwen/Qwen3-VL-8B-Instruct \
   --num-shards 1 \
-  --num-workers 4 \
+  --num-workers 2 \
   --batch-size 4 \
   --run-tag qwen-infer
 
@@ -405,7 +406,7 @@ python offline/infer.py \
   --lora-path outputs/output_lora/<INTERNVL_RUN_ID>/best/epoch_03 \
   --model-path /root/models/OpenGVLab/InternVL3_5-8B-HF \
   --num-shards 1 \
-  --num-workers 4 \
+  --num-workers 2 \
   --batch-size 4 \
   --run-tag internvl-infer
 

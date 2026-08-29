@@ -44,7 +44,11 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 - **决策**：移除 `qwen3vl32` 适配器与 32B 相关文档，集中算力跑 Qwen3-VL-8B 新标注训练。
 - **标注资产基准**：统一使用全新发布的自适应消歧标注 `annot_dc189f029d962b27`（Train 2,875 帧 + Val 719 帧）。
 - **8B 训练参数**：`batch_size=1`，`grad_accum=16`，LoRA Rank 16 / Alpha 48，`num_workers=4`，checkpoint 每 20 optimizer step 保存。
-- **下一步**：8B full-run smoke → 3 epoch 正式训练 → Val/Test 推理与提交。
+- **本地接手状态**：`annot_dc189f029d962b27` 的 approved 图片指纹已从 `verification-skipped` 修正为
+  `manifest_*` 可信引用指纹；CPU preflight 通过，正式训练 run id 为 `train_72d09d474a1c8a0c`
+  （`--run-tag exp-qwen8-retrain`，2875 Train / 719 Val，尚未开始训练）。
+- **下一步（需 GPU）**：用 `train_72d09d474a1c8a0c` 跑 `--smoke-test` → 通过后 3 epoch 正式训练 →
+  Val/Test 推理与提交。
 
 ### 成绩一览
 
@@ -77,7 +81,7 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 ### 环境与运行边界（沿用）
 
 - 本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU 训练推理用 `offline/`。
-- 推理推荐单卡：Qwen 8B 等小模型 `--num-shards 1 --num-workers 4`。
+- 推理推荐单卡：Qwen 8B 等三图 VLM `--num-shards 1 --num-workers 2 --batch-size 4`。
 - 本仓库是唯一可移植实验单元；`cloud/`（Modal）账号恢复后才启用。
 - 断点续跑语义、run id 指纹连续性均未破坏；`tests/test_models.py` 钉死 Qwen identity。
 - 模型权重不落持久盘（100G 配额给 venv/代码/标注/断点/输出）；每次 GPU 启动从魔搭
@@ -129,6 +133,16 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-29（仓库，接手本地状态与新标注训练 preflight）
+
+* 修正 `annot_dc189f029d962b27` Train/Val approved 资产的 `image_fingerprint`：
+  `verification-skipped` -> `manifest_49bbae...` / `manifest_6322c1...`；训练 run identity
+  现在绑定可信图片引用指纹，而非未校验占位符。
+* 本地 `qwen_vg` 环境 CPU preflight 通过：`train_72d09d474a1c8a0c`
+  （`annot_dc189f029d962b27` + `exp-qwen8-retrain`，2875 Train / 719 Val，已就绪未训练）。
+* 全量单测 206 项通过（4 skip）；`compileall` 与 `git diff --check` 通过。
+* 本机无可用 GPU（`nvidia-smi` 被系统拦截）；8B smoke/full-run 留待 GPU 环境执行。
 
 ### 2026-08-28（仓库，离线推理 --resume 默认值对齐为 True）
 
