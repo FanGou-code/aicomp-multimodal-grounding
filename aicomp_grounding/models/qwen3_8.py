@@ -46,11 +46,13 @@ def _apply_chat_template(
     *,
     add_generation_prompt: bool,
 ) -> str:
+    # transformers 5.x passes Jinja template variables via **kwargs; the
+    # legacy chat_template_kwargs dict is treated as processor kwargs.
     return processor.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=add_generation_prompt,
-        chat_template_kwargs=CHAT_TEMPLATE_KWARGS,
+        **CHAT_TEMPLATE_KWARGS,
     )
 
 

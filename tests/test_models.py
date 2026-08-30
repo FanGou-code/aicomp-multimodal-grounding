@@ -150,9 +150,9 @@ class Qwen3_8ChatTemplateTests(unittest.TestCase):
                 *,
                 tokenize,
                 add_generation_prompt,
-                chat_template_kwargs=None,
+                **kwargs,
             ):
-                self.kwargs = chat_template_kwargs
+                self.kwargs = kwargs
                 return "template-text"
 
         processor = FakeProcessor()
@@ -179,9 +179,9 @@ class Qwen3_8ChatTemplateTests(unittest.TestCase):
                 *,
                 tokenize,
                 add_generation_prompt,
-                chat_template_kwargs=None,
+                **kwargs,
             ):
-                self.calls.append(chat_template_kwargs)
+                self.calls.append(kwargs)
                 return "template-text"
 
             def __call__(self, **kwargs):
