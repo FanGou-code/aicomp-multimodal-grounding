@@ -19,9 +19,8 @@
 
 ```bash
 cd /mnt/workspace
-git clone https://github.com/FanGou-code/aicomp-multimodal-grounding.git
+git clone https://YOUR_GITHUB_TOKEN@ghfast.top/https://github.com/FanGou-code/aicomp-multimodal-grounding.git
 cd aicomp-multimodal-grounding
-git remote set-url origin https://YOUR_GITHUB_TOKEN@ghfast.top/https://github.com/FanGou-code/aicomp-multimodal-grounding.git
 ```
 
 ## 2. 准备数据集（首次执行）
