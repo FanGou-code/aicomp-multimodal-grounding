@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
+import types
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.io import atomic_write_json
@@ -36,7 +39,7 @@ class RegistryTests(unittest.TestCase):
     def test_registry_exposes_expected_models(self):
         self.assertEqual(
             available_models(),
-            ["groundingdino", "internvl35", "mock", "qwen3vl"],
+            ["groundingdino", "internvl35", "mock", "qwen3_8", "qwen3vl"],
         )
 
     def test_unknown_model_raises_with_valid_options(self):
@@ -78,9 +81,133 @@ class QwenIdentityContinuityTests(unittest.TestCase):
         )
 
 
+class Qwen3_8IdentityTests(unittest.TestCase):
+    """Pin Qwen3.8-27B identity values so run fingerprints never drift."""
+
+    def test_model_constants_match_adoption_pin(self):
+        from aicomp_grounding.models.qwen3_8 import (
+            MAX_PIXELS as Q38_MAX_PIXELS,
+            MIN_PIXELS as Q38_MIN_PIXELS,
+            MODEL_NAME as Q38_MODEL_NAME,
+            MODEL_REVISION as Q38_MODEL_REVISION,
+        )
+
+        self.assertEqual(Q38_MODEL_NAME, "Qwen/Qwen3.8-27B")
+        self.assertEqual(
+            Q38_MODEL_REVISION, "e823e888ae179eb3be02c1a48899c4f828371376"
+        )
+        self.assertEqual(Q38_MIN_PIXELS, 256 * 28 * 28)
+        self.assertEqual(Q38_MAX_PIXELS, 3072 * 28 * 28)
+
+    def test_prompt_hash_matches_prompts_module(self):
+        adapter = get_adapter("qwen3_8")
+        self.assertEqual(
+            adapter.prompt_hash(), grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
+        )
+
+    def test_identity_fields_are_complete(self):
+        adapter = get_adapter("qwen3_8")
+        identity = adapter.identity()
+        self.assertEqual(
+            sorted(identity), ["model_name", "model_revision", "prompt_hash"]
+        )
+        self.assertEqual(identity["model_name"], "Qwen/Qwen3.8-27B")
+
+    def test_training_hyperparameters_clone_qwen3vl_baseline(self):
+        adapter = get_adapter("qwen3_8")
+        hyper = adapter.training_hyperparameters()
+        self.assertEqual(hyper["batch_size"], 1)
+        self.assertEqual(hyper["gradient_accumulation_steps"], 16)
+        self.assertEqual(hyper["learning_rate"], 1e-4)
+        self.assertEqual(hyper["epochs"], 3)
+        self.assertEqual(hyper["lora_rank"], 16)
+        self.assertEqual(hyper["lora_alpha"], 48)
+        self.assertEqual(hyper["compute_dtype"], "bfloat16")
+        self.assertEqual(
+            adapter.lora_target_modules(),
+            ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        )
+
+
+class Qwen3_8ChatTemplateTests(unittest.TestCase):
+    """Qwen3.8 thinks by default; grounding must always disable it."""
+
+    def test_chat_template_kwargs_disable_thinking(self):
+        from aicomp_grounding.models.qwen3_8 import CHAT_TEMPLATE_KWARGS
+
+        self.assertEqual(CHAT_TEMPLATE_KWARGS, {"enable_thinking": False})
+
+    def test_apply_chat_template_helper_forwards_non_thinking_kwargs(self):
+        from aicomp_grounding.models.qwen3_8 import _apply_chat_template
+
+        class FakeProcessor:
+            def __init__(self):
+                self.kwargs = None
+
+            def apply_chat_template(
+                self,
+                messages,
+                *,
+                tokenize,
+                add_generation_prompt,
+                chat_template_kwargs=None,
+            ):
+                self.kwargs = chat_template_kwargs
+                return "template-text"
+
+        processor = FakeProcessor()
+        text = _apply_chat_template(
+            processor,
+            [{"role": "user", "content": "Locate: the person"}],
+            add_generation_prompt=True,
+        )
+        self.assertEqual(text, "template-text")
+        self.assertEqual(processor.kwargs, {"enable_thinking": False})
+
+    def test_inference_builders_use_non_thinking_chat_template(self):
+        from PIL import Image
+
+        from aicomp_grounding.models.base import ModelInput
+
+        class FakeProcessor:
+            def __init__(self):
+                self.calls = []
+
+            def apply_chat_template(
+                self,
+                messages,
+                *,
+                tokenize,
+                add_generation_prompt,
+                chat_template_kwargs=None,
+            ):
+                self.calls.append(chat_template_kwargs)
+                return "template-text"
+
+            def __call__(self, **kwargs):
+                return {"inputs_ready": True}
+
+        fake_vision = types.ModuleType("qwen_vl_utils")
+        fake_vision.process_vision_info = lambda messages: ([], [])
+        image = Image.new("RGB", (8, 8))
+        sample = ModelInput(visible=image, infrared=image, depth=image, query="the person")
+        processor = FakeProcessor()
+        adapter = get_adapter("qwen3_8")
+        adapter._processor = processor
+
+        with mock.patch.dict(sys.modules, {"qwen_vl_utils": fake_vision}):
+            adapter.build_grounding_batch([sample], processor=processor)
+            adapter.prepare_inputs([sample])
+
+        self.assertTrue(processor.calls)
+        self.assertTrue(
+            all(call == {"enable_thinking": False} for call in processor.calls)
+        )
+
+
 class TrainableAdapterContractTests(unittest.TestCase):
     def test_vlm_adapters_expose_training_contract(self):
-        for name in ("qwen3vl", "internvl35"):
+        for name in ("qwen3vl", "qwen3_8", "internvl35"):
             adapter = get_adapter(name)
             hyperparameters = adapter.training_hyperparameters()
             self.assertEqual(hyperparameters["lora_rank"], 16)

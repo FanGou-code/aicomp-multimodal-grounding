@@ -8,6 +8,7 @@
 ```text
 /mnt/workspace/                            持久盘
 /mnt/workspace/aicomp_env/                持久虚拟环境
+/mnt/workspace/aicomp_env_q38/           Qwen3.8 独立虚拟环境
 /mnt/workspace/aicomp-multimodal-grounding/ 仓库
 /mnt/workspace/aicomp-multimodal-grounding/data/ 数据集（仓库内，持久）
 /mnt/workspace/models/                     持久模型目录
@@ -64,6 +65,32 @@ source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
 ```
 
+### Qwen3.8-27B 独立环境
+
+Qwen3.8-27B 的 `model_type` 为 `qwen3_5`，需 `transformers>=5.8.0`，与主环境
+`transformers==4.57.3` 不兼容，单独建虚拟环境（venv 落持久盘，小）：
+
+```bash
+python3 -m venv --system-site-packages /mnt/workspace/aicomp_env_q38
+source /mnt/workspace/aicomp_env_q38/bin/activate
+cd /mnt/workspace/aicomp-multimodal-grounding
+
+pip install transformers==5.8.0 peft==0.19.1 \
+  accelerate==1.14.0 qwen-vl-utils==0.0.14 \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+
+source offline/rocm_env.sh
+echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' \
+  >> /mnt/workspace/aicomp_env_q38/bin/activate
+```
+
+之后每次执行 Qwen3.8 训练/推理前，激活此环境：
+
+```bash
+source /mnt/workspace/aicomp_env_q38/bin/activate
+cd /mnt/workspace/aicomp-multimodal-grounding
+```
+
 ## 4. 下载模型（首次执行）
 
 ```bash
@@ -84,6 +111,25 @@ modelscope download --model AI-ModelScope/grounding-dino-base \
 
 ```bash
 df -h /mnt/workspace
+```
+
+### Qwen3.8-27B（临时盘，每次新实例重下）
+
+Qwen3.8-27B 权重约 55.6 GB，持久盘配额放不下，下到非持久临时盘 `/root`，
+每次新实例重下（区别于其他模型落持久盘）：
+
+```bash
+export MODEL_ROOT_Q38=/root/models
+mkdir -p "$MODEL_ROOT_Q38"
+
+modelscope download --model Qwen/Qwen3.8-27B \
+  --local_dir "$MODEL_ROOT_Q38/Qwen/Qwen3.8-27B"
+```
+
+下载前检查临时盘空间：
+
+```bash
+df -h /root
 ```
 
 ## 5. 训练
@@ -108,6 +154,31 @@ python offline/train.py \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
   --run-tag exp-qwen8-retrain \
+  --num-workers 4 \
+  --checkpoint-interval 20
+```
+
+### Qwen3.8-27B
+
+需先激活 Qwen3.8 独立环境（见第 3 节）。超参与推理参数照搬 Qwen3-VL-8B；
+`--model-path` 指向临时盘，每次新实例需先重下权重（见第 4 节）。
+
+```bash
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model qwen3_8 \
+  --model-path /root/models/Qwen/Qwen3.8-27B \
+  --data-dir data \
+  --num-workers 4 \
+  --checkpoint-interval 20 \
+  --smoke-test
+
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model qwen3_8 \
+  --model-path /root/models/Qwen/Qwen3.8-27B \
+  --data-dir data \
+  --run-tag exp-qwen38-27b-01 \
   --num-workers 4 \
   --checkpoint-interval 20
 ```
@@ -172,6 +243,30 @@ python offline/infer.py \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
   --batch-size 4 --batch-save 100 --run-tag qwen8-lora-full
+```
+
+### Qwen3.8-27B
+
+微调后（需先激活 Qwen3.8 独立环境，权重在临时盘，每次新实例需重下）：
+
+```bash
+python offline/infer.py \
+  --model qwen3_8 \
+  --model-path /root/models/Qwen/Qwen3.8-27B \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --limit 100 --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen38-lora-smoke
+
+python offline/infer.py \
+  --model qwen3_8 \
+  --model-path /root/models/Qwen/Qwen3.8-27B \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen38-lora-full
 ```
 
 ### InternVL3.5-8B

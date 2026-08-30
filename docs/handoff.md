@@ -25,7 +25,7 @@
 | `tests/` | 离线单测与工作流契约 |
 | `docs/` | 状态交接（本文件）/ 架构约定 / 调研报告 / 实操 SOP |
 
-**文档顺序**：冷启动按 `AGENT.md`：先 `docs/handoff.md`（本文件，状态与下一步）→
+**文档顺序**：先 `docs/handoff.md`（本文件，状态与下一步）→
 `docs/architecture.md`（结构不变量）→ 根 `README.md`（用法）→ 就近 README；
 GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.md` 为准。
 
@@ -38,13 +38,13 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-30，8B 判定触顶，转 16B + 异构 WBF）
+## 当前状态（最后更新 2026-08-31，Qwen3.8-27B 接入，待 GPU smoke）
 
-### 当前专注：16B 同系列大模型为主攻，现有标注/prompt 不再改动
-- **新标注 Qwen3-VL-8B 官方 Test：0.7325**（run `infer_88e5b6123b2c0fbe`）。低于旧浅单模型 0.7439，与旧深 0.7322 基本持平。
-- **全量对比结论**：新标注在词长、语义五分类上比旧标注更接近 Test，但 ordinal/distance/左右方向等关键消歧算子仍偏少；Test 本身为 2000 张图 / 9555 query，平均每图 4.78 query，训练标注为一帧一条。
-- **判定**：不再改 prompt 或重造标注；8B 微调不再投入。公共环节（输入协议、坐标输出、硬件精度）未发现确认 bug，查询理解是主要可疑点但无足够证据支持低置信度修改。
-- **下一步**：InternVL3.5-8B 新标注训练后先 Val smoke → DINO Val 体检并按 WBF 消融决定是否纳入 → 同系列 16B 接入前先短 smoke → 大模型 + 异构 8B + DINO 四模型 WBF。
+### 当前专注：Qwen3.8-27B 为主力实验，现有标注/prompt 不再改动
+- **现状**：8B 各方案 Test 0.7322-0.7439，WBF 0.7453 触顶；判定数据/标注天花板，换更强语言基座作为主力。
+- **Qwen3.8-27B**：魔搭可下载，`qwen3_5` 架构，需 `transformers>=5.8.0`；独立 `aicomp_env_q38`；权重 55.6GB 放持久盘不下，下 `/root/models` 每次重下。
+- **已接入**：`qwen3_8` 适配器（超参/推理照搬 8B，关闭默认思考模式），训练/推理 CLI、SOP 四节、单测 219 通过。
+- **下一步**：GPU 训练 smoke → 全量 27B（约 540 步 / 2-3 天）→ 推理 smoke（Val 看 ACC）→ Test 全量；InternVL3.5-8B/DINO/WBF 仍为并行待办。
 
 ### 成绩一览
 
@@ -130,6 +130,24 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-31（仓库，Qwen3.8-27B 接入与 SOP 定稿）
+
+* 研究确认：魔搭 `Qwen/Qwen3.8-27B` 存在，Apache-2.0，`model_type=qwen3_5`，需 `transformers>=5.8.0`，与主环境 4.57.3 不兼容，单独 `aicomp_env_q38`；权重 55.6GB，落 `/root/models` 每次新实例重下。
+* 新增 `qwen3_8` 适配器：`Qwen3_5ForConditionalGeneration`，MODEL_REVISION pin `e823e888...`，超参/推理照搬 8B（batch 1 / grad_accum 16 / lr 1e-4 / 3ep / alpha 48 / rank 16 / infer batch 4）；关闭默认思考模式 `enable_thinking=False`。
+* 注册与入口：`models/__init__.py`、`offline/train.py --model qwen3_8`、`offline/infer.py`（max_pixels 特判纳入）。
+* SOP 新增 Qwen3.8 独立环境 / 临时盘下载 / 训练 / 推理四节，未改其他模型小节。
+* 本地验证：219 项单测通过（4 skip），compileall、`git diff --check` 通过。
+* 时长预估：MI300X 192GB 每步约 5-8min，540 步约 2-3 天，每 20 步约 100-160min，以 smoke 实测为准。
+* 下一步：训练 smoke → 全量 27B → 推理 smoke（Val 看 ACC）→ Test 全量推理。
+
+### 2026-08-30（接手，本地接手验证与前进门槛）
+
+* 已完整阅读 `docs/handoff.md`、`docs/architecture.md`、根 README、offline README 与 SOP；确认当前方向为 8B 上位档开源 VLM + InternVL3.5-8B/DINO 异构 WBF。
+* 本地接手验证通过：`unittest discover -s tests` 212 项通过（4 skip，torch/transformers 未装）；`compileall`、`git diff --check` 通过；`offline/infer.py --model mock --limit 3` 端到端推理通过。
+* 风格审计复核：新版 Train 词长 11.0/10、ordinal 21.6%、spatial_landmark 36.0%、distance 1.6%；旧版 6.0/6、4.3%、21.6%、1.2%；Test 10.3/9、28.5%、34.0%、10.5%，与 handoff 记录一致。
+* 环境差异：当前接手机器为 WSL 单机（8GB NVIDIA，无 `/mnt/workspace`，`qwen_vg` 未装 torch/transformers）；本地有完整 `data/`、golden 标注与历史 predictions，但缺最佳 checkpoint `best/epoch_02` 与新测试提交包实体，这些 `/mnt/workspace` 远程产物未同步到本仓库。
+* 下一步仍被 GPU/持久工作区门槛阻塞：InternVL3.5-8B 训练 smoke、DINO Val 体检、8B 上位模型短 smoke、WBF 都需在具备 `/mnt/workspace` 的 GPU 环境执行。
 
 ### 2026-08-30（分析，新旧标注全量对比与方向定案）
 
