@@ -151,6 +151,8 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
   解码语义；`max_new_tokens` 对齐到 100。
 * InternVL collate 不再调用不存在的 `processor.pad`：`batch_size=1` 为 text
   tensor 补回 batch 维，多 batch 手动 left padding 并拼接 `pixel_values`。
+* InternVL 验证/推理的 `apply_chat_template` 改为传入完整 conversation 列表，
+  修复 transformers v5 对单条 message dict 入参的兼容问题。
 * InternVL 加载不再传 `max_num_tiles`，分块预算由模型
   `preprocessor_config.json` 的 `max_patches` 控制。
 * InternVL 加载改用显式 `InternVLForConditionalGeneration`，兼容 transformers

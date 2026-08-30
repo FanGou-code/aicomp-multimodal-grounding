@@ -335,17 +335,17 @@ class InternVL35Adapter:
         }
 
     def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:
-        messages = [
-            {"role": "user", "content": build_grounding_question(sample.query)}
+        conversations = [
+            [{"role": "user", "content": build_grounding_question(sample.query)}]
             for sample in samples
         ]
         texts = [
             processor.apply_chat_template(
-                message,
+                conversation,
                 tokenize=False,
                 add_generation_prompt=True,
             )
-            for message in messages
+            for conversation in conversations
         ]
         images = [
             image
@@ -368,13 +368,17 @@ class InternVL35Adapter:
             raise RuntimeError("InternVL35Adapter.load() must run before predict()")
 
         processor = self._processor
-        messages = [
-            {"role": "user", "content": build_grounding_question(sample.query)}
+        conversations = [
+            [{"role": "user", "content": build_grounding_question(sample.query)}]
             for sample in samples
         ]
         texts = [
-            processor.apply_chat_template(m, tokenize=False, add_generation_prompt=True)
-            for m in messages
+            processor.apply_chat_template(
+                conversation,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            for conversation in conversations
         ]
         images = [
             image
