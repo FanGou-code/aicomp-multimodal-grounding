@@ -8,6 +8,7 @@ constants.
 from __future__ import annotations
 
 import platform
+from importlib import metadata as importlib_metadata
 
 ANNOTATION_PROVIDER = "zhipu"
 ANNOTATION_MODEL_NAME = "glm-4.6v"
@@ -42,25 +43,41 @@ MODAL_GPU_PACKAGES = (
 )
 
 
-def current_runtime_packages() -> list[str]:
-    """Return installed GPU package versions when available, pinned fallback otherwise."""
+def current_runtime_packages(model_name: str | None = None) -> list[str]:
+    """Return installed runtime versions, with model-specific pinned fallbacks."""
     packages = list(MODAL_GPU_PACKAGES)
+    if model_name == "qwen3_8":
+        packages = [
+            "transformers==5.8.0" if package.startswith("transformers==") else package
+            for package in packages
+        ]
+
+    for index, package in enumerate(packages):
+        distribution, separator, _ = package.partition("==")
+        if not separator:
+            continue
+        try:
+            version = importlib_metadata.version(distribution)
+        except importlib_metadata.PackageNotFoundError:
+            continue
+        packages[index] = f"{distribution}=={version}"
+
     try:
         import torch
-        import torchvision
-
-        replacements = {
-            "torch==": f"torch=={torch.__version__}",
-            "torchvision==": f"torchvision=={torchvision.__version__}",
-        }
-        packages = [
-            next((value for prefix, value in replacements.items() if pkg.startswith(prefix)), pkg)
-            for pkg in packages
-        ]
-        if torch.version.hip:
-            packages.append(f"hip=={torch.version.hip}")
     except Exception:
-        pass
+        torch = None
+    if torch is not None:
+        packages = [
+            f"torch=={torch.__version__}" if package.startswith("torch==") else package
+            for package in packages
+        ]
+        try:
+            hip_version = torch.version.hip
+        except AttributeError:
+            hip_version = None
+        if hip_version:
+            packages.append(f"hip=={hip_version}")
+
     return packages
 
 CHECKPOINT_VERSION = 5

@@ -205,6 +205,46 @@ class Qwen3_8ChatTemplateTests(unittest.TestCase):
         )
 
 
+class Qwen3_8CollateTests(unittest.TestCase):
+    def test_collate_preserves_multimodal_token_types(self):
+        try:
+            import torch
+        except ModuleNotFoundError:
+            self.skipTest("torch is required for tensor collation")
+
+        class Tokenizer:
+            pad_token_id = 0
+
+        class Processor:
+            tokenizer = Tokenizer()
+
+        batch = [
+            {
+                "input_ids": torch.tensor([1, 2]),
+                "labels": torch.tensor([-100, 2]),
+                "attention_mask": torch.tensor([1, 1]),
+                "pixel_values": torch.zeros((1, 3)),
+                "image_grid_thw": torch.tensor([[1, 1, 1]]),
+                "mm_token_type_ids": torch.tensor([0, 1]),
+            },
+            {
+                "input_ids": torch.tensor([1, 2, 3]),
+                "labels": torch.tensor([-100, 2, 3]),
+                "attention_mask": torch.tensor([1, 1, 1]),
+                "pixel_values": torch.zeros((1, 3)),
+                "image_grid_thw": torch.tensor([[1, 1, 1]]),
+                "mm_token_type_ids": torch.tensor([0, 1, 1]),
+            },
+        ]
+        result = get_adapter("qwen3_8").collate_training_batch(
+            batch,
+            processor=Processor(),
+        )
+        self.assertEqual(
+            result["mm_token_type_ids"].tolist(), [[0, 1, 0], [0, 1, 1]]
+        )
+
+
 class TrainableAdapterContractTests(unittest.TestCase):
     def test_vlm_adapters_expose_training_contract(self):
         for name in ("qwen3vl", "qwen3_8", "internvl35"):

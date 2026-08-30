@@ -238,8 +238,10 @@ class Qwen3_8Adapter:
         pad_id = processor.tokenizer.pad_token_id
         if pad_id is None:
             raise ValueError("Processor tokenizer has no pad_token_id")
-        ids, labels, attention, pixels, grids = [], [], [], [], []
+        ids, labels, attention, pixels, grids, mm_token_types = [], [], [], [], [], []
         for item in batch:
+            if "mm_token_type_ids" not in item:
+                raise ValueError("Qwen3.8 training batch is missing mm_token_type_ids")
             padding = max_length - item["input_ids"].size(0)
             ids.append(
                 torch.cat(
@@ -256,6 +258,17 @@ class Qwen3_8Adapter:
                     [item["attention_mask"], torch.zeros(padding, dtype=torch.long)]
                 )
             )
+            mm_token_types.append(
+                torch.cat(
+                    [
+                        item["mm_token_type_ids"],
+                        torch.zeros(
+                            padding,
+                            dtype=item["mm_token_type_ids"].dtype,
+                        ),
+                    ]
+                )
+            )
             pixels.append(item["pixel_values"])
             grids.append(item["image_grid_thw"])
         return {
@@ -264,6 +277,7 @@ class Qwen3_8Adapter:
             "attention_mask": torch.stack(attention),
             "pixel_values": torch.cat(pixels, dim=0),
             "image_grid_thw": torch.cat(grids, dim=0),
+            "mm_token_type_ids": torch.stack(mm_token_types),
         }
 
     def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:

@@ -43,7 +43,7 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 ### 当前专注：Qwen3.8-27B 为主力实验，现有标注/prompt 不再改动
 - **现状**：8B 各方案 Test 0.7322-0.7439，WBF 0.7453 触顶；判定数据/标注天花板，换更强语言基座作为主力。
 - **Qwen3.8-27B**：魔搭可下载，`qwen3_5` 架构，需 `transformers>=5.8.0`；独立 `aicomp_env_q38`；权重 55.6GB 放持久盘不下，下 `/root/models` 每次重下。
-- **已接入**：`qwen3_8` 适配器（超参/推理照搬 8B，关闭默认思考模式），训练/推理 CLI、SOP 四节、单测 219 通过。
+- **已接入**：`qwen3_8` 适配器（超参/推理照搬 8B，关闭默认思考模式），训练/推理 CLI、SOP 四节；已修复 Qwen3.5 训练所需 `mm_token_type_ids` 传递，单测 221 通过（5 skip）。
 - **下一步**：GPU 训练 smoke → 全量 27B（约 540 步 / 2-3 天）→ 推理 smoke（Val 看 ACC）→ Test 全量；InternVL3.5-8B/DINO/WBF 仍为并行待办。
 
 ### 成绩一览
@@ -130,6 +130,13 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-31（仓库，Qwen3.8 smoke 阻塞修复）
+
+* GPU smoke 已完成 Qwen3.8 权重加载与 LoRA 注入；前向失败原因为训练 collate 丢弃 Qwen3.5 必需的 `mm_token_type_ids`。
+* `qwen3_8` collate 已保留并 padding `mm_token_type_ids`；runtime metadata 按模型记录实际安装版本，Qwen3.8 fallback 为 transformers 5.8.0。
+* 本地验证：221 项单测通过（5 skip），compileall、`git diff --check` 通过；fast path 未改，待 smoke 后实测。
+* 下一步：GPU 实例拉取最新提交，重跑训练 smoke。
 
 ### 2026-08-31（仓库，Qwen3.8-27B 接入与 SOP 定稿）
 
