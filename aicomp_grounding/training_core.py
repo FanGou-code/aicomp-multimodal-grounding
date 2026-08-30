@@ -230,6 +230,8 @@ def prepare_training_plan(
     adapter_kwargs = {}
     if model == "qwen3vl":
         pass
+    elif model == "qwen3_8":
+        pass
     elif model == "internvl35":
         adapter_kwargs["max_num_tiles"] = 12
     else:
@@ -445,6 +447,11 @@ def run_training(
             model_name,
             max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
         )
+    elif model_name == "qwen3_8":
+        adapter = get_adapter(
+            model_name,
+            max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
+        )
     elif model_name == "internvl35":
         adapter = get_adapter(
             "internvl35",
@@ -507,11 +514,13 @@ def run_training(
     if model_path is None:
         rel_subpath = {
             "qwen3vl": "Qwen/Qwen3-VL-8B-Instruct",
+            "qwen3_8": "Qwen/Qwen3.8-27B",
             "internvl35": "OpenGVLab/InternVL3_5-8B-HF",
         }[model_name]
         for candidate in [
             Path("/mnt/workspace/models") / rel_subpath,
             Path("models") / rel_subpath,
+            Path("/root/models") / rel_subpath,
         ]:
             if candidate.is_dir():
                 model_path = str(candidate)

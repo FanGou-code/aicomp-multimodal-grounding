@@ -244,6 +244,39 @@ class ApprovedDataGateTests(unittest.TestCase):
                 root / "data" / "output_lora" / plan["metadata"]["training_run_id"],
             )
 
+    def test_training_plan_accepts_qwen38_model(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "annot_q38"
+            for split, scene in (("train", "001"), ("val", "002")):
+                artifact = _artifact(split, scene, run_id)
+                artifact["metadata"]["image_fingerprint"] = (
+                    trusted_dataset_image_fingerprint(
+                        artifact["data"],
+                        artifact["data"],
+                        require_recorded_size=True,
+                    )
+                )
+                atomic_write_json(
+                    root / "outputs" / "annotations" / run_id / split / "approved.json",
+                    artifact,
+                )
+
+            plan = prepare_training_plan(
+                data_root=root,
+                annotation_root=root / "outputs" / "annotations",
+                output_root=root / "outputs",
+                annotation_run_id=run_id,
+                model="qwen3_8",
+                run_tag="q38-smoke",
+                seed=42,
+                resume=True,
+                smoke_test=True,
+                verify_images=False,
+            )
+            self.assertEqual(plan["model"], "qwen3_8")
+            self.assertEqual(plan["metadata"]["model_name"], "Qwen/Qwen3.8-27B")
+
 
 class TrainingScheduleTests(unittest.TestCase):
     def test_binary_resume_state_is_bound_to_json_and_run(self):
