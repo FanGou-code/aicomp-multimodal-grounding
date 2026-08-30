@@ -160,9 +160,6 @@ python offline/train.py \
 
 ### Qwen3.8-27B
 
-需先激活 Qwen3.8 独立环境（见第 3 节）。超参与推理参数照搬 Qwen3-VL-8B；
-`--model-path` 指向临时盘，每次新实例需先重下权重（见第 4 节）。
-
 ```bash
 python offline/train.py \
   --annotation-run-id YOUR_ANNOTATION_RUN_ID \
