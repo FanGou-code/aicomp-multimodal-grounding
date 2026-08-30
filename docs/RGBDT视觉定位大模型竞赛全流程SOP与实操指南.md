@@ -77,7 +77,7 @@ cd /mnt/workspace/aicomp-multimodal-grounding
 
 pip install transformers==5.8.0 peft==0.19.1 \
   accelerate==1.14.0 qwen-vl-utils==0.0.14 \
-  -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
 source offline/rocm_env.sh
 echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' \
