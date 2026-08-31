@@ -30,3 +30,17 @@ export PYTORCH_ROCM_ARCH=gfx942   # 只编 MI300X，砍掉多架构编译量
 export MAX_JOBS=8
 export TRITON_CACHE_DIR=/mnt/workspace/.triton_cache   # Triton JIT 缓存持久化
 ```
+
+A 卡加速内核（按需，为混合线性注意力架构的模型准备；对现有
+标准注意力模型完全惰性，装上不生效也不破坏）：
+
+```bash
+pip install flash-linear-attention \
+  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+pip install causal-conv1d --no-build-isolation \
+  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+# 编不过 causal-conv1d 可直接跳过；FLA 是主要收益来源
+python -c "import fla; print('fla OK')"
+```
+
+注意：每个新实例重建 venv 后需重装本节内容（包缓存持久，重装为秒级）。
