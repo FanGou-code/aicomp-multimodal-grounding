@@ -15,7 +15,7 @@ data/
 ```
 
 **原则**：Train/Test 是不可变本体；indexes 与 audits 是确定性构建产物，
-与数据同生命周期，随同一个魔挽数据仓分发。
+与数据同生命周期，随同一个魔搭数据仓分发。
 
 ## 派生产物清单
 
@@ -27,7 +27,7 @@ data/
 
 `prepare_rgbdt.py` 是索引的唯一生成器；不要手改这些 JSON。
 
-## 魔挂数据集
+## 魔搭数据集
 
 - Dataset Repo：`Fang001/rgbdt-grounding-dataset`（打包 `data.tar`）
 - 组装命令（首次，见 `docs/sop.md` 第 2 节）：
