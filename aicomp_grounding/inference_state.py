@@ -37,10 +37,11 @@ from aicomp_grounding.bbox import compute_iou, validate_bbox
 from aicomp_grounding.config import (
     CHECKPOINT_VERSION,
     INFERENCE_COMPUTE_DTYPE,
+    INFERENCE_DEFAULT_MAX_PIXELS,
+    INFERENCE_DEFAULT_MIN_PIXELS,
     RUNTIME_PYTHON_VERSION,
 )
 from aicomp_grounding.io import load_json
-from aicomp_grounding.models.qwen3vl import MAX_PIXELS, MIN_PIXELS
 from aicomp_grounding.training_state import validate_adapter_manifest, adapter_weight_path
 
 RUN_METADATA_FIELDS = (
@@ -159,8 +160,8 @@ def build_run_metadata(
     num_shards: int,
     base_run_id: str = "",
     base_prediction_fingerprint: str = "",
-    min_pixels: int | None = MIN_PIXELS,
-    max_pixels: int | None = MAX_PIXELS,
+    min_pixels: int | None = INFERENCE_DEFAULT_MIN_PIXELS,
+    max_pixels: int | None = INFERENCE_DEFAULT_MAX_PIXELS,
 ) -> dict:
     if mode not in {"base", "retry"}:
         raise ValueError(f"Unsupported inference mode: {mode}")
@@ -356,7 +357,12 @@ def predictions_are_submission_ready(
     return all(validate_bbox(predictions[key]) is not None for key in expected_keys)
 
 
-def evaluate_predictions(dataset: dict, keys: list[str], predictions: dict) -> dict:
+def evaluate_dataset_predictions(dataset: dict, keys: list[str], predictions: dict) -> dict:
+    """ACC@0.5 / mean-IoU against a full dataset dict; requires GT on every key.
+
+    Distinct from ``inference_core.evaluate_predictions``, which scores a
+    possibly-limited item list and tolerates missing ground truth.
+    """
     hits = 0
     total_iou = 0.0
     failures = 0

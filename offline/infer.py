@@ -9,6 +9,7 @@ internvl35 / groundingdino / mock). Handles both:
 from __future__ import annotations
 
 import argparse
+import functools
 from collections import OrderedDict
 from datetime import datetime
 import multiprocessing
@@ -175,9 +176,6 @@ def resolve_image_path(raw_path: str, data_dir: Path) -> Path:
     return (data_dir / p).resolve()
 
 
-import functools
-
-
 @functools.lru_cache(maxsize=32)
 def _cached_read_images(v_path: str, i_path: str, d_path: str):
     from PIL import Image
@@ -325,6 +323,9 @@ def _run_dataloader_inference_loop(
     pending_items.sort(key=lambda x: (x.get("visible", x["key"]), x["key"]))
     print(f"Loading model '{adapter.model_name}' (revision {adapter.model_revision})...")
     adapter.load(device=device, lora_path=adapter_dir, model_path=model_path)
+    # The model is loaded BEFORE the DataLoader spawns workers, which relies on
+    # Linux fork semantics (workers never touch CUDA). Spawning DataLoader
+    # workers would try to pickle the adapter incl. the CUDA model and fail.
     use_prepared = getattr(adapter, "supports_prepared_inputs", False)
 
     class _Dataset(Dataset):

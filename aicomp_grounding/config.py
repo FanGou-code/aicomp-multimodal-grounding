@@ -30,6 +30,11 @@ DATA_ROOT = "/data/data"
 INFERENCE_COMPUTE_DTYPE = "bfloat16"
 RUNTIME_PYTHON_VERSION = platform.python_version()
 
+# Generic inference pixel-budget defaults recorded in run metadata (Qwen
+# processor units, 28x28 per patch). Model adapters may override via kwargs.
+INFERENCE_DEFAULT_MIN_PIXELS = 256 * 28 * 28
+INFERENCE_DEFAULT_MAX_PIXELS = 3072 * 28 * 28
+
 # Local development/validation dependencies are pinned in requirements-lock.txt.
 # MODAL_GPU_PACKAGES is the separate Modal GPU runtime package set; pins are
 # fallbacks only — current_runtime_packages() records actually-installed versions.

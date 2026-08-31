@@ -47,7 +47,7 @@ flowchart LR
 - **训练超参**：3 Epochs，Batch Size 1，梯度累积 16 步（等效 Batch Size 16）
 - **优化器与调度**：AdamW（学习率 `1e-4`，Cosine 调度衰减至 `1e-5` 下限，Weight Decay 0.01，Warmup 0.05）
 - **损失计算**：严格对 Prompt 与 Query 前缀做 `-100` 掩码，仅对 Target Bbox 计算 Causal LM Loss
-- **验证与选优**：每轮 Epoch 自动在全量验证集（719 样本）上运行真实推理，以 `ACC@0.5` 优先、`val_loss` 平局辅助保存 Best Checkpoint
+- **验证与选优**：每轮 Epoch 自动在全量验证集上运行真实推理，以 `ACC@0.5` 优先、`val_loss` 平局辅助保存 Best Checkpoint
 - **硬件与精度**：原生 BF16 混合精度，显存建议 $\ge 24\text{GB}$（支持离线实体 GPU、魔搭 DSW、AMD 实例或云端容器）
 
 ### 教师模型 (Teacher Model)

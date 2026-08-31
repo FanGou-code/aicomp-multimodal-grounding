@@ -13,7 +13,7 @@ from aicomp_grounding.inference_state import (
     assign_pending_shards,
     build_run_metadata,
     build_shard_metadata,
-    evaluate_predictions,
+    evaluate_dataset_predictions,
     fingerprint_inputs,
     fingerprint_lora,
     merge_retry_predictions,
@@ -296,7 +296,7 @@ class RetryAndEvaluationTests(unittest.TestCase):
             "002_1": [0.0, 0.0, 0.1, 0.1],
             "003_1": None,
         }
-        metrics = evaluate_predictions(data, keys, predictions)
+        metrics = evaluate_dataset_predictions(data, keys, predictions)
         self.assertEqual(metrics["hits"], 1)
         self.assertEqual(metrics["total"], 3)
         self.assertAlmostEqual(metrics["acc_at_0_5"], 1 / 3)

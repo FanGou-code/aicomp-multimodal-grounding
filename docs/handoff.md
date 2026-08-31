@@ -33,21 +33,33 @@ GPU 实操以 `docs/sop.md` 为准。
 
 **当前阶段与下一步**：阶段一「自适应视觉消歧新标注生产」已 100% 满额发布
 （统一资产目录 `annot_dc189f029d962b27`，共 3,594 帧）。
-当前正式进入 **Qwen3.8-27B 全量 LoRA 训练 + 打榜**阶段。
-执行路线为：Qwen3.8-27B 全量训练（约 540 步，SMOKE 已通过）→ Val 推理评估 → Test
-全量推理；InternVL3.5-8B/DINO/WBF 仍为并行待办。
+**Qwen3.8-27B 线已终止并从仓库整体移除**（训练/时长成本超出承受）；
+环境统一为 DSW 镜像自带 transformers 5.14.1（pin 落 `envs/gpu.txt`）。
+下一步：16B 级新模型选型（门槛：5.14.1 可加载）→ adapter 接入 → 训练；
+Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
 
 **运行边界**：本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
 `/mnt/workspace`。
 
-## 当前状态（最后更新 2026-08-31，Qwen3.8 smoke 通过，进全量训练）
+## 当前状态（最后更新 2026-09-01，27B 线终止，仓库三波修复完成）
 
-### 当前专注：Qwen3.8-27B 为主力实验，现有标注/prompt 不再改动
-- **现状**：8B 各方案 Test 0.7322-0.7439，WBF 0.7453 触顶；判定数据/标注天花板，换更强语言基座作为主力。
-- **Qwen3.8-27B**：魔搭可下载，`qwen3_5` 架构，需 `transformers>=5.8.0`；独立 `aicomp_env_q38`；权重 55.6GB 放持久盘不下，下 `/root/models` 每次重下。
-- **已接入**：`qwen3_8` 适配器（超参/推理照搬 8B，关闭默认思考模式），训练/推理 CLI、SOP 四节；已修复 Qwen3.5 训练所需 `mm_token_type_ids` 传递，单测 221 通过（5 skip）。
-- **下一步**：全量 27B（约 540 步，fallback 速度待实测）→ 推理 smoke（Val 看 ACC）→ Test 全量；InternVL3.5-8B/DINO/WBF 仍为并行待办。
+### 当前专注：仓库专业化收官，16B 级模型选型在即
+- **方向变更**：Qwen3.8-27B 线终止（全量训练已停，适配器/超参/SOP/独立环境全部移除）；
+  后续主力为团队新选的 3 个 16B 级左右模型（选型硬门槛：DSW 自带 transformers 5.14.1 可加载）。
+- **环境定版**：`envs/gpu.txt` 为唯一 pin 源（transformers==5.14.1 / peft==0.19.1 /
+  accelerate==1.14.0 / qwen-vl-utils==0.0.14），魔搭 venv、Modal Image、config.py 声明、
+  SOP 四方一致；torch/ROCm 归镜像层不进 pip。dual-env（aicomp_env_q38）时代结束。
+- **仓库定形**：pyproject.toml（可 `pip install -e .`）+ ruff（全库 0 违规）+ GitHub Actions CI；
+  索引迁入 `data/indexes/`、审计迁入 `data/audits/`，`prepare_rgbdt.py` 为唯一索引生成器
+  （build_indexes.py 已删）；SOP 改名 `docs/sop.md`，新增 `docs/data-contract.md` 与根 `AGENTS.md`；
+  旧 golden `annot_ac72f1d926bb2d23` 已停止分发（白名单仅留 `annot_dc189f029d962b27`）。
+- **机械修复落地**：checkpoint 数值排序防误删、worker 静默降级改报错、顺序推理补 checkpoint、
+  dtype kwarg 统一、死赋值清理、resume 语义注释、`evaluate_dataset_predictions` 更名区分、
+  loader fork 语义注释、API 重试语义注释。
+- **验证基线**：213 项单测通过（4 skip，本地无 torch）+ compileall + ruff 全绿 + mock 端到端冒烟通过。
+- **下一步**：16B×3 选型确认 → adapter 接入（各约一天）→ MI300X 训练；Modal infer 壳
+  （Image 读 envs/gpu.txt）在选型定后编写；Modal 定性 = 全流程能力保留、≤16B 上限、接啥后议。
 
 ### 成绩一览
 
@@ -133,6 +145,34 @@ GPU 实操以 `docs/sop.md` 为准。
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-01（仓库，27B 线终止 + 三波仓库修复）
+
+* **方向变更**：Qwen3.8-27B 太重（371s/step、全程 ~51h 配额），决定终止并整体移除；
+  本次为方向变更存档，未提交的 27B 时代改动先以 `84ce34f` 存档再动刀。
+* **Wave 1（7e55281）**：删除 `models/qwen3_8.py` 与全部注册/分支/CLI/测试；
+  环境声明对齐 DSW 镜像自带的 transformers 5.14.1（`envs/gpu.txt` 单一 pin 源）；
+  机械修复：checkpoint 数值排序（step≥10000 误删雷）、worker LoRA 静默降级改报错、
+  顺序推理补 checkpoint、dtype kwarg 统一（dtype 优先 + torch_dtype 回退）、死赋值、
+  吞异常加日志、resume 语义注释。测试基线 225→214。
+* **Wave 2（135feed）**：pyproject.toml + ruff（修复全部 51 项违规后全库 0 违规）+
+  GitHub Actions CI（ruff/compileall/unittest）；索引迁入 `data/indexes/`、审计迁入
+  `data/audits/`，`prepare_rgbdt.py` 成为唯一索引生成器，`build_indexes.py` 删除
+  （1920×1080 硬编码与静默脏数据源头一并消失）；SOP 改名 `docs/sop.md`；
+  新增 `docs/data-contract.md` 与根 `AGENTS.md`；.gitignore 清理（删 3 条残留规则、
+  加 `.qoder/`）；旧 golden `annot_ac72f1d926bb2d23` 停止分发。测试基线 214→213。
+* **Wave 3**：`inference_state` 与 qwen3vl 常量解耦（config 增
+  `INFERENCE_DEFAULT_{MIN,MAX}_PIXELS`，值不变 → run id 不漂移）；
+  `evaluate_predictions` 更名 `evaluate_dataset_predictions` 消除同名异义；
+  adapter 内联 prompt-前缀校验收口到 `validated_prompt_length`；
+  `load_inference_items` 非法条目改为显式报错；loader fork 语义、API 重试语义注释；
+  README 硬编码样本数清理。
+* **环境考古结论**：transformers==4.57.3 是 08-02 Initial commit 起的元老 pin，
+  08-18 魔搭迁移是向它对齐；DSW 镜像现自带 5.14.1（pip 装于系统 dist-packages，
+  非 conda），故新定版与镜像天然一致，venv 安装同版本仅作防漂移遮蔽。
+* **验证**：213 项单测通过（4 skip）+ ruff 全绿 + compileall + mock 端到端冒烟。
+* **下一步**：16B×3 选型（门槛 5.14.1 可加载）→ adapter 接入 → MI300X 训练；
+  Modal infer 壳（Image 读 envs/gpu.txt）选型定后编写。
 
 ### 2026-08-31（仓库，清理 Qwen3.8/InternVL 适配层隐患）
 

@@ -19,6 +19,7 @@ from aicomp_grounding.prompts import (
     build_grounding_messages,
     grounding_prompt_hash,
 )
+from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
 MODEL_REVISION = "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
@@ -196,18 +197,11 @@ class Qwen3VLAdapter:
             videos=video_inputs,
             return_tensors="pt",
         )
-        prompt_length = int(prompt_inputs["input_ids"].shape[1])
-        if (
-            inputs["input_ids"].shape[1] <= prompt_length
-            or not bool(
-                (
-                    inputs["input_ids"][:, :prompt_length]
-                    == prompt_inputs["input_ids"]
-                ).all()
-                .item()
-            )
-        ):
-            raise ValueError(f"Training prompt is not an exact prefix for {item.get('key')}")
+        prompt_length = validated_prompt_length(
+            inputs["input_ids"],
+            prompt_inputs["input_ids"],
+            sample_id=str(item.get("key", "")),
+        )
         labels = inputs["input_ids"].clone()
         labels[0, :prompt_length] = -100
         result = {key: value.squeeze(0) for key, value in inputs.items()}

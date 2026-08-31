@@ -17,6 +17,7 @@ from typing import Any
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
 from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "OpenGVLab/InternVL3_5-8B-HF"
 MODEL_REVISION = "741a7d03020411e666c6109218ab71e08151ef86"
@@ -267,18 +268,11 @@ class InternVL35Adapter:
             padding=True,
             return_tensors="pt",
         )
-        prompt_length = int(prompt_inputs["input_ids"].shape[1])
-        if (
-            inputs["input_ids"].shape[1] <= prompt_length
-            or not bool(
-                (
-                    inputs["input_ids"][:, :prompt_length]
-                    == prompt_inputs["input_ids"]
-                ).all()
-                .item()
-            )
-        ):
-            raise ValueError(f"Training prompt is not an exact prefix for {item.get('key')}")
+        prompt_length = validated_prompt_length(
+            inputs["input_ids"],
+            prompt_inputs["input_ids"],
+            sample_id=str(item.get("key", "")),
+        )
         labels = inputs["input_ids"].clone()
         labels[0, :prompt_length] = -100
         result = {key: value.squeeze(0) for key, value in inputs.items()}

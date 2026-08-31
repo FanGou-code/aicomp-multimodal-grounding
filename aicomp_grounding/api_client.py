@@ -192,6 +192,8 @@ class OpenAIProtocolClient:
                     raise APIError(f"API request failed: {exc}") from exc
                 delay = 2 ** (attempt - 1)
             except APIError:
+                # Deliberately retried: transient empty-content responses from
+                # the annotation model are recovered by re-asking (2026-08-23 fix).
                 if attempt == self.transport_attempts:
                     raise
                 delay = 2 ** (attempt - 1)
