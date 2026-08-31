@@ -39,44 +39,49 @@ test -d data/Train
 test -d data/Processed/Train
 ```
 
-## 3. 创建并激活环境
+## 3. 激活环境（先唤起，验证失败才重建）
 
 依赖 pin 的单一来源是仓库 `envs/gpu.txt`（transformers==5.14.1 与 DSW
 镜像自带版本一致；torch/ROCm 归镜像管，不进 pip）。
 
-**每个新实例都要重建 venv**：venv 的解释器锚点绑定创建时的底座 python 路径，
-跨实例可能失效（症状：`bad interpreter`）。重建仅数十秒——pip 下载走持久
-缓存（`PIP_CACHE_DIR`），不会重复拉包。
-
-每个新实例执行：
-
-```bash
-rm -rf /mnt/workspace/aicomp_env
-python3 -m venv --system-site-packages /mnt/workspace/aicomp_env
-source /mnt/workspace/aicomp_env/bin/activate
-cd /mnt/workspace/aicomp-multimodal-grounding
-
-pip install -r envs/gpu.txt \
-  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-
-source offline/rocm_env.sh
-echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' \
-  >> /mnt/workspace/aicomp_env/bin/activate
-```
-
-同实例后续会话只激活：
+**首选：直接唤起持久盘上的 venv**（同一镜像代际的实例间可直接复用）：
 
 ```bash
 source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
 ```
 
-验证（10 秒，激活后必做）：
+**唤起后必做验证（10 秒，这一步是判定器）**：
 
 ```bash
 python -c "import transformers, peft; print(transformers.__version__)"
 # 应输出 5.14.1
 ```
+
+**仅当验证失败时重建**。两种触发：报 `bad interpreter`（镜像更新导致底座
+python 路径变化，venv 的解释器符号链接悬空）；或版本号不是 5.14.1
+（`envs/gpu.txt` 升级后）。重建有持久缓存（`PIP_CACHE_DIR` / `TRITON_CACHE_DIR`），
+包不重新下载、Triton 内核不重新编译：
+
+```bash
+deactivate 2>/dev/null
+rm -rf /mnt/workspace/aicomp_env
+python3 -m venv --system-site-packages /mnt/workspace/aicomp_env
+source /mnt/workspace/aicomp_env/bin/activate
+
+pip install -r envs/gpu.txt \
+  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
+echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' \
+  >> /mnt/workspace/aicomp_env/bin/activate
+
+python -c "import transformers, peft; print(transformers.__version__)"
+# 重建后必须再次通过验证，然后才能进入后续步骤
+```
+
+venv 原理备注：`bin/python3` 是指向镜像底座解释器的符号链接，镜像更新可能
+使其悬空；已安装的库文件在持久盘上不会丢失，重建只是重新链接并从本地
+缓存解包。
 
 ## 4. 下载模型（首次执行）
 

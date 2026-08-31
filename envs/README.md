@@ -8,13 +8,9 @@
   DSW 镜像自带版本一致，声明与现实对齐。
 - `local.txt` — 本地 CPU 测试环境（由根 requirements-lock.txt 承担，暂不重复维护）。
 
-安装（GPU 实例）：
-
-```bash
-python3 -m venv --system-site-packages /mnt/workspace/aicomp_env
-source /mnt/workspace/aicomp_env/bin/activate
-pip install -r envs/gpu.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-```
+安装（GPU 实例）：优先直接唤起持久盘上的 venv 并验证（10 秒）；验证失败
+（`bad interpreter` 或版本不符）才重建——完整流程见 `docs/sop.md` 第 3 节。
+包下载与 Triton JIT 编译均有持久缓存，重建成本为分钟内。
 
 验证（10 秒）：
 
