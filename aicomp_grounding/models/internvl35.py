@@ -293,10 +293,16 @@ class InternVL35Adapter:
 
         pad_id = processor.tokenizer.pad_token_id
         max_length = max(item["input_ids"].size(0) for item in batch)
+        if any("image_flags" not in item for item in batch):
+            raise ValueError(
+                "InternVL training batch is missing image_flags; "
+                "the processor output does not match the expected contract"
+            )
         input_ids = []
         labels = []
         attention_masks = []
         pixel_values = []
+        image_flags = []
         for item in batch:
             padding = max_length - item["input_ids"].size(0)
             input_ids.append(
@@ -324,11 +330,14 @@ class InternVL35Adapter:
                 )
             )
             pixel_values.append(item["pixel_values"])
+            # image_flags is per-patch (flat), so concat — not stack — across samples.
+            image_flags.append(item["image_flags"])
         return {
             "input_ids": torch.stack(input_ids),
             "labels": torch.stack(labels).long(),
             "attention_mask": torch.stack(attention_masks),
             "pixel_values": torch.cat(pixel_values, dim=0),
+            "image_flags": torch.cat(image_flags, dim=0),
         }
 
     def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:

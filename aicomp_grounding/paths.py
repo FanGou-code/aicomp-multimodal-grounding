@@ -58,7 +58,7 @@ class ProjectPaths:
     def dataset_index(self, split: str) -> Path:
         if split not in {"train", "val", "test"}:
             raise ValueError(f"Unsupported dataset split: {split!r}")
-        return self.data / f"{split}.json"
+        return self.data / "indexes" / f"{split}.json"
 
     def annotation_artifact(self, annotation_run_id: str, split: str) -> Path:
         if split not in {"train", "val"}:

@@ -1,4 +1,7 @@
-"""Minimal SiliconFlow multimodal client with bounded retry behavior."""
+"""OpenAI-protocol multimodal client with bounded retry behavior.
+
+Targets the annotation provider (Zhipu / GLM-4.6V); also compatible with any
+OpenAI-protocol endpoint. """
 
 from __future__ import annotations
 

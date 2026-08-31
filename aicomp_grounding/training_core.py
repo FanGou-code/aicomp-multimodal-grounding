@@ -249,7 +249,7 @@ def prepare_training_plan(
         raise ValueError(f"Unsupported training model: {model!r}")
     adapter = get_adapter(model)
     hyperparameters = adapter.training_hyperparameters()
-    hyperparameters["runtime_packages"] = current_runtime_packages(model)
+    hyperparameters["runtime_packages"] = current_runtime_packages()
     root = Path(data_root).resolve()
     # Keep the historical Modal layout as the implicit default.  Portable
     # entrypoints pass the repository-level outputs/annotations explicitly so

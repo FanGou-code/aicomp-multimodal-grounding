@@ -49,8 +49,8 @@ MODAL_GPU_PACKAGES = (
 )
 
 
-def current_runtime_packages(model_name: str | None = None) -> list[str]:
-    """Return installed runtime versions, with model-specific pinned fallbacks."""
+def current_runtime_packages() -> list[str]:
+    """Return installed runtime versions, with pinned fallbacks."""
     packages = list(MODAL_GPU_PACKAGES)
 
     for index, package in enumerate(packages):

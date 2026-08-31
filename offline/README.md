@@ -100,13 +100,10 @@ used when a platform starts the process from another working directory.
 ## 云端 GPU 工作台环境
 
 云端 GPU 工作台通常已预装 torch / torchvision / pillow。应优先沿用平台 PyTorch，
-避免覆盖镜像自带版本；再按需补齐 VLM 适配层依赖。版本以
-`aicomp_grounding/config.py` 中的 `MODAL_GPU_PACKAGES` 为 pinned fallback，
-实际训练 metadata 会动态读取当前 torch / torchvision / HIP 版本：
+避免覆盖镜像自带版本；VLM 适配层依赖的 pin 以 `envs/gpu.txt` 为单一来源：
 
 ```bash
-pip install transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 \
-    qwen-vl-utils==0.0.14 \
+pip install -r envs/gpu.txt \
     -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 ```
 
