@@ -108,6 +108,11 @@ offline/
   infer.py              单机/离线推理与评估入口（--model 选适配器）
   rocm_env.sh           AMD MI300X 环境脚本（hipBLASLt / hardware queue / TunableOp 策略）
 
+cloud/
+  infer.py              Modal 推理壳（H100 / 8 核 / 32GiB，Volume 对齐魔搭布局）
+  train.py              Modal 训练壳（同资源包络；commit hook 提交产物）
+  README.md             用法、Volume 布局与费用护栏
+
 docs/
   architecture.md       仓库架构、adapter 约定与协作接入指南
   sop.md                GPU 实操 SOP（魔搭 DSW 全流程，唯一真相源）

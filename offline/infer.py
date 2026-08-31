@@ -472,8 +472,8 @@ def _run_shard_worker(
     return shard_id, predictions
 
 
-def main():
-    args = parse_args()
+def run_cli(args):
+    """Shared orchestration for the offline shell and the Modal cloud shell."""
 
     paths = ProjectPaths.from_root(args.project_root)
     args.data_dir = resolve_from_root(args.data_dir, paths.root)
@@ -654,23 +654,21 @@ def main():
         print("="*50 + "\n")
 
     # Persist Modal-compatible artifacts: metadata.json + checkpoint.json + summary.json
+    summary = {
+        "metadata": metadata,
+        "metrics": metrics,
+        "total_predictions": len(predictions),
+        "valid_predictions": sum(
+            validate_bbox(value) is not None for value in predictions.values()
+        ),
+        "submission_ready": False,
+    }
     atomic_write_json(metadata_path, metadata)
     atomic_write_json(
         checkpoint_path,
         {"metadata": metadata, "predictions": predictions},
     )
-    atomic_write_json(
-        run_dir / "summary.json",
-        {
-            "metadata": metadata,
-            "metrics": metrics,
-            "total_predictions": len(predictions),
-            "valid_predictions": sum(
-                validate_bbox(value) is not None for value in predictions.values()
-            ),
-            "submission_ready": False,
-        },
-    )
+    atomic_write_json(run_dir / "summary.json", summary)
     print(f"Metadata saved to: {metadata_path}")
     print(f"Checkpoint saved to: {checkpoint_path}")
     print(f"Summary saved to: {run_dir / 'summary.json'}")
@@ -690,6 +688,11 @@ def main():
             output_dir=run_dir,
             allow_fallback=True,
         )
+    return summary
+
+
+def main():
+    run_cli(parse_args())
 
 
 if __name__ == "__main__":

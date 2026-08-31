@@ -84,8 +84,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()
+def run_cli(args, *, commit_hook=None):
+    """Shared orchestration for the offline shell and the Modal cloud shell.
+
+    ``commit_hook`` is invoked after every durable write (run plan, training
+    checkpoints); the Modal shell passes its volume commit, offline omits it.
+    """
     paths = ProjectPaths.from_root(args.project_root)
     data_root = resolve_from_root(args.data_dir, paths.root)
     annotation_root = resolve_from_root(args.annotation_root, paths.root)
@@ -104,7 +108,7 @@ def main():
         verify_images=args.deep_verify_images,
     )
     if not args.smoke_test and not args.preflight_only:
-        persist_training_plan(plan)
+        persist_training_plan(plan, commit_hook=commit_hook)
 
     if args.preflight_only:
         print(
@@ -122,6 +126,7 @@ def main():
         data_root=data_root,
         num_workers=args.num_workers,
         checkpoint_interval=args.checkpoint_interval,
+        commit_hook=commit_hook,
     )
     if args.smoke_test:
         if result.get("status") != "smoke_passed":
@@ -135,6 +140,10 @@ def main():
     print(f"Best adapter: {result['best_path']}")
     print(f"Last adapter: {result['last_path']}")
     return result
+
+
+def main():
+    run_cli(parse_args())
 
 
 if __name__ == "__main__":

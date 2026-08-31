@@ -58,8 +58,11 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
   dtype kwarg 统一、死赋值清理、resume 语义注释、`evaluate_dataset_predictions` 更名区分、
   loader fork 语义注释、API 重试语义注释。
 - **验证基线**：213 项单测通过（4 skip，本地无 torch）+ compileall + ruff 全绿 + mock 端到端冒烟通过。
-- **下一步**：16B×3 选型确认 → adapter 接入（各约一天）→ MI300X 训练；Modal infer 壳
-  （Image 读 envs/gpu.txt）在选型定后编写；Modal 定性 = 全流程能力保留、≤16B 上限、接啥后议。
+- **下一步**：16B×3 选型确认 → adapter 接入（各约一天）→ MI300X 训练。
+  **cloud/ 已恢复全功能**（infer + train 双壳）：H100/8 核/32GiB 硬编码（Iteration 02
+  实测包络）、Volume `aicomp` 挂载 `/mnt/workspace` 与魔搭布局对齐、依赖 pin 烧进
+  Image（读 envs/gpu.txt 同源）、训练走 commit_hook 每 checkpoint 提交 Volume；
+  16B 级付费训练超 $30 额度，Modal 实际用途以 8B 级训练/推理为主。
 
 ### 成绩一览
 
@@ -145,6 +148,27 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-01（仓库，索引重建闭环 + cloud/ 恢复 + CLI 解耦收口）
+
+* **数据管线闭环**：重建 `data/indexes/`（400 序列 / 4000 行 GT / 3903 有效样本，
+  深度全复用）→ 重跑 `filter_overlap.py`（246+63 剔除）→ train/val 索引与 golden
+  `annot_dc189f029d962b27` 逐样本零偏差；审计日志落 `data/audits/`。
+  SHA-256 走 CPU SHA-NI（数分钟级），无需 GPU。
+* **cloud/ 恢复（全功能）**：`cloud/infer.py` + `cloud/train.py` + README。硬编码=
+  H100 / 8 核 / 32GiB（Iteration 02 实测包络）+ Volume `aicomp` 挂 `/mnt/workspace`
+  （与魔搭布局对齐）+ 依赖 pin 烧进 Image（同 envs/gpu.txt，torch 浮动最新 CUDA 稳定版）；
+  代码经 `add_local_dir` 每次运行时上传（非镜像烘焙），改代码即生效。训练经
+  `commit_hook` 每 checkpoint 提交 Volume，抢占可续。
+* **CLI 解耦**：`offline/{train,infer}.py` 拆出 `run_cli(args)`，cloud 壳直接复用
+  同一编排函数（`project_root=/mnt/workspace`），本地行为零变化；
+  `infer.run_cli` 返回 summary。`pip install -e .` 实测通过。
+* **gitignore**：`cloud/` 摘出忽略名单（正式入库）；`aicomp_grounding.egg-info/`
+  为 pip -e 生成物，已被 `*.egg-info/` 规则覆盖。
+* **验证**：213 项单测通过（4 skip）+ ruff 全绿（含 cloud/）+ compileall（含 cloud）
+  + mock 端到端冒烟通过。
+* **下一步**：16B×3 选型确认 → adapter 接入 → MI300X 训练；Modal 首跑冒烟待
+  `modal volume put` 上传 Test 子集后执行（用户本人操作）。
 
 ### 2026-09-01（仓库，27B 线终止 + 三波仓库修复）
 
