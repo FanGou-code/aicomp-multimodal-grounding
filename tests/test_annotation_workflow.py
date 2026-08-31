@@ -102,18 +102,19 @@ class AnnotationSourceGateTests(unittest.TestCase):
     def test_annotation_source_must_match_completed_split_manifest(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
+            indexes = root / "indexes"
             data = {"001_1": {"query": "placeholder"}}
-            atomic_write_json(root / "train.json", data)
+            atomic_write_json(indexes / "train.json", data)
             manifest = {
                 "status": "complete",
                 "preparation_protocol_version": PREPARATION_PROTOCOL_VERSION,
                 "index_fingerprints": {"train": stable_json_hash(data)},
                 "index_sample_counts": {"train": 1},
             }
-            atomic_write_json(root / "split_manifest.json", manifest)
+            atomic_write_json(indexes / "split_manifest.json", manifest)
             self.assertEqual(generate_queries._load_annotation_source(root, "train"), data)
 
-            atomic_write_json(root / "train.json", {"001_1": {"query": "changed"}})
+            atomic_write_json(indexes / "train.json", {"001_1": {"query": "changed"}})
             with self.assertRaisesRegex(ValueError, "does not match"):
                 generate_queries._load_annotation_source(root, "train")
 
@@ -130,9 +131,9 @@ class AnnotationSourceGateTests(unittest.TestCase):
                     "height": 1080,
                 }
             }
-            atomic_write_json(root / "train.json", data)
+            atomic_write_json(root / "indexes" / "train.json", data)
             atomic_write_json(
-                root / "split_manifest.json",
+                root / "indexes" / "split_manifest.json",
                 {
                     "status": "complete",
                     "preparation_protocol_version": PREPARATION_PROTOCOL_VERSION,

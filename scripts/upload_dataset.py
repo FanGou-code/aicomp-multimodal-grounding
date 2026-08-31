@@ -65,7 +65,7 @@ def main():
         print(f"Error: Local path does not exist: {target_path}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Authenticating with ModelScope...")
+    print("Authenticating with ModelScope...")
     try:
         from modelscope.hub.api import HubApi
     except ImportError:

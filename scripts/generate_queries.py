@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import shutil
 import sys
@@ -62,7 +61,6 @@ from aicomp_grounding.api_client import (
     SlidingWindowRateLimiter,
 )
 from aicomp_grounding.query_style import (
-    DISAMBIGUATION_PROMPT_HASH,
     DISAMBIGUATION_QUERY_PROMPT,
     STYLE_PROMPT_HASH,
 )
@@ -108,8 +106,9 @@ def _validate_options(
 
 
 def _load_annotation_source(data_root: Path, split: str) -> dict:
-    path = data_root / f"{split}.json"
-    manifest_path = data_root / "split_manifest.json"
+    indexes = data_root / "indexes"
+    path = indexes / f"{split}.json"
+    manifest_path = indexes / "split_manifest.json"
     if not path.is_file():
         raise FileNotFoundError(f"Annotation source index not found: {path}")
     if not manifest_path.is_file():
@@ -133,7 +132,7 @@ def _load_annotation_source(data_root: Path, split: str) -> dict:
 
 
 def _preparation_fingerprint(data_root: Path) -> str:
-    return stable_json_hash(load_json(data_root / "split_manifest.json"))
+    return stable_json_hash(load_json(data_root / "indexes" / "split_manifest.json"))
 
 
 def _annotation_image_fingerprint(

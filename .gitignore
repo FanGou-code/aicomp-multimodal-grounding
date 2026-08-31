@@ -15,11 +15,11 @@ env/
 
 # Conda
 .conda/
-environment.yml.bak
 
 # IDE
 .idea/
 .vscode/
+.qoder/
 *.swp
 *.swo
 
@@ -29,11 +29,11 @@ environment.yml.bak
 *.pem
 *.key
 
-# Data files & Datasets (shared offline, never committed)
+# Data files & Datasets (shared offline via ModelScope, never committed)
 data/
-dataset/
 
 # Model weights & LoRA adapters (any location)
+# NOTE: *.bin / *.pt are intentionally broad — weight files of any naming land here.
 *.safetensors
 *.bin
 *.pt
@@ -42,7 +42,6 @@ dataset/
 model/
 best/
 checkpoints/
-runs/
 
 # OS / WSL
 .DS_Store
@@ -58,11 +57,6 @@ cloud/
 outputs/**
 !outputs/annotations/
 outputs/annotations/**
-!outputs/annotations/annot_ac72f1d926bb2d23/
-!outputs/annotations/annot_ac72f1d926bb2d23/train/
-!outputs/annotations/annot_ac72f1d926bb2d23/val/
-!outputs/annotations/annot_ac72f1d926bb2d23/train/approved.json
-!outputs/annotations/annot_ac72f1d926bb2d23/val/approved.json
 !outputs/annotations/annot_dc189f029d962b27/
 !outputs/annotations/annot_dc189f029d962b27/train/
 !outputs/annotations/annot_dc189f029d962b27/val/

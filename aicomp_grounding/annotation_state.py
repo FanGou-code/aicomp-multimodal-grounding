@@ -38,7 +38,11 @@ Approved artifact dict:
 
 from __future__ import annotations
 
+import base64
+import io
 from collections.abc import Mapping
+
+from PIL import Image, ImageDraw
 
 from aicomp_grounding.artifacts import key_hash, require_exact_metadata, stable_json_hash
 from aicomp_grounding.bbox import validate_bbox
@@ -667,10 +671,6 @@ def validate_approved_artifact(
 # ---------------------------------------------------------------------------
 # Red-box marked image rendering (formerly annotation_views.py)
 # ---------------------------------------------------------------------------
-
-import base64
-import io
-from PIL import Image, ImageDraw
 
 RENDER_PROTOCOL = "single-marked-full-rgb-v8"
 MARK_COLOR = (255, 0, 0)

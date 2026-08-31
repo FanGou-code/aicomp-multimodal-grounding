@@ -191,7 +191,7 @@ class OpenAIProtocolClient:
                 if attempt == self.transport_attempts:
                     raise APIError(f"API request failed: {exc}") from exc
                 delay = 2 ** (attempt - 1)
-            except APIError as exc:
+            except APIError:
                 if attempt == self.transport_attempts:
                     raise
                 delay = 2 ** (attempt - 1)

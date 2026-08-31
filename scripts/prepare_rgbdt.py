@@ -700,7 +700,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--index-dir",
         type=Path,
-        help="Output directory for train.json/val.json (default: dataset root)",
+        help="Output directory for train.json/val.json (default: <dataset-root>/indexes)",
     )
     parser.add_argument("--train-ratio", type=float, default=0.8)
     parser.add_argument("--seed", type=int, default=42)
@@ -722,7 +722,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     args.dataset_root = args.dataset_root.resolve()
-    args.index_dir = (args.index_dir or args.dataset_root).resolve()
+    args.index_dir = (args.index_dir or args.dataset_root / "indexes").resolve()
     if not 0.0 < args.train_ratio < 1.0:
         parser.error("--train-ratio must be between 0 and 1")
     if not 0 <= args.min_depth_mm < args.max_depth_mm <= 65535:

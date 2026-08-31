@@ -162,8 +162,10 @@ def main() -> None:
 
     all_records: Dict[str, List[dict]] = {}
     cleaned_indexes: Dict[str, dict] = {}
+    indexes_dir = data_root / "indexes"
+    audits_dir = data_root / "audits"
     for split in ("train", "val"):
-        index_path = data_root / f"{split}.json"
+        index_path = indexes_dir / f"{split}.json"
         if not index_path.is_file():
             print(f"[filter_overlap] {index_path} not found, skipping {split}.")
             continue
@@ -178,14 +180,15 @@ def main() -> None:
 
     # Keep split_manifest.json consistent with the filtered indexes so the
     # annotation and training pipelines accept the new split.
-    manifest_path = data_root / "split_manifest.json"
+    manifest_path = indexes_dir / "split_manifest.json"
     if args.overwrite_indexes and cleaned_indexes and manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         _update_split_manifest(manifest, cleaned_indexes)
         atomic_write_json(manifest_path, manifest)
         print("[filter_overlap] Updated split_manifest.json fingerprints/counts/scenes.")
 
-    excluded_path = data_root / "excluded_overlap.json"
+    audits_dir.mkdir(parents=True, exist_ok=True)
+    excluded_path = audits_dir / "excluded_overlap.json"
     summary = {
         "description": "Samples excluded because their visible image matches a Test image (SHA-256).",
         "test_images_hashed": len(test_hashes),

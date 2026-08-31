@@ -51,7 +51,6 @@ class DepthReferenceTests(unittest.TestCase):
             _write_color_image(root / "Test" / "Images" / "visible" / "000001.png")
             _write_color_image(root / "Test" / "Images" / "infrared" / "000001.png")
             _write_color_image(root / "Processed" / "Test" / "depth_jet" / "000001.png")
-            import json
             test_data = {
                 "000001_001": {
                     "visible": "Test/Images/visible/000001.png",
@@ -73,7 +72,6 @@ class DepthReferenceTests(unittest.TestCase):
                 root / "Processed" / "Test" / "depth_jet" / "000001.png",
                 shape=(3, 6),
             )
-            import json
 
             test_data = {
                 "000001_001": {
@@ -93,7 +91,6 @@ class DepthReferenceTests(unittest.TestCase):
             root = Path(td)
             _write_color_image(root / "Test" / "Images" / "visible" / "000001.png")
             _write_color_image(root / "Test" / "Images" / "infrared" / "000001.png")
-            import json
             test_data = {
                 "000001_001": {
                     "visible": "Test/Images/visible/000001.png",
@@ -108,7 +105,6 @@ class DepthReferenceTests(unittest.TestCase):
             self.assertIn("missing", errors[0])
 
     def test_empty_official_template_is_rejected(self):
-        import json
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "data"

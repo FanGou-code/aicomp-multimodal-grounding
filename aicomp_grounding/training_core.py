@@ -36,17 +36,14 @@ from aicomp_grounding.training_state import (
     assert_single_cuda_device_map,
     build_epoch_adapter_manifest,
     build_training_metadata,
-    expected_global_steps,
     move_batch_to_device,
     optimizer_steps_per_epoch,
     should_optimizer_step,
-    validate_adapter_directory,
     validate_completed_training_state,
     validate_loaded_training_state,
     validate_resume_checkpoint,
     validate_training_artifacts,
     validate_epoch_metrics,
-    validated_prompt_length,
 )
 
 SEED = 42

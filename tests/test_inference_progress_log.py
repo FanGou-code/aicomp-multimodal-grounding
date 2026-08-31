@@ -1,4 +1,3 @@
-import re
 import unittest
 
 from offline.infer import _format_eta, _now_str

@@ -66,7 +66,7 @@ class FilterOverlapTests(unittest.TestCase):
 
     def test_filters_overlapping_train_sample(self):
         img = _make_rgb_image(self.root / "Train" / "001" / "color" / "00000001.png", seed=1)
-        img2 = _make_rgb_image(self.root / "Train" / "001" / "color" / "00000002.png", seed=2)
+        _make_rgb_image(self.root / "Train" / "001" / "color" / "00000002.png", seed=2)
 
         self._write_indexes(
             {
@@ -138,7 +138,7 @@ class FilterOverlapTests(unittest.TestCase):
         self.assertEqual(json.loads((self.root / "train.json").read_text()), original)
 
     def test_no_overlap_keeps_all(self):
-        img = _make_rgb_image(self.root / "Train" / "003" / "color" / "00000001.png", seed=4)
+        _make_rgb_image(self.root / "Train" / "003" / "color" / "00000001.png", seed=4)
         img_test = _make_rgb_image(self.root / "Train" / "003" / "color" / "00000002.png", seed=5)
         self._write_indexes(
             {

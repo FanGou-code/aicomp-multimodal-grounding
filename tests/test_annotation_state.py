@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import unittest
 
 from aicomp_grounding.annotation_state import (

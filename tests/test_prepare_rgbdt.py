@@ -230,7 +230,6 @@ class PrepareDatasetTests(unittest.TestCase):
                 prepare_dataset(changed)
 
     def test_dry_run_validates_planned_test_png_depth(self):
-        import json
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -258,7 +257,6 @@ class PrepareDatasetTests(unittest.TestCase):
             self.assertEqual(manifest["stats"]["test_depth_would_write"], 1)
 
     def test_formal_small_test_contract_uses_overridden_template_constraints(self):
-        import json
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -324,7 +322,6 @@ class PrepareDatasetTests(unittest.TestCase):
             self.assertEqual(matching["written"], 0)
 
     def test_test_validation_requires_uint8_three_channel_depth(self):
-        import json
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

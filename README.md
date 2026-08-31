@@ -114,8 +114,7 @@ docs/
   research.md           赛题规则与官方数据规范调研
 
 scripts/
-  prepare_rgbdt.py      RGBDT 图像检查与 Depth JET 伪彩转换
-  build_indexes.py      构建 5 个切分 JSON 索引并执行 SHA-256 去重审计
+  prepare_rgbdt.py      RGBDT 图像检查、Depth JET 伪彩转换与切分索引生成（唯一生成器）
   filter_overlap.py     SHA-256 剔除与 Test 同源的 Train/Val 样本
   generate_queries.py   自适应消歧 Query 生成与 approved 发布
   audit_query_style.py  Query 样式分布与语义组审计
@@ -241,20 +240,18 @@ Depth-JET 生成，否则会重复扫描约 44GB 图像并卡在 I/O 上。
 ### 1. 数据预处理与切分
 
 ```bash
-# 1. 批量生成本地 Depth-JET 伪彩图
+# 1. 批量生成本地 Depth-JET 伪彩图并构建切分 JSON 索引
+#    （索引写入 data/indexes/；不要放到云端启动阶段）
 python scripts/prepare_rgbdt.py --dataset-root data
 
-# 2. 本地一次性构建切分 JSON 索引（不要放到云端启动阶段）
-python scripts/build_indexes.py --data-dir data
-
-# 3. 深度 SHA-256 查重只需要在本地首次审计时执行；执行前先确认命令参数
+# 2. 深度 SHA-256 查重只需要在本地首次审计时执行；执行前先确认命令参数
 #    python scripts/filter_overlap.py --dataset-root data --overwrite-indexes
 ```
 
-`build_indexes.py` 输出 `data/train.json`、`data/val.json` 与
-`data/split_manifest.json`，本身是轻量 JSON 构建。
-`filter_overlap.py` 才执行全量 SHA-256 字节级匹配并输出
-`data/excluded_overlap.json`；该步骤只适合在本地
+`prepare_rgbdt.py` 是索引的唯一生成器，输出 `data/indexes/train.json`、
+`data/indexes/val.json` 与 `data/indexes/split_manifest.json`。
+`filter_overlap.py` 才执行全量 SHA-256 字节级匹配并把审计日志写入
+`data/audits/excluded_overlap.json`；该步骤只适合在本地
 首次准备数据时执行，不应该放进云端日常训练/推理流程。
 
 > 发布后的 approved 标注集会执行 Train/Val 与 Test 的同源 SHA-256 审计，避免同源帧进入训练。

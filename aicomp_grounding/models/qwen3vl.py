@@ -158,7 +158,6 @@ class Qwen3VLAdapter:
         data_root: Path,
         processor,
     ) -> dict:
-        import torch
         from PIL import Image
         from qwen_vl_utils import process_vision_info
 

@@ -27,9 +27,11 @@ from __future__ import annotations
 
 import math
 import re
+from pathlib import Path
 
 from aicomp_grounding.annotation_state import validate_approved_artifact
 from aicomp_grounding.artifacts import stable_json_hash
+from aicomp_grounding.io import load_json
 from aicomp_grounding.config import TRAINING_PROTOCOL_VERSION
 from aicomp_grounding.sharding import group_keys_by_scene
 
@@ -346,14 +348,10 @@ def validate_adapter_directory(
     num_epochs: int,
 ) -> dict:
     """Validate an adapter directory structure and manifest within a training run."""
-    from pathlib import Path as _Path
-    import re as _re
 
-    from aicomp_grounding.io import load_json as _load_json
-
-    if not isinstance(adapter_path, (str, _Path)) or not str(adapter_path):
+    if not isinstance(adapter_path, (str, Path)) or not str(adapter_path):
         raise ValueError(f"Completed training state has no {expected_kind} adapter path")
-    adapter_dir = _Path(adapter_path).resolve()
+    adapter_dir = Path(adapter_path).resolve()
     resolved_run_dir = run_dir.resolve()
     try:
         relative = adapter_dir.relative_to(resolved_run_dir)
@@ -368,7 +366,7 @@ def validate_adapter_directory(
             expected_kind not in {"best", "checkpoint"}
             or len(relative.parts) != 2
             or relative.parts[0] != expected_parent
-            or not _re.fullmatch(r"epoch_\d+", relative.parts[1])
+            or not re.fullmatch(r"epoch_\d+", relative.parts[1])
         ):
             raise ValueError(
                 f"{expected_kind.capitalize()} adapter path does not point to "
@@ -384,7 +382,7 @@ def validate_adapter_directory(
     manifest_path = adapter_dir / "adapter_manifest.json"
     if not manifest_path.is_file():
         raise FileNotFoundError(f"{expected_kind.capitalize()} adapter manifest is missing: {manifest_path}")
-    manifest = _load_json(manifest_path)
+    manifest = load_json(manifest_path)
     if manifest.get("metadata") != metadata:
         raise ValueError(f"{expected_kind.capitalize()} adapter manifest metadata mismatch")
     if expected_kind in {"best", "checkpoint"}:
@@ -477,18 +475,15 @@ def validate_resume_checkpoint(
     grad_accum_steps: int,
     num_epochs: int,
 ) -> dict:
-    from pathlib import Path as _Path
-    import re as _re
-    from aicomp_grounding.io import load_json as _load_json
 
-    checkpoint = _Path(checkpoint_path).resolve()
+    checkpoint = Path(checkpoint_path).resolve()
     checkpoint_root = (run_dir / "checkpoints").resolve()
     try:
         relative = checkpoint.relative_to(checkpoint_root)
     except ValueError as exc:
         raise ValueError("Training checkpoint escapes the current run directory") from exc
-    match_epoch = _re.fullmatch(r"epoch_(\d+)", relative.as_posix())
-    match_step = _re.fullmatch(r"step_(\d+)", relative.as_posix())
+    match_epoch = re.fullmatch(r"epoch_(\d+)", relative.as_posix())
+    match_step = re.fullmatch(r"step_(\d+)", relative.as_posix())
     if match_epoch is None and match_step is None:
         raise ValueError(f"Invalid training checkpoint path: {checkpoint}")
 
@@ -497,7 +492,7 @@ def validate_resume_checkpoint(
     binary_path = checkpoint / "training_state.pt"
     if not binary_path.is_file() or binary_path.stat().st_size == 0:
         raise FileNotFoundError(f"Training optimizer/RNG state is missing: {binary_path}")
-    state = _load_json(checkpoint / "state.json")
+    state = load_json(checkpoint / "state.json")
     if state.get("metadata") != metadata:
         raise ValueError("Training checkpoint state metadata does not match")
 

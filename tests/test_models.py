@@ -11,7 +11,7 @@ from pathlib import Path
 from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.models import ADAPTERS, available_models, get_adapter
-from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.models.base import ModelInput
 from aicomp_grounding.models.groundingdino import (
     normalize_grounding_query,
     select_top_detection,
