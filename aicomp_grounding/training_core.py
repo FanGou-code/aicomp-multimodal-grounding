@@ -233,7 +233,7 @@ def prepare_training_plan(
     elif model == "qwen3_8":
         pass
     elif model == "internvl35":
-        adapter_kwargs["max_num_tiles"] = 12
+        pass
     else:
         raise ValueError(f"Unsupported training model: {model!r}")
     adapter = get_adapter(model, **adapter_kwargs)
@@ -453,10 +453,7 @@ def run_training(
             max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
         )
     elif model_name == "internvl35":
-        adapter = get_adapter(
-            "internvl35",
-            max_num_tiles=hyperparameters.get("max_num_tiles", 12),
-        )
+        adapter = get_adapter("internvl35")
     else:
         raise ValueError(f"Unsupported training model: {model_name!r}")
     run_dir = Path(training_plan["run_dir"])

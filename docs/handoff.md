@@ -31,8 +31,9 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 
 **当前阶段与下一步**：阶段一「自适应视觉消歧新标注生产」已 100% 满额发布
 （统一资产目录 `annot_dc189f029d962b27`，共 3,594 帧）。
-当前正式进入 **Qwen3-VL-8B 新标注重训 + 打榜**阶段。
-执行路线为：Qwen3-VL-8B LoRA 训练（3 epochs / bfloat16）→ 测试集推理与打榜；32B 路线已全面移除。
+当前正式进入 **Qwen3.8-27B 全量 LoRA 训练 + 打榜**阶段。
+执行路线为：Qwen3.8-27B 全量训练（约 540 步，SMOKE 已通过）→ Val 推理评估 → Test
+全量推理；InternVL3.5-8B/DINO/WBF 仍为并行待办。
 
 **运行边界**：本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU
 训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
@@ -55,7 +56,7 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 | **新标注 Qwen3-VL-8B**（α48/3ep/min_lr） | Test **0.7325** |
 | **双模型 WBF**（基线+Iter02 融合） | Test **0.7453** ← 当前最佳 |
 
-**总路线**：标注重构+质量对齐 → 8B 重训 → 后期融合（WBF 与 DINO 替换均属后期）
+**总路线**：标注重构+质量对齐 → 8B 基线触顶 → Qwen3.8-27B 主力重训 → 后期融合（WBF 与 DINO 替换均属后期）
 
 **阶段一：高质量自适应消歧标注生成（共享地基，零 GPU，只花 GLM-4.6V API）**
 - 风格对齐：32 序列等距抽样 pilot → `audit_query_style.py` 审计 → 人工抽检 → 全量重生成 Train/Val →
@@ -130,6 +131,32 @@ GPU 实操以 `docs/RGBDT视觉定位大模型竞赛全流程SOP与实操指南.
 * 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-08-31（仓库，清理 Qwen3.8/InternVL 适配层隐患）
+
+* Qwen3.8 自动加载不再走 HF：未传 `--model-path` 且本地无权重时，改用
+  ModelScope `snapshot_download(MODEL_NAME, revision=e823e888...)`，避免 HF
+  侧 404；显式传本地模型目录的 SOP 路径不受影响。
+* InternVL 移除无效的 `max_num_tiles` 配置；实际分辨率预算统一记录为
+  `preprocessor_config.json` 控制的 `max_patches=12`，文档同步更新。
+* 修正 `qwen3_8` docstring 中错误的 `<|box_r|>`，改为实际
+  `<|box_start|>/<|box_end|>`。
+* 本地验证：225 项单测通过（5 skip），`compileall` 与 `git diff --check`
+  通过；相关测试保持无网络、无模型下载。
+
+### 2026-08-31（仓库，接手验证与下一步门槛确认）
+
+* 当前分支 `feat/qwen8b` 领先 `main` 10 个提交，工作区干净；核心内容为 Qwen3.8-27B
+  适配器、训练/推理接入、SOP 与 smoke 修复。
+* 接手验证通过：`unittest discover -s tests` 221 项通过（5 skip）；
+  `compileall`、`git diff --check` 通过。
+* Qwen3.8 CPU Preflight 已在本机通过：
+  `offline/train.py --annotation-run-id annot_dc189f029d962b27 --model qwen3_8
+  --seed 42 --run-tag exp-qwen38-27b-01 --preflight-only`。
+* 本机边界确认：无 `/mnt/workspace`、无 `aicomp_env_q38`、无 Qwen3.8 权重，
+  `qwen_vg` 未安装 torch/transformers，只有 8GB NVIDIA GPU；全量 27B 训练仍需按
+  SOP 在具备 `/mnt/workspace + aicomp_env_q38 + /root/models` 的 GPU 主机执行。
+* `cloud/` 目录按 `.gitignore` 约定本地保留，不入库；当前分支不含该目录。
 
 ### 2026-08-31（仓库，Qwen3.8 smoke 阻塞修复）
 

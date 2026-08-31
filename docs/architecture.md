@@ -82,7 +82,7 @@ adapter.predict([ModelInput(visible, infrared, depth, query, key)]) -> [Predicti
 | | Qwen3-VL | InternVL3.5 | GroundingDINO |
 |---|---|---|---|
 | 输入 | RGB+IR+Depth 三图 | 同左 | **仅 RGB**（单图架构） |
-| 分辨率机制 | 整图动态分辨率 `max_pixels` | 448 tile 网格 `max_num_tiles` | 内部 resize ~800×1333 |
+| 分辨率机制 | 整图动态分辨率 `max_pixels` | 448 tile 网格 `max_patches` | 内部 resize ~800×1333 |
 | prompt | 系统提示 + `Locate:` | 官方 grounding prompt + `<ref>` | 裸 query（无模板） |
 | 置信度 | 无 | 无 | **原生 score**（WBF 用） |
 

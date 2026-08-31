@@ -2,7 +2,7 @@
 
 Qwen3.8 is the Qwen3.5-series unified vision-language model (native VLM,
 model_type ``qwen3_5``). It reuses the Qwen-VL multimodal protocol (chat
-template, ``process_vision_info`` helper, ``<|box_r|>`` coordinate tokens) so
+template, ``process_vision_info`` helper, ``<|box_start|>/<|box_end|>`` tokens) so
 the training/inference batch builders mirror :mod:`aicomp_grounding.models.qwen3vl`
 byte-for-byte. Only the model id, revision and the loaded model class differ.
 """
@@ -56,6 +56,25 @@ def _apply_chat_template(
     )
 
 
+def _resolve_model_source(model_path: str | None) -> tuple[str, bool]:
+    """Resolve the qwen3_8 source to a local directory.
+
+    Qwen3.8's pinned revision is a ModelScope git commit, not a Hugging Face
+    revision. Automatic loading therefore has to use ModelScope even when no
+    ``--model-path`` is passed; the returned path is always local afterwards.
+    """
+    if model_path is not None:
+        return model_path, False
+    try:
+        from modelscope import snapshot_download
+    except ImportError as exc:
+        raise RuntimeError(
+            "Qwen3.8 automatic loading requires modelscope; "
+            "pass --model-path to a local model directory"
+        ) from exc
+    return snapshot_download(MODEL_NAME, revision=MODEL_REVISION), False
+
+
 class Qwen3_8Adapter:
     name = "qwen3_8"
     model_name = MODEL_NAME
@@ -94,8 +113,7 @@ class Qwen3_8Adapter:
         from peft import PeftModel
         from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
 
-        source = model_path or self.model_name
-        from_hub = model_path is None
+        source, from_hub = _resolve_model_source(model_path)
         processor = AutoProcessor.from_pretrained(
             source,
             **({"revision": self.model_revision} if from_hub else {}),

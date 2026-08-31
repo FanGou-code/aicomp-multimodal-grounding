@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import sys
 import tempfile
@@ -127,6 +128,61 @@ class Qwen3_8IdentityTests(unittest.TestCase):
             adapter.lora_target_modules(),
             ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         )
+
+
+class Qwen3_8ModelSourceTests(unittest.TestCase):
+    def test_explicit_model_path_returns_local_source(self):
+        from aicomp_grounding.models.qwen3_8 import _resolve_model_source
+
+        self.assertEqual(
+            _resolve_model_source("/tmp/qwen"),
+            ("/tmp/qwen", False),
+        )
+
+    def test_automatic_source_uses_modelscope_revision(self):
+        from unittest import mock
+
+        from aicomp_grounding.models import qwen3_8
+
+        fake_modelscope = types.ModuleType("modelscope")
+        calls = []
+
+        def snapshot_download(model_id, revision):
+            calls.append((model_id, revision))
+            return "/tmp/downloaded/qwen"
+
+        fake_modelscope.snapshot_download = snapshot_download
+
+        with mock.patch.dict(sys.modules, {"modelscope": fake_modelscope}):
+            source, from_hub = qwen3_8._resolve_model_source(None)
+
+        self.assertEqual(source, "/tmp/downloaded/qwen")
+        self.assertFalse(from_hub)
+        self.assertEqual(
+            calls,
+            [
+                (
+                    qwen3_8.MODEL_NAME,
+                    qwen3_8.MODEL_REVISION,
+                )
+            ],
+        )
+
+    def test_automatic_source_without_modelscope_raises_actionable_error(self):
+        from unittest import mock
+
+        from aicomp_grounding.models.qwen3_8 import _resolve_model_source
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "modelscope":
+                raise ImportError("No module named 'modelscope'")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=fake_import):
+            with self.assertRaisesRegex(RuntimeError, "--model-path"):
+                _resolve_model_source(None)
 
 
 class Qwen3_8ChatTemplateTests(unittest.TestCase):
@@ -256,6 +312,14 @@ class TrainableAdapterContractTests(unittest.TestCase):
 
 
 class InternVLContractTests(unittest.TestCase):
+    def test_uses_real_max_patches_budget(self):
+        adapter = get_adapter("internvl35")
+        self.assertEqual(adapter.generation_config["max_patches"], 12)
+        self.assertNotIn("max_num_tiles", adapter.generation_config)
+        self.assertEqual(adapter.training_hyperparameters()["max_patches"], 12)
+        with self.assertRaises(TypeError):
+            get_adapter("internvl35", max_num_tiles=6)
+
     def test_question_has_numbered_context_image_slots_and_official_prompt(self):
         question = build_grounding_question("the red car")
         self.assertEqual(question.count(INTERNVL_IMAGE_TOKEN), 3)

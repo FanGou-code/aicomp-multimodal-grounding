@@ -34,7 +34,7 @@ flowchart LR
 | Adapter | 基座模型 | Revision | 输入模态 | 任务支持 | 核心视觉 / 微调配置 |
 | --- | --- | --- | --- | --- | --- |
 | `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | `0c351dd` | RGB + Infrared + Depth + Query | 训练 / 推理 | 原图 1080p 无损像素预算 (`3072*28*28`)，LoRA (r=16, α=48)，BF16 (SDPA) |
-| `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | `741a7d0` | RGB + Infrared + Depth + Query | 训练 / 推理 | 动态切块 (`max_num_tiles=12`)，LoRA (r=16, α=48)，BF16 (SDPA) |
+| `internvl35` | `OpenGVLab/InternVL3_5-8B-HF` | `741a7d0` | RGB + Infrared + Depth + Query | 训练 / 推理 | 动态切块 (`max_patches=12`)，LoRA (r=16, α=48)，BF16 (SDPA) |
 | `groundingdino` | `IDEA-Research/grounding-dino-base` | `12bdfa3` | RGB + Query | 推理 (Zero-shot) | 原生判别式检测器，输出置信度得分供 WBF 融合 |
 
 > 注：另内置 `mock` 确定性桩模型，用于纯 CPU 单元测试与端到端流水线验证。

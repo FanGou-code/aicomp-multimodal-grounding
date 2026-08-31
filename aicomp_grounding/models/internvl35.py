@@ -26,6 +26,10 @@ MODEL_REVISION = "741a7d03020411e666c6109218ab71e08151ef86"
 MAX_NEW_TOKENS = 100
 
 INTERNVL_IMAGE_TOKEN = "<IMG_CONTEXT>"
+# The HF processor owns the dynamic tile budget through
+# preprocessor_config.json `max_patches`; InternVL3.5 no longer uses the old
+# InternVL2 parameter name `max_num_tiles`.
+MAX_PATCHES = 12
 
 _NUMBER = r"\d+(?:\.\d+)?"
 _BOX_PATTERN = re.compile(
@@ -87,12 +91,11 @@ class InternVL35Adapter:
     supports_lora = True
     supports_prepared_inputs = True
 
-    def __init__(self, *, max_num_tiles: int = 12):
-        self.max_num_tiles = max_num_tiles
+    def __init__(self):
         self.generation_config: dict[str, Any] = {
             "max_new_tokens": MAX_NEW_TOKENS,
             "do_sample": False,
-            "max_num_tiles": max_num_tiles,
+            "max_patches": MAX_PATCHES,
         }
         self._processor = None
         self._model = None
@@ -131,7 +134,7 @@ class InternVL35Adapter:
         source = model_path or self.model_name
         from_hub = model_path is None
         # InternVL3.5-HF controls the patch budget in preprocessor_config
-        # (`max_patches`); do not pass the legacy max_num_tiles name here.
+        # (`max_patches`); do not pass the legacy InternVL2 max_num_tiles name.
         processor = AutoProcessor.from_pretrained(
             source,
             **({"revision": self.model_revision} if from_hub else {}),
@@ -190,7 +193,7 @@ class InternVL35Adapter:
             "best_epoch_primary_metric": "acc_at_0_5",
             "python_version": RUNTIME_PYTHON_VERSION,
             "lora_targets": self.lora_target_modules(),
-            "max_num_tiles": self.max_num_tiles,
+            "max_patches": MAX_PATCHES,
         }
 
     def lora_target_modules(self) -> list[str]:
