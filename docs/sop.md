@@ -58,6 +58,10 @@ python -c "import transformers, peft; print(transformers.__version__)"
 # 应输出 5.14.1
 ```
 
+若目标模型为**混合线性注意力架构**（`qwen3_5` 类），需额外安装 A 卡加速内核
+FLA 与 causal-conv1d——完整命令见 `envs/README.md` 的「A 卡加速内核（按需）」
+一节（标准注意力模型不需要）。
+
 **仅当验证失败时重建**。两种触发：报 `bad interpreter`（镜像更新导致底座
 python 路径变化，venv 的解释器符号链接悬空）；或版本号不是 5.14.1
 （`envs/gpu.txt` 升级后）。重建有持久缓存（`PIP_CACHE_DIR` / `TRITON_CACHE_DIR`），
