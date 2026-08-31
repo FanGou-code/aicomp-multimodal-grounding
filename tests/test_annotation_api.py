@@ -8,7 +8,7 @@ from email.message import Message
 from PIL import Image
 from scripts import generate_queries
 
-from aicomp_grounding.annotation_state import (
+from aicomp_grounding.annotation_views import (
     MARK_COLOR,
     build_marked_annotation_view,
     jpeg_data_url,

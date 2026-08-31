@@ -115,8 +115,9 @@ def verify_dataset_images(
                         f"Sample {sample_id!r} is missing {field} image: {path}"
                     )
                 with Image.open(path) as opened:
+                    # verify() only validates the bitstream; header attributes
+                    # such as .size stay valid afterwards, so one open is enough.
                     opened.verify()
-                with Image.open(path) as opened:
                     verified[path] = opened.size
             sizes.append(verified[path])
             relative_paths.append(relative)

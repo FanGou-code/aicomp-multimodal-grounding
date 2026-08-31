@@ -21,6 +21,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.bbox import validate_bbox
+from aicomp_grounding.images import trusted_dataset_image_fingerprint
 from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.inference_state import (
     assign_pending_shards,
@@ -505,6 +506,14 @@ def main():
     adapter_fingerprint = fingerprint_lora(adapter_dir)
     dataset_for_fp = {item["key"]: item for item in items}
     input_fingerprint = fingerprint_inputs(dataset_for_fp, selected_keys)
+    # Bind run identity to the selected samples' image references (paths +
+    # recorded sizes when present) without hashing GB of pixels. Existing run
+    # dirs keep their recorded fingerprints; only new runs change identity.
+    image_fingerprint = trusted_dataset_image_fingerprint(
+        dataset_for_fp,
+        selected_keys,
+        require_recorded_size=False,
+    )
 
     metadata = build_run_metadata(
         mode="base",
@@ -520,7 +529,7 @@ def main():
         limit=args.limit if args.limit > 0 else None,
         selected_keys=selected_keys,
         input_fingerprint=input_fingerprint,
-        image_fingerprint="local",
+        image_fingerprint=image_fingerprint,
         num_shards=args.num_shards,
     )
     run_id = metadata["run_id"]

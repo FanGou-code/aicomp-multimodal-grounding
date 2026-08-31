@@ -1,8 +1,0 @@
-# Local development & preprocessing dependencies
-pillow>=9.0
-opencv-python-headless>=4.5
-numpy>=1.21
-
-# Cloud & Hub execution
-modal>=0.62
-modelscope>=1.15.0

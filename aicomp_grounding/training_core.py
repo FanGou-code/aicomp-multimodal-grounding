@@ -86,10 +86,24 @@ def _evaluate_grounding_metrics(
     data_root: Path,
     device,
     batch_size: int,
+    image_cache: dict | None = None,
 ) -> dict:
-    """Run full validation-set grounding inference and compute ACC/mIoU."""
+    """Run full validation-set grounding inference and compute ACC/mIoU.
+
+    ``image_cache`` (optional) memoizes decoded modality images across epochs
+    so the val set is read from disk once per run instead of once per epoch.
+    """
     import torch
     from PIL import Image
+
+    def _load_modality(relative: str):
+        path = str(data_root / relative)
+        if image_cache is None:
+            return Image.open(path).convert("RGB")
+        cached = image_cache.get(path)
+        if cached is None:
+            cached = image_cache[path] = Image.open(path).convert("RGB")
+        return cached
 
     keys = sorted(val_data)
     hits = 0
@@ -100,14 +114,11 @@ def _evaluate_grounding_metrics(
         samples = []
         for key in batch_keys:
             item = val_data[key]
-            visible = Image.open(data_root / item["visible"]).convert("RGB")
-            infrared = Image.open(data_root / item["infrared"]).convert("RGB")
-            depth = Image.open(data_root / item["depth"]).convert("RGB")
             samples.append(
                 ModelInput(
-                    visible=visible,
-                    infrared=infrared,
-                    depth=depth,
+                    visible=_load_modality(item["visible"]),
+                    infrared=_load_modality(item["infrared"]),
+                    depth=_load_modality(item["depth"]),
                     query=item["query"],
                     key=key,
                 )
@@ -592,6 +603,27 @@ def run_training(
     total_steps = int(steps_per_epoch * num_epochs)
     warmup_steps = int(total_steps * warmup_ratio)
 
+    # Decode-once cache for the epoch-end grounding eval: hold decoded val
+    # modality images in RAM across epochs when they comfortably fit in the
+    # machine's available memory, otherwise fall back to per-epoch reads.
+    val_image_cache: dict | None = None
+    estimated_val_bytes = 9 * sum(
+        int(item.get("width", 0)) * int(item.get("height", 0))
+        for item in val_artifact["data"].values()
+    )
+    try:
+        available_bytes = os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    except (ValueError, OSError, AttributeError):
+        available_bytes = 0
+    cache_budget = min(24 * 1024**3, int(available_bytes * 0.4))
+    if estimated_val_bytes > 0 and estimated_val_bytes <= cache_budget:
+        val_image_cache = {}
+        print(
+            f"Val image cache enabled (~{estimated_val_bytes / 1024**3:.1f} GiB "
+            f"vs budget {cache_budget / 1024**3:.1f} GiB).",
+            flush=True,
+        )
+
     optimizer = torch.optim.AdamW(
         (parameter for parameter in model.parameters() if parameter.requires_grad),
         lr=learning_rate,
@@ -814,6 +846,7 @@ def run_training(
             data_root=data_root_path,
             device=device,
             batch_size=eval_batch_size,
+            image_cache=val_image_cache,
         )
         candidate_metric = epoch_metrics[best_metric_name]
         print(

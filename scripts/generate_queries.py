@@ -17,17 +17,19 @@ if str(PROJECT_ROOT) not in sys.path:
 from PIL import Image
 
 from aicomp_grounding.annotation_state import (
-    RENDER_PROTOCOL,
     annotation_attempt_numbers,
     build_annotation_plan,
     build_annotation_shard_metadata,
     build_approved_artifact,
-    build_marked_annotation_view,
-    jpeg_data_url,
     merge_annotation_payloads,
     pending_frames,
     pending_sequences,
     validate_annotation_checkpoint,
+)
+from aicomp_grounding.annotation_views import (
+    RENDER_PROTOCOL,
+    build_marked_annotation_view,
+    jpeg_data_url,
 )
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.config import (
@@ -78,6 +80,11 @@ GENERATION_CONFIG = {
 }
 MAX_API_CONCURRENCY = 16
 PREVIEW_SEQUENCE_LIMIT = 20
+# Per-frame checkpointing rewrites the whole shard results dict (O(N²) bytes
+# over a run). Throttle to every N frames; a crash then loses at most N API
+# calls. A format-level incremental checkpoint is the fix if frame counts
+# ever grow to hundreds of thousands.
+CHECKPOINT_EVERY_N_FRAMES = 5
 
 
 def _validate_options(
@@ -465,6 +472,7 @@ def annotate_shard(
     def save_checkpoint() -> None:
         atomic_write_json(checkpoint_path, {"metadata": expected_metadata, "results": results})
 
+    frames_since_save = 0
     try:
         for sequence_offset, sequence_id in enumerate(todo, start=1):
             sample_ids = groups[sequence_id]
@@ -505,7 +513,10 @@ def annotate_shard(
                     previous=previous_frame,
                     retry_failed=retry_failed,
                 )
-                save_checkpoint()
+                frames_since_save += 1
+                if frames_since_save >= CHECKPOINT_EVERY_N_FRAMES:
+                    save_checkpoint()
+                    frames_since_save = 0
                 frame = frames[sample_id]
                 if progress is None:
                     processed = sum(
