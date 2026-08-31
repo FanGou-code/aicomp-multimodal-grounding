@@ -110,7 +110,9 @@ offline/
 
 docs/
   architecture.md       仓库架构、adapter 约定与协作接入指南
+  sop.md                GPU 实操 SOP（魔搭 DSW 全流程，唯一真相源）
   handoff.md            交接文档：当前状态、成绩与交接日志（唯一状态记录）
+  data-contract.md      data/ 布局与派生产物合同（索引/审计的生成与组装）
   research.md           赛题规则与官方数据规范调研
 
 scripts/
@@ -207,10 +209,12 @@ data/
   Processed/
     Train/<sequence>/depth_jet/*.png
     Test/depth_jet/*.png
-  train.json
-  val.json
-  split_manifest.json
-  excluded_overlap.json
+  indexes/
+    train.json
+    val.json
+    split_manifest.json
+  audits/
+    excluded_overlap.json
 ```
 
 Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使不同场景间的颜色具有一致距离含义。
@@ -219,10 +223,10 @@ Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使
 
 ```text
 本地流水线使用：
-  data/train.json
-  data/val.json
-  data/split_manifest.json
-  data/excluded_overlap.json
+  data/indexes/train.json
+  data/indexes/val.json
+  data/indexes/split_manifest.json
+  data/audits/excluded_overlap.json
 
 云端运行只需要：
   data/Train + data/Test + data/Processed
@@ -231,9 +235,10 @@ Depth 默认将 300-20,000 mm 固定映射为 8-bit JET 图像。固定尺度使
 ```
 
 `train.json`、`val.json`、`split_manifest.json`、`excluded_overlap.json` 是本地
-生成标注/风格计划和做查重审计所需的中间产物；approved 发布后，训练核心直接消费
-approved 样本，不再依赖这些索引。云端不要在启动阶段重新运行全量 SHA-256 审计或
-Depth-JET 生成，否则会重复扫描约 44GB 图像并卡在 I/O 上。
+生成标注/风格计划和做查重审计所需的中间产物（详见 `docs/data-contract.md`）；
+approved 发布后，训练核心直接消费 approved 样本，不再依赖这些索引。云端不要在
+启动阶段重新运行全量 SHA-256 审计或 Depth-JET 生成，否则会重复扫描约 44GB
+图像并卡在 I/O 上。
 
 ## 完整复现流程
 
