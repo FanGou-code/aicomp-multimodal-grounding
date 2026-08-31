@@ -37,10 +37,18 @@ A 卡加速内核（按需，为混合线性注意力架构的模型准备；对
 ```bash
 pip install flash-linear-attention \
   -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-pip install causal-conv1d --no-build-isolation \
-  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-# 编不过 causal-conv1d 可直接跳过；FLA 是主要收益来源
-python -c "import fla; print('fla OK')"
 ```
 
-注意：每个新实例重建 venv 后需重装本节内容（包缓存持久，重装为秒级）。
+causal-conv1d（可选）：官方只发布 CUDA 预编译轮子，HIP 版必须强制本地
+源码编译（setup.py 会先猜一个不存在的 HIP 轮子 URL 并报 404，属正常）：
+
+```bash
+export CAUSAL_CONV1D_FORCE_BUILD=TRUE PYTORCH_ROCM_ARCH=gfx942 MAX_JOBS=8
+pip install causal-conv1d --no-build-isolation \
+  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+# 编不过可直接跳过；FLA 是主要收益来源
+python -c "import causal_conv1d; print('conv OK')"
+```
+
+注意：每个新实例重建 venv 后需重装本节内容（包缓存持久，重装为秒级；
+causal-conv1d 例外——源码编译产物不进 pip 缓存，需重新编译）。
