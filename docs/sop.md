@@ -44,9 +44,14 @@ test -d data/Processed/Train
 依赖 pin 的单一来源是仓库 `envs/gpu.txt`（transformers==5.14.1 与 DSW
 镜像自带版本一致；torch/ROCm 归镜像管，不进 pip）。
 
-首次执行：
+**每个新实例都要重建 venv**：venv 的解释器锚点绑定创建时的底座 python 路径，
+跨实例可能失效（症状：`bad interpreter`）。重建仅数十秒——pip 下载走持久
+缓存（`PIP_CACHE_DIR`），不会重复拉包。
+
+每个新实例执行：
 
 ```bash
+rm -rf /mnt/workspace/aicomp_env
 python3 -m venv --system-site-packages /mnt/workspace/aicomp_env
 source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
@@ -59,14 +64,14 @@ echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' \
   >> /mnt/workspace/aicomp_env/bin/activate
 ```
 
-之后每次执行：
+同实例后续会话只激活：
 
 ```bash
 source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
 ```
 
-快速验证（10 秒）：
+验证（10 秒，激活后必做）：
 
 ```bash
 python -c "import transformers, peft; print(transformers.__version__)"
