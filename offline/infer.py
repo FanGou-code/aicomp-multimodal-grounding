@@ -417,13 +417,17 @@ def _run_shard_worker(
     args_dict, items, shard_id, checkpoint_dir, shard_metadata = payload
     args = argparse.Namespace(**args_dict)
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_8"):
+    if args.model in ("qwen3vl",):
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
     adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
     if adapter_dir is not None and not adapter_dir.exists():
-        adapter_dir = None
+        raise FileNotFoundError(f"LoRA adapter directory not found: {adapter_dir}")
     if adapter_dir is not None and not adapter.supports_lora:
+        print(
+            f"Warning: --model {adapter.name} does not use LoRA; ignoring adapter path.",
+            flush=True,
+        )
         adapter_dir = None
     try:
         import torch
@@ -480,7 +484,7 @@ def main():
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
 
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_8"):
+    if args.model in ("qwen3vl",):
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
 
@@ -614,6 +618,8 @@ def main():
                 batch_size=args.batch_size,
                 batch_save=args.batch_save,
                 existing_predictions=predictions,
+                checkpoint_path=checkpoint_path,
+                checkpoint_metadata=metadata,
             )
     atomic_write_json(predictions_path, predictions)
     atomic_write_json(

@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import builtins
 import json
-import sys
 import tempfile
-import types
 import unittest
 import zipfile
 from pathlib import Path
-from unittest import mock
 
 from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.io import atomic_write_json
@@ -40,7 +36,7 @@ class RegistryTests(unittest.TestCase):
     def test_registry_exposes_expected_models(self):
         self.assertEqual(
             available_models(),
-            ["groundingdino", "internvl35", "mock", "qwen3_8", "qwen3vl"],
+            ["groundingdino", "internvl35", "mock", "qwen3vl"],
         )
 
     def test_unknown_model_raises_with_valid_options(self):
@@ -82,228 +78,9 @@ class QwenIdentityContinuityTests(unittest.TestCase):
         )
 
 
-class Qwen3_8IdentityTests(unittest.TestCase):
-    """Pin Qwen3.8-27B identity values so run fingerprints never drift."""
-
-    def test_model_constants_match_adoption_pin(self):
-        from aicomp_grounding.models.qwen3_8 import (
-            MAX_PIXELS as Q38_MAX_PIXELS,
-            MIN_PIXELS as Q38_MIN_PIXELS,
-            MODEL_NAME as Q38_MODEL_NAME,
-            MODEL_REVISION as Q38_MODEL_REVISION,
-        )
-
-        self.assertEqual(Q38_MODEL_NAME, "Qwen/Qwen3.8-27B")
-        self.assertEqual(
-            Q38_MODEL_REVISION, "e823e888ae179eb3be02c1a48899c4f828371376"
-        )
-        self.assertEqual(Q38_MIN_PIXELS, 256 * 28 * 28)
-        self.assertEqual(Q38_MAX_PIXELS, 3072 * 28 * 28)
-
-    def test_prompt_hash_matches_prompts_module(self):
-        adapter = get_adapter("qwen3_8")
-        self.assertEqual(
-            adapter.prompt_hash(), grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
-        )
-
-    def test_identity_fields_are_complete(self):
-        adapter = get_adapter("qwen3_8")
-        identity = adapter.identity()
-        self.assertEqual(
-            sorted(identity), ["model_name", "model_revision", "prompt_hash"]
-        )
-        self.assertEqual(identity["model_name"], "Qwen/Qwen3.8-27B")
-
-    def test_training_hyperparameters_clone_qwen3vl_baseline(self):
-        adapter = get_adapter("qwen3_8")
-        hyper = adapter.training_hyperparameters()
-        self.assertEqual(hyper["batch_size"], 1)
-        self.assertEqual(hyper["gradient_accumulation_steps"], 16)
-        self.assertEqual(hyper["learning_rate"], 1e-4)
-        self.assertEqual(hyper["epochs"], 3)
-        self.assertEqual(hyper["lora_rank"], 16)
-        self.assertEqual(hyper["lora_alpha"], 48)
-        self.assertEqual(hyper["compute_dtype"], "bfloat16")
-        self.assertEqual(
-            adapter.lora_target_modules(),
-            ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-        )
-
-
-class Qwen3_8ModelSourceTests(unittest.TestCase):
-    def test_explicit_model_path_returns_local_source(self):
-        from aicomp_grounding.models.qwen3_8 import _resolve_model_source
-
-        self.assertEqual(
-            _resolve_model_source("/tmp/qwen"),
-            ("/tmp/qwen", False),
-        )
-
-    def test_automatic_source_uses_modelscope_revision(self):
-        from unittest import mock
-
-        from aicomp_grounding.models import qwen3_8
-
-        fake_modelscope = types.ModuleType("modelscope")
-        calls = []
-
-        def snapshot_download(model_id, revision):
-            calls.append((model_id, revision))
-            return "/tmp/downloaded/qwen"
-
-        fake_modelscope.snapshot_download = snapshot_download
-
-        with mock.patch.dict(sys.modules, {"modelscope": fake_modelscope}):
-            source, from_hub = qwen3_8._resolve_model_source(None)
-
-        self.assertEqual(source, "/tmp/downloaded/qwen")
-        self.assertFalse(from_hub)
-        self.assertEqual(
-            calls,
-            [
-                (
-                    qwen3_8.MODEL_NAME,
-                    qwen3_8.MODEL_REVISION,
-                )
-            ],
-        )
-
-    def test_automatic_source_without_modelscope_raises_actionable_error(self):
-        from unittest import mock
-
-        from aicomp_grounding.models.qwen3_8 import _resolve_model_source
-
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == "modelscope":
-                raise ImportError("No module named 'modelscope'")
-            return real_import(name, *args, **kwargs)
-
-        with mock.patch("builtins.__import__", side_effect=fake_import):
-            with self.assertRaisesRegex(RuntimeError, "--model-path"):
-                _resolve_model_source(None)
-
-
-class Qwen3_8ChatTemplateTests(unittest.TestCase):
-    """Qwen3.8 thinks by default; grounding must always disable it."""
-
-    def test_chat_template_kwargs_disable_thinking(self):
-        from aicomp_grounding.models.qwen3_8 import CHAT_TEMPLATE_KWARGS
-
-        self.assertEqual(CHAT_TEMPLATE_KWARGS, {"enable_thinking": False})
-
-    def test_apply_chat_template_helper_forwards_non_thinking_kwargs(self):
-        from aicomp_grounding.models.qwen3_8 import _apply_chat_template
-
-        class FakeProcessor:
-            def __init__(self):
-                self.kwargs = None
-
-            def apply_chat_template(
-                self,
-                messages,
-                *,
-                tokenize,
-                add_generation_prompt,
-                **kwargs,
-            ):
-                self.kwargs = kwargs
-                return "template-text"
-
-        processor = FakeProcessor()
-        text = _apply_chat_template(
-            processor,
-            [{"role": "user", "content": "Locate: the person"}],
-            add_generation_prompt=True,
-        )
-        self.assertEqual(text, "template-text")
-        self.assertEqual(processor.kwargs, {"enable_thinking": False})
-
-    def test_inference_builders_use_non_thinking_chat_template(self):
-        from PIL import Image
-
-        from aicomp_grounding.models.base import ModelInput
-
-        class FakeProcessor:
-            def __init__(self):
-                self.calls = []
-
-            def apply_chat_template(
-                self,
-                messages,
-                *,
-                tokenize,
-                add_generation_prompt,
-                **kwargs,
-            ):
-                self.calls.append(kwargs)
-                return "template-text"
-
-            def __call__(self, **kwargs):
-                return {"inputs_ready": True}
-
-        fake_vision = types.ModuleType("qwen_vl_utils")
-        fake_vision.process_vision_info = lambda messages: ([], [])
-        image = Image.new("RGB", (8, 8))
-        sample = ModelInput(visible=image, infrared=image, depth=image, query="the person")
-        processor = FakeProcessor()
-        adapter = get_adapter("qwen3_8")
-        adapter._processor = processor
-
-        with mock.patch.dict(sys.modules, {"qwen_vl_utils": fake_vision}):
-            adapter.build_grounding_batch([sample], processor=processor)
-            adapter.prepare_inputs([sample])
-
-        self.assertTrue(processor.calls)
-        self.assertTrue(
-            all(call == {"enable_thinking": False} for call in processor.calls)
-        )
-
-
-class Qwen3_8CollateTests(unittest.TestCase):
-    def test_collate_preserves_multimodal_token_types(self):
-        try:
-            import torch
-        except ModuleNotFoundError:
-            self.skipTest("torch is required for tensor collation")
-
-        class Tokenizer:
-            pad_token_id = 0
-
-        class Processor:
-            tokenizer = Tokenizer()
-
-        batch = [
-            {
-                "input_ids": torch.tensor([1, 2]),
-                "labels": torch.tensor([-100, 2]),
-                "attention_mask": torch.tensor([1, 1]),
-                "pixel_values": torch.zeros((1, 3)),
-                "image_grid_thw": torch.tensor([[1, 1, 1]]),
-                "mm_token_type_ids": torch.tensor([0, 1]),
-            },
-            {
-                "input_ids": torch.tensor([1, 2, 3]),
-                "labels": torch.tensor([-100, 2, 3]),
-                "attention_mask": torch.tensor([1, 1, 1]),
-                "pixel_values": torch.zeros((1, 3)),
-                "image_grid_thw": torch.tensor([[1, 1, 1]]),
-                "mm_token_type_ids": torch.tensor([0, 1, 1]),
-            },
-        ]
-        result = get_adapter("qwen3_8").collate_training_batch(
-            batch,
-            processor=Processor(),
-        )
-        self.assertEqual(
-            result["mm_token_type_ids"].tolist(), [[0, 1, 0], [0, 1, 1]]
-        )
-
-
 class TrainableAdapterContractTests(unittest.TestCase):
     def test_vlm_adapters_expose_training_contract(self):
-        for name in ("qwen3vl", "qwen3_8", "internvl35"):
+        for name in ("qwen3vl", "internvl35"):
             adapter = get_adapter(name)
             hyperparameters = adapter.training_hyperparameters()
             self.assertEqual(hyperparameters["lora_rank"], 16)

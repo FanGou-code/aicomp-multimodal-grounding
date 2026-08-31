@@ -31,9 +31,10 @@ INFERENCE_COMPUTE_DTYPE = "bfloat16"
 RUNTIME_PYTHON_VERSION = platform.python_version()
 
 # Local development/validation dependencies are pinned in requirements-lock.txt.
-# MODAL_GPU_PACKAGES is the separate Modal GPU runtime package set.
+# MODAL_GPU_PACKAGES is the separate Modal GPU runtime package set; pins are
+# fallbacks only — current_runtime_packages() records actually-installed versions.
 MODAL_GPU_PACKAGES = (
-    "transformers==4.57.3",
+    "transformers==5.14.1",
     "accelerate==1.14.0",
     "peft==0.19.1",
     "qwen-vl-utils==0.0.14",
@@ -46,11 +47,6 @@ MODAL_GPU_PACKAGES = (
 def current_runtime_packages(model_name: str | None = None) -> list[str]:
     """Return installed runtime versions, with model-specific pinned fallbacks."""
     packages = list(MODAL_GPU_PACKAGES)
-    if model_name == "qwen3_8":
-        packages = [
-            "transformers==5.8.0" if package.startswith("transformers==") else package
-            for package in packages
-        ]
 
     for index, package in enumerate(packages):
         distribution, separator, _ = package.partition("==")

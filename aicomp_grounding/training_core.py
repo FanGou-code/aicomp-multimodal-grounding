@@ -173,10 +173,17 @@ def _prune_checkpoints(checkpoint_root: Path, prefix: str, keep: int) -> None:
         raise ValueError("keep must be >= 0")
     if not checkpoint_root.is_dir():
         return
+    # Numeric order: lexicographic sort would rank step_10000 before step_9999.
     dirs = sorted(
-        path
-        for path in checkpoint_root.iterdir()
-        if path.is_dir() and path.name.startswith(prefix)
+        (
+            path
+            for path in checkpoint_root.iterdir()
+            if path.is_dir() and path.name.startswith(prefix)
+        ),
+        key=lambda path: (
+            int(path.name[len(prefix):]) if path.name[len(prefix):].isdigit() else -1,
+            path.name,
+        ),
     )
     for path in dirs[: max(len(dirs) - keep, 0)]:
         shutil.rmtree(path, ignore_errors=True)
@@ -204,8 +211,11 @@ def _latest_resume_checkpoint(run_dir: Path) -> Path | None:
                     state = load_json(path / "state.json")
                     step = state.get("global_step", 0)
                     candidates.append((step, path))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(
+                        f"Skipping unreadable checkpoint {path.name}: {exc}",
+                        flush=True,
+                    )
     return max(candidates, default=(0, None))[1]
 
 
@@ -227,16 +237,9 @@ def prepare_training_plan(
         raise ValueError("smoke_test must be boolean")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id or ""):
         raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
-    adapter_kwargs = {}
-    if model == "qwen3vl":
-        pass
-    elif model == "qwen3_8":
-        pass
-    elif model == "internvl35":
-        pass
-    else:
+    if model not in {"qwen3vl", "internvl35"}:
         raise ValueError(f"Unsupported training model: {model!r}")
-    adapter = get_adapter(model, **adapter_kwargs)
+    adapter = get_adapter(model)
     hyperparameters = adapter.training_hyperparameters()
     hyperparameters["runtime_packages"] = current_runtime_packages(model)
     root = Path(data_root).resolve()
@@ -440,14 +443,8 @@ def run_training(
     max_grad_norm = hyperparameters["max_grad_norm"]
     weight_decay = hyperparameters["weight_decay"]
     eval_batch_size = hyperparameters["eval_batch_size"]
-    best_metric_name = hyperparameters["best_epoch_primary_metric"]
 
     if model_name == "qwen3vl":
-        adapter = get_adapter(
-            model_name,
-            max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
-        )
-    elif model_name == "qwen3_8":
         adapter = get_adapter(
             model_name,
             max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
@@ -511,7 +508,6 @@ def run_training(
     if model_path is None:
         rel_subpath = {
             "qwen3vl": "Qwen/Qwen3-VL-8B-Instruct",
-            "qwen3_8": "Qwen/Qwen3.8-27B",
             "internvl35": "OpenGVLab/InternVL3_5-8B-HF",
         }[model_name]
         for candidate in [
@@ -698,7 +694,9 @@ def run_training(
         train_loader = make_train_loader(epoch)
         # When resuming mid-epoch from a step checkpoint, skip
         # already-trained batches.  The loader uses a deterministic
-        # per-epoch seed, so reconstruction produces identical order.
+        # per-epoch seed, so reconstruction produces identical batch
+        # order; dropout/RNG streams are not replayed, so a resumed run
+        # is not bit-identical to an uninterrupted one.
         skip_batches = resume_batch_index if (epoch == start_epoch and resume_batch_index > 0) else 0
         train_iter = iter(train_loader)
         if skip_batches > 0:

@@ -84,12 +84,21 @@ class Qwen3VLAdapter:
             flush=True,
         )
 
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            source,
-            **({"revision": self.model_revision} if from_hub else {}),
-            torch_dtype=torch.bfloat16,
-            attn_implementation="sdpa",
-        ).to(device)
+        try:
+            model = Qwen3VLForConditionalGeneration.from_pretrained(
+                source,
+                **({"revision": self.model_revision} if from_hub else {}),
+                dtype=torch.bfloat16,
+                attn_implementation="sdpa",
+            )
+        except TypeError:
+            model = Qwen3VLForConditionalGeneration.from_pretrained(
+                source,
+                **({"revision": self.model_revision} if from_hub else {}),
+                torch_dtype=torch.bfloat16,
+                attn_implementation="sdpa",
+            )
+        model = model.to(device)
 
         if lora_path is not None:
             model = PeftModel.from_pretrained(model, str(lora_path)).to(device)

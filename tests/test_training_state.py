@@ -244,10 +244,10 @@ class ApprovedDataGateTests(unittest.TestCase):
                 root / "data" / "output_lora" / plan["metadata"]["training_run_id"],
             )
 
-    def test_training_plan_accepts_qwen38_model(self):
+    def test_training_plan_accepts_internvl_model(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            run_id = "annot_q38"
+            run_id = "annot_internvl"
             for split, scene in (("train", "001"), ("val", "002")):
                 artifact = _artifact(split, scene, run_id)
                 artifact["metadata"]["image_fingerprint"] = (
@@ -267,15 +267,17 @@ class ApprovedDataGateTests(unittest.TestCase):
                 annotation_root=root / "outputs" / "annotations",
                 output_root=root / "outputs",
                 annotation_run_id=run_id,
-                model="qwen3_8",
-                run_tag="q38-smoke",
+                model="internvl35",
+                run_tag="internvl-smoke",
                 seed=42,
                 resume=True,
                 smoke_test=True,
                 verify_images=False,
             )
-            self.assertEqual(plan["model"], "qwen3_8")
-            self.assertEqual(plan["metadata"]["model_name"], "Qwen/Qwen3.8-27B")
+            self.assertEqual(plan["model"], "internvl35")
+            self.assertEqual(
+                plan["metadata"]["model_name"], "OpenGVLab/InternVL3_5-8B-HF"
+            )
 
 
 class TrainingScheduleTests(unittest.TestCase):

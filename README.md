@@ -147,8 +147,7 @@ torch / torchvision / pillow，应优先沿用平台版本，避免覆盖镜像�
 VLM 适配层依赖：
 
 ```bash
-pip install transformers==4.57.3 peft==0.19.1 accelerate==1.14.0 \
-    qwen-vl-utils==0.0.14 \
+pip install -r envs/gpu.txt \
     -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 ```
 
