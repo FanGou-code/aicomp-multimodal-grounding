@@ -1,11 +1,10 @@
 # 交接文档
 
 > Agent 操作手册见根目录 `AGENTS.md`（静态规则）；本文件只记状态与日志。
-> 全仓库唯一的状态与交接记录：做到哪了、成绩、下一步。每次交接或阶段性
-> 完成时更新「当前状态」并在「交接日志」追加一条（新的写最上面）；
+> 每次交接或阶段性完成时更新「当前状态」，并在「交接日志」追加一条（新的写最上面）；
 > 日志超过 800 行时把旧条目切到 `docs/handoff-archive.md`。
 > 结构与代码约定见 `architecture.md`，赛题规则见 `research.md`。
-> 交接日志保留历史记录，不作为当前状态结论；当前状态以上方最新条目为准。
+> 日志是历史记录，当前结论以「当前状态」小节为准。
 
 ## 仓库总览
 
@@ -13,9 +12,9 @@
 ——输入时间同步、空间对齐的 RGB / Infrared / Depth 与英文 Query，输出目标归一化边界框
 `[x1, y1, x2, y2]`；唯一评分指标为 `ACC@0.5`（预测框与 GT 框 IoU≥0.5）。
 
-**成绩**：Qwen3-VL-8B LoRA 基线 Test **0.7439**、Iteration 02 **0.7322**、
-双模型 WBF **0.7453**（当前最佳）。瓶颈已定位为**旧标注 Query 风格与官方测试集漂移**
-（数据天花板而非模型天花板），执行路线为：标注对齐+数据扩展 → 8B 新标注重训 → 后期 WBF。
+**成绩**：Qwen3-VL-8B 基线 Test **0.7439**、Iteration 02 **0.7322**、
+新标注重训 **0.7325**、双模型 WBF **0.7453**（当前最佳）。
+瓶颈定位为标注 Query 风格与官方测试集分布的差距（数据侧而非模型侧）。
 
 **结构**：
 
@@ -25,127 +24,45 @@
 | `cloud/` + `offline/` | 平台壳：Modal 云端 / 离线单机，共用同一核心 |
 | `scripts/` | 数据预处理、切分查重、Query 生成与风格审计 |
 | `tests/` | 离线单测与工作流契约 |
-| `docs/` | 状态交接（本文件）/ 架构约定 / 调研报告 / 实操 SOP |
+| `docs/` | 状态交接（本文件）/ 架构约定 / 数据合同 / SOP / 调研 |
 
-**文档顺序**：先 `docs/handoff.md`（本文件，状态与下一步）→
-`docs/architecture.md`（结构不变量）→ 根 `README.md`（用法）→ 就近 README；
-GPU 实操以 `docs/sop.md` 为准。
-
-**当前阶段与下一步**：阶段一「自适应视觉消歧新标注生产」已 100% 满额发布
-（统一资产目录 `annot_dc189f029d962b27`，共 3,594 帧）。
-**Qwen3.8-27B 线已终止并从仓库整体移除**（训练/时长成本超出承受）；
-环境统一为 DSW 镜像自带 transformers 5.14.1（pin 落 `envs/gpu.txt`）。
-下一步：16B 级新模型选型（门槛：5.14.1 可加载）→ adapter 接入 → 训练；
-Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
+**文档顺序**：`docs/handoff.md`（本文件）→ `docs/architecture.md`（结构不变量）→
+根 `README.md`（用法）；GPU 实操以 `docs/sop.md` 为准。
 
 **运行边界**：本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU
-训练/推理用 `offline/`；`modal` 命令由用户本人执行。`checkpoint`/标注/提交包必须留
-`/mnt/workspace`。
+训练/推理用 `offline/`（魔搭 DSW）或 `cloud/`（Modal，H100）；`modal` 命令由
+用户本人执行。checkpoint/标注/提交包留 `/mnt/workspace`（持久盘）。
 
-## 当前状态（最后更新 2026-09-01，27B 线终止，仓库三波修复完成）
+## 当前状态（最后更新 2026-09-01，27B 线终止，仓库修复完成）
 
-### 当前专注：仓库专业化收官，16B 级模型选型在即
-- **方向变更**：Qwen3.8-27B 线终止（全量训练已停，适配器/超参/SOP/独立环境全部移除）；
-  后续主力为团队新选的 3 个 16B 级左右模型（选型硬门槛：DSW 自带 transformers 5.14.1 可加载）。
-- **环境定版**：`envs/gpu.txt` 为唯一 pin 源（transformers==5.14.1 / peft==0.19.1 /
-  accelerate==1.14.0 / qwen-vl-utils==0.0.14），魔搭 venv、Modal Image、config.py 声明、
-  SOP 四方一致；torch/ROCm 归镜像层不进 pip。dual-env（aicomp_env_q38）时代结束。
-- **仓库定形**：pyproject.toml（可 `pip install -e .`）+ ruff（全库 0 违规）+ GitHub Actions CI；
-  索引迁入 `data/indexes/`、审计迁入 `data/audits/`，`prepare_rgbdt.py` 为唯一索引生成器
-  （build_indexes.py 已删）；SOP 改名 `docs/sop.md`，新增 `docs/data-contract.md` 与根 `AGENTS.md`；
-  旧 golden `annot_ac72f1d926bb2d23` 已停止分发（白名单仅留 `annot_dc189f029d962b27`）。
-- **机械修复落地**：checkpoint 数值排序防误删、worker 静默降级改报错、顺序推理补 checkpoint、
-  dtype kwarg 统一、死赋值清理、resume 语义注释、`evaluate_dataset_predictions` 更名区分、
-  loader fork 语义注释、API 重试语义注释。
-- **验证基线**：213 项单测通过（4 skip，本地无 torch）+ compileall + ruff 全绿 + mock 端到端冒烟通过。
-- **下一步**：16B×3 选型确认 → adapter 接入（各约一天）→ MI300X 训练。
-  **cloud/ 已恢复全功能**（infer + train 双壳）：H100/8 核/32GiB 硬编码（Iteration 02
-  实测包络）、Volume `aicomp` 挂载 `/mnt/workspace` 与魔搭布局对齐、依赖 pin 烧进
-  Image（读 envs/gpu.txt 同源）、训练走 commit_hook 每 checkpoint 提交 Volume；
-  16B 级付费训练超 $30 额度，Modal 实际用途以 8B 级训练/推理为主。
+- **方向**：Qwen3.8-27B 线已终止并整体移除（371s/step、全程约 51h 配额）。
+  后续主力为团队新选的 3 个 16B 级模型，选型硬门槛：DSW 自带 transformers 5.14.1 可加载。
+- **环境**：`envs/gpu.txt` 为唯一 pin 源（transformers==5.14.1 / peft==0.19.1 /
+  accelerate==1.14.0 / qwen-vl-utils==0.0.14）；DSW venv、Modal Image、config.py、
+  SOP 四方一致；torch/ROCm 归镜像层，不进 pip。
+- **仓库**：pyproject.toml（`pip install -e .` 已实测）+ ruff 全库 0 违规 + GitHub Actions CI；
+  索引在 `data/indexes/`、审计在 `data/audits/`，`prepare_rgbdt.py` 为唯一索引生成器；
+  SOP 为 `docs/sop.md`，另有 `docs/data-contract.md` 与根 `AGENTS.md`；
+  分发的 golden 仅 `annot_dc189f029d962b27`（train 2875 / val 719），索引重建后逐样本零偏差。
+- **cloud/**：Modal 双壳已恢复（infer + train），H100 / 8 核 / 32GiB 硬编码，
+  Volume `aicomp` 挂载 `/mnt/workspace`（与魔搭布局对齐）；16B 级付费训练超出
+  $30 月额度，Modal 实际用途以 8B 级训练/推理为主。
+- **待办门槛**：DINO 进 WBF 前需过两项检查——出框率体检（官方风格 query `--limit` 冒烟）
+  与 Val 消融 ΔACC（Val 719 带真值，可逐样本判定）；新 16B 模型接入前先短 smoke。
+- **存储**：权重与 checkpoint/标注/提交包都留 `/mnt/workspace`；下载模型前检查持久盘余量。
 
 ### 成绩一览
 
 | 项目 | 成绩 |
 | --- | --- |
-| **基线**（Qwen3-VL-8B + LoRA，α32/2ep） | Test **0.7439** |
-| **Iteration 02**（α48/3ep/min_lr，同标注） | Test **0.7322** |
-| **新标注 Qwen3-VL-8B**（α48/3ep/min_lr） | Test **0.7325** |
-| **双模型 WBF**（基线+Iter02 融合） | Test **0.7453** ← 当前最佳 |
+| 基线（Qwen3-VL-8B + LoRA，α32/2ep） | Test **0.7439** |
+| Iteration 02（α48/3ep/min_lr，同标注） | Test **0.7322** |
+| 新标注 Qwen3-VL-8B（α48/3ep/min_lr） | Test **0.7325** |
+| 双模型 WBF（基线+Iter02 融合） | Test **0.7453**（当前最佳） |
 
-**总路线**：标注重构+质量对齐 → 8B 基线触顶 → Qwen3.8-27B 主力重训 → 后期融合（WBF 与 DINO 替换均属后期）
+### 验证基线
 
-**阶段一：高质量自适应消歧标注生成（共享地基，零 GPU，只花 GLM-4.6V API）**
-- 风格对齐：32 序列等距抽样 pilot → `audit_query_style.py` 审计 → 人工抽检 → 全量重生成 Train/Val →
-  更新 `outputs/annotations/<run_id>/{train,val}/approved.json` 并提交。
-- 帧扩展：GT 插值把每序列 10 帧扩到数百帧（gap ≤15 帧）。
-- 序列全量：500 序列（现 400）+ SHA-256 同源审计。
-
-**阶段三：WBF（非常后期）**
-- WBF 与 DINO 替换保持为后续项；DINO 上车需先过
-  "出框率体检 + Val 消融 ΔACC" 两关（新标注 Val 719 带真值，可逐样本判定放行/剔除），
-  全过才加权进 WBF。
-
-**存储策略（定案）**
-- 模型权重落持久盘 `/mnt/workspace/models`；100G 配额覆盖
-  venv/代码/标注/断点/输出/模型权重。
-- 边界：`checkpoint.json` + `outputs/output_lora` + `outputs/annotations` 与提交包
-  必须留 `/mnt/workspace`（持久）。
-- 权衡：持久盘占用需在下载模型前检查，避免与数据/断点/输出争用空间。
-
-### 环境与运行边界（沿用）
-
-- 本地 `qwen_vg` conda（Python 3.12）只做 CPU 测试/静态检查；GPU 训练推理用 `offline/`。
-- 推理推荐单卡：Qwen 8B 等三图 VLM `--num-shards 1 --num-workers 2 --batch-size 4`。
-- 本仓库是唯一可移植实验单元；`cloud/`（Modal）账号恢复后才启用。
-- 断点续跑语义、run id 指纹连续性均未破坏；`tests/test_models.py` 钉死 Qwen identity。
-- 模型权重落 `/mnt/workspace/models`；`checkpoint`/标注/提交也留 `/mnt/workspace`，
-  不依赖 `/root` 临时下载。
-- DSW 平台现状：`/opt/rocm 7.2.3` + torch `2.11.0+git` + HIP `7.2.53211`，但 amdgpu
-  内核驱动为 `6.10.5`，`rocm-smi` 读不出 GPU 名称（`get_name` libdrm 报错）；该问题
-  属于平台镜像/宿主机组合，等待平台提供匹配镜像。
-
-## Iteration 02 改动明细（已落地 main，尚未训练）
-
-### 训练策略
-
-* LoRA alpha 32 → **48**
-* 训练轮数 2 → **3**
-* cosine 调度加入 **min_lr = 1e-5 下限**（基线已用 cosine，但会衰减到 0）
-* `total_steps` 强制取整，避免浮点值进入 `range()`
-
-### 硬件
-
-* 训练卡 A100-80GB（64GB RAM）→ **H100**（32GB RAM）
-* 梯度检查点开启 `use_reentrant=False`（非重入）
-
-### 推理与仓库基础设施
-
-* `cloud/infer.py`（原 `infer_modal.py`）生产级推理引擎
-  （Batch-4 + `--num-shards 8` 分片 + 自动构建提交包）
-* 双端布局：`cloud/`（Modal 壳）+ `offline/`（离线壳）；训练/推理核心下沉
-  `aicomp_grounding/{training_core,inference_core}.py`，两端共用
-* `models/` 适配层：qwen3vl（参考实现）/ internvl35 / groundingdino / mock，
-  两个推理入口 `--model` 切换
-* `fusion/wbf.py`：多模型加权框融合，CLI 可直出提交包
-* Qwen 模型 identity 与训练超参未变；运行身份增加 Python runtime 版本，
-  旧基线产物已按新环境身份重算 run id
-  （`tests/test_models.py` 继续钉死 Qwen identity 防漂移）
-
-### 已评估并剔除的方向
-
-* **图像滤镜增强**（CLAHE / 双边滤波）：破坏预训练特征分布，放弃
-* **文本标准化 `standardize_query`**：实测仅覆盖 2.4% query，收益接近零，剔除
-* **极小目标外扩 `calibrate_bbox`**（3% padding）：未经验证的启发式，且会
-  扭曲框几何、干扰 WBF，剔除
-* **Selective retry**：与 `calibrate_bbox` 绑定，一并剔除
-
-### 配置快照
-
-* `MAX_PIXELS = 3072 * 28 * 28`（1080p 无损输入）、
-  `MODEL_REVISION = 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` 等模型 identity
-  在 `aicomp_grounding/models/qwen3vl.py`（值不变）
-* 训练数据：原 split（`annot_ac72f1d926bb2d23`，2875 Train / 719 Val）
+213 项单测通过（4 skip，本地无 torch）+ compileall + ruff 全绿 + mock 端到端冒烟。
 
 ## 交接日志（追加式，新的写最上面）
 
@@ -157,9 +74,9 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
   SHA-256 走 CPU SHA-NI（数分钟级），无需 GPU。
 * **cloud/ 恢复（全功能）**：`cloud/infer.py` + `cloud/train.py` + README。硬编码=
   H100 / 8 核 / 32GiB（Iteration 02 实测包络）+ Volume `aicomp` 挂 `/mnt/workspace`
-  （与魔搭布局对齐）+ 依赖 pin 烧进 Image（同 envs/gpu.txt，torch 浮动最新 CUDA 稳定版）；
+  （与魔搭布局对齐）+ 依赖 pin 写入 Image（同 envs/gpu.txt，torch 用最新 CUDA 稳定版）；
   代码经 `add_local_dir` 每次运行时上传（非镜像烘焙），改代码即生效。训练经
-  `commit_hook` 每 checkpoint 提交 Volume，抢占可续。
+  `commit_hook` 每 checkpoint 提交 Volume，抢占后可恢复。
 * **CLI 解耦**：`offline/{train,infer}.py` 拆出 `run_cli(args)`，cloud 壳直接复用
   同一编排函数（`project_root=/mnt/workspace`），本地行为零变化；
   `infer.run_cli` 返回 summary。`pip install -e .` 实测通过。
@@ -245,7 +162,7 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
 
 ### 2026-08-30（接手，本地接手验证与前进门槛）
 
-* 已完整阅读 `docs/handoff.md`、`docs/architecture.md`、根 README、offline README 与 SOP；确认当前方向为 8B 上位档开源 VLM + InternVL3.5-8B/DINO 异构 WBF。
+* 已完整阅读 `docs/handoff.md`、`docs/architecture.md`、根 README、offline README 与 SOP；确认当前方向为更大参数开源 VLM + InternVL3.5-8B/DINO 异构 WBF。
 * 本地接手验证通过：`unittest discover -s tests` 212 项通过（4 skip，torch/transformers 未装）；`compileall`、`git diff --check` 通过；`offline/infer.py --model mock --limit 3` 端到端推理通过。
 * 风格审计复核：新版 Train 词长 11.0/10、ordinal 21.6%、spatial_landmark 36.0%、distance 1.6%；旧版 6.0/6、4.3%、21.6%、1.2%；Test 10.3/9、28.5%、34.0%、10.5%，与 handoff 记录一致。
 * 环境差异：当前接手机器为 WSL 单机（8GB NVIDIA，无 `/mnt/workspace`，`qwen_vg` 未装 torch/transformers）；本地有完整 `data/`、golden 标注与历史 predictions，但缺最佳 checkpoint `best/epoch_02` 与新测试提交包实体，这些 `/mnt/workspace` 远程产物未同步到本仓库。
@@ -271,7 +188,7 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
   - 加载 `best/epoch_02` 权重在官方全量测试集（9,555 查询）上完成推理（run id: `infer_88e5b6123b2c0fbe`）；
   - 输出 9,552 个有效边界框（有效率 99.97%），3 个未出框样本由系统自动填充安全兜底框；
   - 自动构建并通过校验生成官方提交包：`outputs/inference/infer_88e5b6123b2c0fbe/submission.zip`。
-* **文档与研究资料净化**：清理 `research.md` 中非官方臆测信息，全文档引用对齐。
+* 清理 `research.md` 中未经证实的推测，全文档引用对齐。
 
 ### 2026-08-30（仓库，模型持久化与 InternVL/DINO 适配收敛）
 
@@ -407,35 +324,34 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
   不再在云端执行 Depth-JET 生成和全量 SHA-256 查重。
 * 全量 SHA-256 查重明确只在本地首次准备数据时执行。
 
-### 2026-08-27（仓库，自适应视觉消歧标注全量 Train+Val 满额发布）
+### 2026-08-27（仓库，自适应消歧标注全量发布）
 
-* **全量数据满额发布**：
+* **全量发布**：
   - 统一 Run ID：`annot_dc189f029d962b27`
   - Train 集：`outputs/annotations/annot_dc189f029d962b27/train/approved.json`（2,875 样本，320 序列，100% 成功发布）；
   - Val 集：`outputs/annotations/annot_dc189f029d962b27/val/approved.json`（719 样本，80 序列，100% 成功发布）；
   - 全量总计 3,594 样本（0 失败，0 不确定，0 丢失）。
 * **全量量化审计结果**：
   - 均值词长 10.98 词，词长中位数 10 词（官方 Test 集为 10.33/9 词，高度贴合）；
-  - 序数消歧占比 22.1%（成功恢复至 20%~30% 黄金消歧区间）；
-  - 空间地标占比 35.9%（空间锚定充沛）；
-  - 纯属性动作占比 30.1%（彻底消灭旧基线的 65.9% 偷懒短标签）；
-  - 格式与语法纯净度：0 句号残留，0 定语从句冗余，0 标注框伪影泄露。
+  - 序数消歧占比 22.1%（目标区间 20%-30%）；
+  - 空间地标占比 35.9%；
+  - 纯属性动作占比 30.1%（旧基线为 65.9%）；
+  - 0 句号残留、0 定语从句、0 红框伪影词。
 * **模型与训练核心对接**：
-  - 全量通过 `validate_approved_artifact` 校验，格式 100% 兼容 `aicomp_grounding/models/qwen_dataset.py`。
-  - 阶段一「新标注生成与数据重构」正式圆满达成。
+  - 全量通过 `validate_approved_artifact` 校验。阶段一（新标注生成与数据重构）完成。
 
-### 2026-08-27（仓库，重构自适应视觉消歧标注系统与架构极净化）
+### 2026-08-27（仓库，标注系统重构）
 
-* **架构与流程极净化**：
-  - 彻底废除离线两阶段场景卡（`build_scene_cards.py`）与槽位规划（`build_style_plan.py`），移除 `_q1, _q2, _q3` 伪样本膨胀。
+* **架构精简**：
+  - 移除离线两阶段场景卡（`build_scene_cards.py`）与槽位规划（`build_style_plan.py`）及 `_q1/_q2/_q3` 伪样本。
   - 回归 **1 帧 1 Query**，全集总规模严格对应真实抽帧（`train.json` 2,875 帧 + `val.json` 719 帧 = 3,594 帧）。
-* **自适应思维链提示词（`DISAMBIGUATION_QUERY_PROMPT`）**：
+* **标注提示词（`DISAMBIGUATION_QUERY_PROMPT`）**：
   - 输出结构化 JSON：`target_category` → `visible_attributes` → `action_or_state` → `spatial_landmark` → `disambiguation_cue` → `final_query`。
-  - 确立「场景条件双轨制」：单目标场景专注描述属性与地标，`disambiguation_cue` 填 `null`；多同类共存场景强制输出序数/极值定位锚点（如 `leftmost`, `second from the left`）。
-  - 严守语法与视觉安全护栏：紧凑名词短语（分词/介词后置定语），严禁定语从句（避免 `who/which`），首词冠词，无句末句号，严格观察者视角，严防红框标记颜色污染。
-* **本地 Python 端确定性验收门控（Deterministic QC Gatekeeper）**：
-  - 词数门控：严格限制 $6 \le \text{words} \le 20$；
-  - 反偷懒门控：拦截孤立裸词标签（如单独的 `"The person"` 自动重试）；
+  - 单/多目标两条规则：单目标场景描述属性与地标（`disambiguation_cue` 为 null）；多同类共存场景强制输出序数/极值锚点（如 `leftmost`）。
+  - 输出约束：紧凑名词短语，不用定语从句，首词冠词，无句末句号，观察者视角，不提及红框标记。
+* **确定性 QC 规则**：
+  - 词数限制 6-20 词；
+  - 短标签拒绝（如 `"The person"` 触发重试）；
   - 序列级防复读：在同一视频序列内，如果当前帧生成的 Query 与已生成帧完全一致，强制触发重试并注入差异化提示；
   - 标点自动清理：`final_query.rstrip('.?!;')`。
 * **测试与文档**：
@@ -470,7 +386,7 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
   官方 Query 实测分组为 ordinal 28.5% / spatial 34.0% / distance 10.5% /
   scene_location 5.7% / attribute_action 21.3%。
 * 验证：220 项单测全绿（4 skip），`compileall` 与 `git diff --check` 通过。
-  API key、场景卡实际运行、pilot 与全量生成均由用户亲手执行。
+  API key、场景卡运行、pilot 与全量生成均由用户执行。
 
 ### 2026-08-23（仓库，标注验证空 content 根因修复与 prompt 混比约束）
 
@@ -493,14 +409,13 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
 * **标注脚本严密加固**：
   * [`aicomp_grounding/api_client.py`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/aicomp_grounding/api_client.py)：将空响应纳入 3 次自动重试；
   * [`scripts/generate_queries.py`](file:///home/fang0/dev/projects/aicomp-multimodal-grounding/scripts/generate_queries.py)：补齐 `group_keys_by_scene` 与 `APIError` 导入，在 `_verify_query` 中增加异常捕获，优化提示词示例中的空间表述。
-* **下一步即时可执行动作**：
-  1. **本地轨**：执行 10 序列 Pilot 生成（`--limit-sequences 10`）$\rightarrow$ 运行
-     `audit_query_style.py` 风格审计 $\rightarrow$ 启动全量 Train/Val 新标注重生成并发布。
+* **下一步**：
+  1. 本地轨：10 序列 Pilot（`--limit-sequences 10`）→ 审计 → 全量重生成并发布。
 
 ### 2026-08-23（仓库，交接总览补全）
 
 * 在 `docs/handoff.md` 顶部新增「仓库总览」小节：汇总项目定位、当前成绩、仓库结构、
-  文档顺序、当前阶段与运行边界，方便新成员冷启动后 5 分钟内接上上下文。
+  文档顺序、当前阶段与运行边界，用于新成员冷启动。
 * 仅文档变更，未改代码；测试 211 项全绿（4 跳过），`compileall` 与 `git diff --check`
   通过。
 
@@ -516,18 +431,17 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
 
 ### 2026-08-23（交接，最终成绩与策略定案）
 
-* **成绩定格**：基线 0.7439 / Iter02 0.7322 / **双模型 WBF 0.7453（当前最佳）**。
-  融合结果已提交打榜验证，确认双 checkpoint 融合管线可用。
+* 成绩：基线 0.7439 / Iter02 0.7322 / 双模型 WBF **0.7453**（当前最佳）；融合结果已提交验证，双 checkpoint 融合管线可用。
 * **触顶判断**：Qwen3-VL-8B 在当前标注下基本触顶（±0.01 量级）；但属数据天花板而非
   模型天花板——8B 预训练含空间推理知识，当前标注 74% 不练它。换对齐标注 8B 可望
   0.76-0.78；更大模型路线后续再评估。
-* **策略定案（下次执行时以此为准，替代早先"基线超参重训"的旧结论）**：
+* **策略定案（替代早先"基线超参重训"结论）**：
   ① 先做三模型 WBF（InternVL+DINO 推理 + fusion/wbf.py，权重新标注 Val 网格标定，
   预期 0.755-0.765）；② 新标注轮次照跑（pilot→审计→全量）；③ 新标注上跑 **A/B
   两配置**（A: α32/3ep/去min_lr vs B: α48/3ep/保min_lr）分离"分布错配"与"深训过拟合"
   的交互效应，不再盲猜单一超参方向；④ 并行探测 Qwen3-VL 更大变体。
 * 早先"在新标注上直接回落基线超参"的建议已被 A/B 实验设计取代（理由：迭代 02 的
-  drop 是同分布下的交互效应，不能外推新标注情境，A/B 才是对其主效应的诚实测定）。
+  drop 是同分布下的交互效应，不能外推新标注情境，A/B 才能测定其主效应）。
 
 ### 2026-08-23（仓库，Iteration 02 复盘与标注风格修复）
 
@@ -560,7 +474,7 @@ Modal 车道（全流程能力，≤16B）与 WBF 为并行待办。
 
 ### 2026-08-23（仓库，离线推理断点续跑支持 checkpoint.json 自动恢复）
 
-* 修复 `offline/infer.py`：开启 `--resume` 时，若未生成全量 `predictions.json` 但存在阶段性 `checkpoint.json`，自动从中恢复已完成预测，实现单命令无缝断点续跑。
+* `offline/infer.py`：`--resume` 开启时，若无全量 `predictions.json` 但存在阶段性 `checkpoint.json`，自动从中恢复已完成预测。
 * 单元测试 175 项全绿。
 
 ### 2026-08-22（仓库，单卡 MI300X 推理与训练 I/O 优化）
