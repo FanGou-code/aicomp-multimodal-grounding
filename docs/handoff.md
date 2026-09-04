@@ -70,6 +70,18 @@
   序数密度 5 倍提升仅换官方总分 +0.03pp → 曝光≠能力，v5 预期收益诚实标注为
   有限，序数大头押底座能力换代。v5 spec = 四维对齐 + 去重 + **val 719 联动
   重生成**（19.5pp 断层下，现行 best-epoch 选优器优化的是错误分布）。
+- **v5 工程前置（机制与决策，本轮补录）**：① extreme(-most) 超配 4.8 倍的
+  机制在生成协议层——`aicomp_grounding/query_style.py` 的
+  `DISAMBIGUATION_QUERY_PROMPT` 将 "extreme boundary" 列为 `disambiguation_cue`
+  字段标准选项，教师按其批量产出 `leftmost` 类句式（train 中该词 320 次），
+  v5 需在 prompt 合同层改写该字段指引为官方方言的枚举结构（"from left to
+  right" 系）；该 prompt hash 进入 annotation run 指纹，改动将产生新
+  annotation run-id，旧 golden 冻结不受影响。② 教师模型定案：沿用商业
+  GLM-4.6V API（非 Flash；标注生成属训练数据制备，规则禁令针对预测推理
+  链路；技术报告按规则注明来源与用途）。③ 待决分叉：v5 训练 target 是否
+  包含枚举推理链——与「思考模式全线关闭」定案耦合，默认按纯 bbox 目标
+  设计，管理员拍板。④ 全部调查脚本与三方句式频次对照已归档至外部私有
+  分析仓 `scripts/`（其 handoff 可复现全部读数）。
 - **输入层封存**：两大失分区（序数类、框精修区）均模态无关；残余多模态依赖题
   占比极小且现有三图拼接方案已覆盖（test 侧逐样本分析在外部私有分析仓，按其
   防污染规范数字不入本仓）；中期融合（DualVision/Flamingo 类）与热显式专项
