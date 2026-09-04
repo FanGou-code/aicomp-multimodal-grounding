@@ -14,7 +14,8 @@
 
 **成绩**：Qwen3-VL-8B 基线 Test **0.7439**、Iteration 02 **0.7322**、
 新标注重训 **0.7325**、双模型 WBF **0.7453**（当前最佳）。
-瓶颈定位为标注 Query 风格与官方测试集分布的差距（数据侧而非模型侧）。
+瓶颈定位（2026-09-05 轮修正）：官方测试集与高仿标注存在分布错位（数据侧），
+但序数类失分的大头在底座推理能力，模型侧换代为主杠杆（见「当前状态」）。
 
 **结构**：
 
@@ -33,29 +34,69 @@
 训练/推理用 `offline/`（魔搭 DSW）或 `cloud/`（Modal，H100）；`modal` 命令由
 用户本人执行。checkpoint/标注/提交包留 `/mnt/workspace`（持久盘）。
 
-## 当前状态（最后更新 2026-09-01，A 卡性能定案，仓库修复完成）
+## 当前状态（最后更新 2026-09-05，模型阵容定案 + 归因修正 + 输入层封存）
 
-- **方向**：Qwen3.8-27B 线已终止并整体移除（371s/step、全程约 51h 配额）。
-  后续主力为团队新选的 3 个 8B 级上位模型（澄清：目标为 8B 可用上位，非 16B），
-  选型硬门槛：DSW 自带 transformers 5.14.1 可加载 + 精度提升潜力。
-- **A 卡性能定案**：实测计算单元仅 **80 个**（满血 MI300X 为 304），显存满血 192GB——
-  出口合规型削减配置。GEMM 实测 200 TFLOPS = 该硅片理论峰值的 **90%**，HBM 实测
-  3165/3700 GB/s，训练 ~26% MFU——**适配已打满，当前速度即这块卡的物理极限**，
-  A 卡优化层关闭。撤回旧判断"比正常水平慢 5-10 倍"（分母误用满血峰值），
-  与 H100 的诚实差距约 1.5-1.7 倍（CUDA 生态差）。
-- **环境**：`envs/gpu.txt` 为唯一 pin 源（transformers==5.14.1 / peft==0.19.1 /
-  accelerate==1.14.0 / qwen-vl-utils==0.0.14）；DSW venv、Modal Image、config.py、
-  SOP 四方一致；torch/ROCm 归镜像层，不进 pip。
-- **仓库**：pyproject.toml（`pip install -e .` 已实测）+ ruff 全库 0 违规 + GitHub Actions CI；
-  索引在 `data/indexes/`、审计在 `data/audits/`，`prepare_rgbdt.py` 为唯一索引生成器；
-  SOP 为 `docs/sop.md`，另有 `docs/data-contract.md` 与根 `AGENTS.md`；
-  分发的 golden 仅 `annot_dc189f029d962b27`（train 2875 / val 719），索引重建后逐样本零偏差。
-- **cloud/**：Modal 双壳已恢复（infer + train），H100 / 8 核 / 32GiB 硬编码，
-  Volume `aicomp` 挂载 `/mnt/workspace`（与魔搭布局对齐）；16B 级付费训练超出
-  $30 月额度，Modal 实际用途以 8B 级训练/推理为主。
-- **待办门槛**：DINO 进 WBF 前需过两项检查——出框率体检（官方风格 query `--limit` 冒烟）
-  与 Val 消融 ΔACC（Val 719 带真值，可逐样本判定）；新 8B 上位模型接入前先短 smoke。
-- **存储**：权重与 checkpoint/标注/提交包都留 `/mnt/workspace`；下载模型前检查持久盘余量。
+- **模型阵容（本轮定案，均为调研结论、尚未接入）**：主力 `Qwen3.5-9B`——原生
+  多模态（Qwen3.5 世代起不再发独立“-VL”版，`config.json` 含 `vision_config`），
+  Apache-2.0，transformers 5.14.1 原生 `qwen3_5` 模块，CountBench 97.2 /
+  ERQA 55.5 / RefCOCO avg 89.7 三项超 Qwen3-VL-30B-A3B；GDN 混合线性注意力，
+  A 卡内核 FLA + causal-conv1d 已装（`envs/README.md`）。WBF 4+1：主力 +
+  `GLM-4.6V-Flash`（MIT，`glm46v` 原生，标准注意力）+ `Qwen3-VL-8B`
+  （`v4 标注 × α32` 重训）+ `GroundingDINO`（新适配器，门禁制：冒烟 → val 719
+  逐样本 → 合格才入融合且低权重）+ 第五席 `Youtu-VL-4B`（管理员于 Modal 亲跑，
+  专属 Image 绕开其 tf≤4.57.1 pin，自定义许可证由管理员自审）。
+- **排除与退役**：`InternVL` 线退役（微调后 0.60 案底、8B→14B 纸面斜率仅
+  +0.4），既有 run 保留；`LocateAnything-3B`（NVIDIA）排除：非商业许可 +
+  tf 4.57.1 pin + 无官方多图 + 无置信度输出，其“3B 越级”声称限 ScreenSpot-Pro
+  GUI 定位场景（60.3 vs GUI-Owl-32B 58.0），与 REC 无关；检测器独立 WBF 成员
+  角色关闭（长句序数推理结构性短板，SAM3-I / FLORA 文献佐证；SAM 3 仅存枚举
+  管线执行器可能）；推理思考模式全线关闭。Qwen3.6/3.8 两代均无 ≤16B 开源尺寸
+  （3.6 最小 27B，3.8 从 27B 起步且此前已按 371s/step 终止），16B 红线内
+  Qwen3.5-9B 为家族最强。
+- **超参定性**：三训练 run `plan.json` 核对——BASE(0.7439)=旧标注+α32+默认
+  调度+旧选优，Iter02(0.7322)=旧标注+α48+cosine+acc@0.5 选优，
+  NewAnn(0.7325)=新标注+α48+cosine。“新标注降分”为捆绑错觉：同 α48 下新旧
+  标注官方总分差仅 +0.03pp。α48 定性为分布移位过拟合：两 run val ACC
+  92.35%/92.77% vs 官方 73.2%（断层 ~19.5pp），Iter02 的 val 至 epoch 3 仍涨
+  而官方反跌——同分布 val 对此失明。**全线新训练 α32 起步**（=2r LoRA 标准
+  默认、唯一有胜绩的值）；调度与选优保留现行 cosine + acc@0.5；`v4×α32`
+  重训将产出首个干净 α 读数。
+- **标注定性（v5 工程靶子，工程本身待管理员另启）**：官方 test 9555 条 vs
+  golden 2875 条 vs 旧标注 `annot_ac72f1d926bb2d23` 2875 条全量对照，四维
+  错位：① 方向枚举句式（“from left to right”系）test 1046 条(109‰)/新旧标注
+  均 0；② 序数桶占比 test 33.5%/新 22.0%/旧 4.3%（属性动作桶旧 71.7% 严重
+  超配）；③ 词表(频≥5)与 test 交集新 30%/旧 25%；④ extreme(-most) 新标注
+  超配 4.8 倍(157‰ vs 33‰)。旧标注另有 39.7% 逐字重复、词数 6.0（test 10.3）。
+  序数密度 5 倍提升仅换官方总分 +0.03pp → 曝光≠能力，v5 预期收益诚实标注为
+  有限，序数大头押底座能力换代。v5 spec = 四维对齐 + 去重 + **val 719 联动
+  重生成**（19.5pp 断层下，现行 best-epoch 选优器优化的是错误分布）。
+- **输入层封存**：两大失分区（序数类、框精修区）均模态无关；残余多模态依赖题
+  占比极小且现有三图拼接方案已覆盖（test 侧逐样本分析在外部私有分析仓，按其
+  防污染规范数字不入本仓）；中期融合（DualVision/Flamingo 类）与热显式专项
+  补录除名，深度/红外按现行格式照常输入；RGB-only 消融降级为可选取证材料
+  （导师汇报用）。
+- **A 卡性能定案（沿袭）**：80 CU 削减版 MI300X（满血 304），GEMM 实测
+  200 TFLOPS = 硅片理论峰 90%，适配打满、优化层关闭；与 H100 诚实差距约
+  1.5-1.7 倍。
+- **环境（沿袭）**：`envs/gpu.txt` 唯一 pin 源（transformers==5.14.1 /
+  peft==0.19.1 / accelerate==1.14.0 / qwen-vl-utils==0.0.14），DSW venv、
+  Modal Image、config.py、SOP 四方一致；新成员在 Modal 的专属 Image 属
+  `cloud/` 壳层事务，不改本仓环境合同。
+- **仓库（沿袭）**：pyproject + ruff 全库 0 违规 + GitHub Actions CI；索引在
+  `data/indexes/`、审计在 `data/audits/`，`prepare_rgbdt.py` 唯一索引生成器；
+  golden `annot_dc189f029d962b27`（train 2875 / val 719）冻结不动；外部私有
+  分析仓（本机路径，管理员掌握）承载 test 侧灰色分析，按其防污染规范运作，
+  结论与数字不入本仓。
+- **cloud/**：Modal 双壳就绪（H100 / 8 核 / 32GiB，Volume `aicomp` 挂
+  `/mnt/workspace`）；`modal volume put` 上传 Test 子集仍为首跑前置（管理员
+  操作）；第五席 Youtu-VL-4B 走专属 Image。
+- **执行序（三账号并行，管理员分工）**：账号 A = Qwen3.5-9B adapter 接入 →
+  zero-shot val 探针 → 训练；账号 B = Qwen3-VL-8B `v4×α32` 重训 +
+  GLM-4.6V-Flash 探针/训练；账号 C = DINO 门禁 + 备选探针。adapter 工程队列
+  为串行瓶颈：Qwen3.5-9B（GDN 的 LoRA target 适用性为已知风险点）→
+  GLM-4.6V-Flash → 其余；探针一律推理级轻量 adapter，胜者才补训练侧。成员
+  选拔判据用实测三件套：rank+方向轴子集 zero-shot、框紧致度、错误相关矩阵。
+  下载权重前 `df -h /mnt/workspace`。
 
 ### 成绩一览
 
@@ -68,9 +109,46 @@
 
 ### 验证基线
 
-213 项单测通过（4 skip，本地无 torch）+ compileall + ruff 全绿 + mock 端到端冒烟。
+213 项单测通过（4 skip，本轮复核，零代码改动）；compileall / ruff / mock
+端到端冒烟沿袭 2026-09-01 轮基线。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-05（模型阵容定案：主力 Qwen3.5-9B，WBF 4+1，检测器独立角色关闭）
+
+* **起因**：0.7453 → 0.80 需底座换代与融合成员扩充；按五道硬门槛（≤16B、
+  开源权重〔规则禁商业闭源 API〕、transformers 5.14.1 可加载、MI300X ROCm
+  可跑、可 LoRA）全网普查，覆盖 Qwen3.5/3.6/3.8、GLM-4.6V-Flash、
+  GLM-4.1V-9B-Thinking、InternVL3.5-14B、Ovis2.5-9B、LFM2.5-VL-3B、
+  Ministral-3、Youtu-VL-4B、LocateAnything-3B、SAM 3、Rex-Omni、Molmo2 等。
+* **改动（决策与调研记录，零代码）**：定案全部并入「当前状态」模型阵容与
+  排除退役两节。WBF 角色定位“樱桃非蛋糕”：唯一实测增益为同族双 Qwen +0.14，
+  跨家族未验证且有框风格风险（官方 GT 偏紧教训），融合权重决策押后至成员
+  数字到齐。GLM-4.1V-9B-Thinking 定位为 GLM 槽族内备胎（4.6V-Flash 探针
+  不过才启用，避免双 GLM 同票稀释）。
+* **验证**：调研数字均来自公开模型卡/论文/官方文档（关键项：Qwen3.5-9B
+  `config.json` 原生多模态与视觉基准、transformers v5.14.1 模块表、
+  Youtu-VL-4B 卡内 tf≤4.57.1 pin 与自定义许可、LocateAnything 许可条款与
+  ScreenSpot-Pro 声称范围）；本仓 213 项单测复核通过。
+* **下一步**：adapter 队列按当前状态执行序推进；DINO 两项检查（出框率冒烟 +
+  val 逐样本）先行；第五席 Youtu-VL-4B 由管理员 Modal 亲跑，预测文件回流
+  本仓后入融合评估。
+
+### 2026-09-05（语义分布全量调查 + α 归因修正：标注四维错位与超参捆绑拆解）
+
+* **起因**：解释 0.7439/0.7325/0.7322 的因果链，为 v5 标注工程立实测靶子；
+  管理员指出旧标注 `annot_ac72f1d926bb2d23` 从未进过分布分析。
+* **改动（只读分析，零代码）**：官方 test 9555 条 vs golden 2875 条 vs 旧标注
+  2875 条全量对照（4 桶/5 族句式、词数、冠词模式、词表、重复率、11 类句式
+  模式）+ 三训练 run `plan.json` / `completed.json` 核对；结论并入「当前状态」
+  超参定性与标注定性两节。此前“新标注重训反而降分”为跨超参错误归因，正式
+  撤回。分析脚本在 `/tmp/sem_analysis.py`、`/tmp/old_ann_full.py` 等（可复跑，
+  不入库）。
+* **验证**：新旧标注条数与 golden 一致（train 2875 / val 719）；分布读数全部
+  由本仓产物计算（官方 queries、approved、merged、plan、completed 与官方
+  总分），未依赖灰色资产数字；分桶口径与外部分析仓诊断脚本对齐。
+* **下一步**：v5 query 生成工程由管理员另启（spec 讨论单独开轮）；`v4×α32`
+  重训完成后回收首个干净 α 读数并回填本文件。
 
 ### 2026-09-01（A 卡性能定案：80 CU 削减版硅片，适配已打满）
 
