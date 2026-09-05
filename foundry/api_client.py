@@ -21,6 +21,13 @@ class APIError(RuntimeError):
         self.status = status
 
 
+class APIKeySuspended(APIError):
+    """Raised when a key is suspended mid-request for repeated transport failures."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status=None)
+
+
 @dataclass(frozen=True)
 class APIResponse:
     content: str
@@ -109,6 +116,7 @@ class OpenAIProtocolClient:
         base_url: str,
         timeout_seconds: float = 180.0,
         transport_attempts: int = 5,
+        rate_limit_attempts: int = 8,
         opener: Callable = urlopen,
         sleeper: Callable[[float], None] = time.sleep,
         rate_limiter: SlidingWindowRateLimiter | None = None,
@@ -121,14 +129,15 @@ class OpenAIProtocolClient:
             raise ValueError("API_KEY is empty")
         if not model or not base_url.startswith("https://"):
             raise ValueError("API model and HTTPS base URL are required")
-        if timeout_seconds <= 0 or transport_attempts <= 0:
-            raise ValueError("Timeout and transport_attempts must be positive")
+        if timeout_seconds <= 0 or transport_attempts <= 0 or rate_limit_attempts <= 0:
+            raise ValueError("Timeout, transport and rate-limit attempts must be positive")
         self.api_key = api_key
         self.key_pool = key_pool
         self.model = model
         self.endpoint = base_url.rstrip("/") + "/chat/completions"
         self.timeout_seconds = timeout_seconds
         self.transport_attempts = transport_attempts
+        self.rate_limit_attempts = rate_limit_attempts
         self.opener = opener
         self.sleeper = sleeper
         self.rate_limiter = rate_limiter
@@ -161,15 +170,35 @@ class OpenAIProtocolClient:
             return self._send_with_retries(body, self.api_key)
         while True:
             index, key = self.key_pool.current()
+
+            def on_transport_failure() -> None:
+                if self.key_pool.note_transport_failure(index):
+                    raise APIKeySuspended(
+                        f"key#{index + 1} suspended after repeated transport failures"
+                    )
+
             try:
-                return self._send_with_retries(body, key)
+                result = self._send_with_retries(body, key, on_transport_failure=on_transport_failure)
+            except APIKeySuspended:
+                # The pool suspended this key after repeated transport
+                # failures; the cursor already moved past it.
+                continue
             except APIError as exc:
-                if exc.status in (401, 402, 403, 429):
+                if exc.status in (401, 402, 403):
                     self.key_pool.retire(index, f"HTTP {exc.status}")
                     continue
+                if exc.status == 429 and self.key_pool.note_rate_limited(index):
+                    continue
                 raise
+            self.key_pool.note_success(index)
+            return result
 
-    def _send_with_retries(self, body: bytes, api_key: str) -> APIResponse:
+    def _send_with_retries(
+        self,
+        body: bytes,
+        api_key: str,
+        on_transport_failure: Callable[[], None] | None = None,
+    ) -> APIResponse:
         request = Request(
             self.endpoint,
             data=body,
@@ -179,9 +208,11 @@ class OpenAIProtocolClient:
                 "Content-Type": "application/json",
             },
         )
+        transport_failures = 0
         rate_limit_retries = 0
-        for attempt in range(1, self.transport_attempts + 1):
+        while transport_failures < self.transport_attempts:
             reservation_id = self.rate_limiter.acquire() if self.rate_limiter else None
+            delay = 1.0
             try:
                 with self.opener(request, timeout=self.timeout_seconds) as response:
                     response_body = response.read()
@@ -195,35 +226,54 @@ class OpenAIProtocolClient:
                 return result
             except HTTPError as exc:
                 detail = exc.read(2048).decode("utf-8", errors="replace")
-                retryable = exc.code == 429 or 500 <= exc.code < 600
-                if self.key_pool is not None and exc.code == 429:
-                    # Pooled mode: one same-key retry for a momentary rate
-                    # limit; a second 429 retires the key via the caller.
+                if exc.code == 429:
+                    # A rate limit is temporary (provider docs: back off and
+                    # retry), so it never consumes a transport attempt and
+                    # never retires the key on its own.
                     rate_limit_retries += 1
-                    if rate_limit_retries > 1:
+                    if rate_limit_retries >= self.rate_limit_attempts:
+                        raise APIError(
+                            f"API HTTP 429 persisted after {rate_limit_retries} backoffs: {detail}",
+                            status=429,
+                        ) from exc
+                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                    try:
+                        parsed_delay = float(retry_after) if retry_after else 0.0
+                    except ValueError:
+                        parsed_delay = 0.0
+                    delay = parsed_delay if parsed_delay > 0.0 else 2 ** (rate_limit_retries - 1)
+                elif 500 <= exc.code < 600:
+                    transport_failures += 1
+                    if transport_failures == self.transport_attempts:
                         raise APIError(
                             f"API HTTP {exc.code}: {detail}", status=exc.code
                         ) from exc
-                if not retryable or attempt == self.transport_attempts:
+                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                    try:
+                        parsed_delay = float(retry_after) if retry_after else 0.0
+                    except ValueError:
+                        parsed_delay = 0.0
+                    delay = parsed_delay if parsed_delay > 0.0 else 2 ** (transport_failures - 1)
+                else:
                     raise APIError(
                         f"API HTTP {exc.code}: {detail}", status=exc.code
                     ) from exc
-                retry_after = exc.headers.get("Retry-After") if exc.headers else None
-                try:
-                    parsed_delay = float(retry_after) if retry_after else 0.0
-                except ValueError:
-                    parsed_delay = 0.0
-                delay = parsed_delay if parsed_delay > 0.0 else 2 ** (attempt - 1)
             except (TimeoutError, URLError) as exc:
-                if attempt == self.transport_attempts:
+                transport_failures += 1
+                if on_transport_failure is not None:
+                    # May raise APIKeySuspended to abort further attempts on
+                    # this key after repeated hangs.
+                    on_transport_failure()
+                if transport_failures == self.transport_attempts:
                     raise APIError(f"API request failed: {exc}") from exc
-                delay = 2 ** (attempt - 1)
-            except APIError:
+                delay = 2 ** (transport_failures - 1)
+            except APIError as exc:
                 # Deliberately retried: transient empty-content responses from
                 # the annotation model are recovered by re-asking (2026-08-23 fix).
-                if attempt == self.transport_attempts:
+                transport_failures += 1
+                if transport_failures == self.transport_attempts:
                     raise
-                delay = 2 ** (attempt - 1)
+                delay = 2 ** (transport_failures - 1)
             self.sleeper(min(delay, 30.0) + random.random() * 0.25)
         raise AssertionError("Unreachable API retry state")
 
