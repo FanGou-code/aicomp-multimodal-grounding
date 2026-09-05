@@ -101,15 +101,17 @@
   真:伪 ≈ 1:1 起步；同一 peer 只取 2-3 帧；涨分归因 = 双 run 对照（带伪/不带伪
   其余全同）。阶段序：0 句式挖掘 → 1 普查协议+20 序列试点 → 2 组装器 →
   3 规划器 → 4 全量 run（新 run-tag）→ 5 val 联动+α32 重训（回接本仓执行序）。
-- **query-foundry 伴生仓（本轮建仓，Phase 0 完成）**：本机
-  `~/dev/projects/query-foundry`，私有、无 remote；可读本仓 `data/` 公开件
-  （Train 图与 `queries.json` 文本），永不读外部分析仓；产物包 = query + bbox +
-  出身字段 + 分布审计报告 + 语法版本 hash，交回本仓薄入库口校验后编
-  annotation run-id 落 `outputs/annotations/`——`scripts/generate_queries.py`
-  与 `aicomp_grounding/query_style.py` 一字不删（golden v4 指纹链指着它们），
-  语法版本 hash 替代 prompt hash 进 run 指纹。Phase 0 产物
-  `spec/style_spec.json`（draft-awaiting-admin-review）+ `spec/vocab_freq.json`，
-  待管理员审阅冻结。
+- **query-foundry 伴生仓（本轮建仓并完成管线分离）**：本机
+  `~/dev/projects/query-foundry`，私有、无 remote；**标注生成模块已自主仓
+  整体迁入**（生成入口、prompt 合同、API 客户端、运行状态机、QC、样式审计
+  及其测试），主仓只保留产物合同校验（`annotation_state.py` 的
+  `validate_approved_artifact` 链，训练加载时强制执行）。数据集仍在主仓
+  `data/` 原路径，生产线指过去取图；产物（query + bbox + 出身字段 + 分布
+  审计报告 + 语法版本 hash）以 run 为单位手动放回 `outputs/annotations/`，
+  与既有流程一致。历史 run 的 prompt_hash 指纹经 git 历史与 foundry 副本
+  可溯，golden v4 指纹链不受影响；v5 起语法版本 hash 替代 prompt hash 进
+  run 指纹。Phase 0 产物 `spec/style_spec.json`
+  （draft-awaiting-admin-review）待管理员审阅冻结。
 - **Phase 0 读数（queries.json 文本层，非 GT 衍生）**：重复率基线 7.6%、词数
   均值 10.33、序数桶 335.6‰（=已载 33.5%）、空间 329.0‰、属性动作 232.8‰、
   距离 102.6‰（草案文本分类器口径，规则在挖掘脚本内）。框架集中：
@@ -139,7 +141,8 @@
   golden `annot_dc189f029d962b27`（train 2875 / val 719）冻结不动；外部私有
   分析仓（本机路径，管理员掌握）承载 test 侧灰色分析，按其防污染规范运作，
   结论与数字不入本仓。v5 query 生产线在本机伴生仓 `query-foundry`
-  （私有无 remote；可读本仓 `data/` 公开件，永不读外部分析仓）。
+  （私有无 remote；标注生成管线所在仓，读本仓 `data/` 公开件取图，
+  永不读外部分析仓；产物手动放回本仓）。
 - **cloud/**：Modal 双壳就绪（H100 / 8 核 / 32GiB，Volume `aicomp` 挂
   `/mnt/workspace`）；`modal volume put` 上传 Test 子集仍为首跑前置（管理员
   操作）；第五席 Youtu-VL-4B 走专属 Image。
@@ -166,6 +169,37 @@
 端到端冒烟沿袭 2026-09-01 轮基线。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-05（标注管线分离至 query-foundry：主仓只留产物合同校验 + key 池上线）
+
+- **动因**：管理员决定把自动标注模块从主仓彻底分离到伴生仓（含依赖与测试，
+  警示「解耦很深，不要误删公共模块」），此后产物手动放回
+  `outputs/annotations/` 与既有流程一致；同时 v5 调用量上万次，要求接入
+  API key 池（持久化 key 文档、固定顺序、耗尽换号、额度不足不空转）。
+- **依赖审计（import 级）**：`training_state → annotation_state.validate_approved_artifact`
+  与 `sequence → query` QC 链是训练侧活依赖——`validate_approved_artifact`
+  内部调用 `validate_annotation_query`/`source_fingerprint`/
+  `preflight_check_dataset`/`group_keys_by_scene`，故 `annotation_state`
+  （缩为合同校验）、`query.py`、`sequence.py`、`sharding.py` 整体留主仓。
+- **改动**：
+  - 删除 `scripts/generate_queries.py`、`scripts/audit_query_style.py`、
+    `aicomp_grounding/{query_style,api_client,annotation_views}.py` 与
+    5 个对应测试文件（均已迁入 query-foundry）；
+    `annotation_state.py` 由 664 行缩至产物合同（~160 行）；
+    `prepare_rgbdt.py` 一处注释与 README / architecture / data-contract
+    的管线描述同步剥离（handoff 历史日志不动）。
+  - query-foundry 侧：管线整体迁入（import 改指 `foundry.*`）+
+    新增 `foundry/keys.py`（key 文档解析 + 固定顺序池）+ `api_client`
+    池化改造（401/402/403 立即换号、429 同号重试一次后换号、5xx/网络
+    错误同号退避不退役、全池耗尽快速失败不烧帧 attempt）+
+    `keys/api_keys.txt` 持久化 key 文档（gitignored）。
+- **验证**：主仓 `python -m unittest discover -s tests` 174 项 OK
+  （跳过 4 项 GPU 相关；213→174 差值 = 迁走的 39 项）；
+  golden v4 train(2875)/val(719) 经保留校验器端到端通过（训练加载路径不动）；
+  foundry 46 项 OK + train/val 双 split `--preflight-only` 冒烟通过
+  （读主仓数据、校验指纹、产出合法 run-id）。
+- **下一步**：管理员审阅冻结 `style_spec.json` → Phase 1 普查协议
+  （findall/attr/review 三类新 pass 挂入 foundry 管线）+ 20 序列试点。
 
 ### 2026-09-05（v5 生产线启动：query-foundry 建仓 + Phase 0 完成 + 标注对比数字拆分入库）
 

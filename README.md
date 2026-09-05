@@ -20,7 +20,7 @@
 flowchart LR
     A["RGBDT Tracking Data"] --> B["数据检查与场景划分"]
     B --> C["RGB 标框图"]
-    C --> D["GLM-4.6V 自动生成 Query"]
+    C --> D["外部标注生产线生成 Query"]
     D --> E["QC 与 approved Train/Val"]
     E --> F["Model Adapters"]
     G["RGB + Infrared + Depth + Query"] --> H["Grounding Inference"]
@@ -50,20 +50,13 @@ flowchart LR
 - **验证与选优**：每轮 Epoch 自动在全量验证集上运行真实推理，以 `ACC@0.5` 优先、`val_loss` 平局辅助保存 Best Checkpoint
 - **硬件与精度**：原生 BF16 混合精度，显存建议 $\ge 24\text{GB}$（支持离线实体 GPU、魔搭 DSW、AMD 实例或云端容器）
 
-### 教师模型 (Teacher Model)
+### 标注数据来源
 
-本项目使用 Z.ai (zai-org) 的 **GLM-4.6V** 作为教师模型，通过 Zhipu AI 提供的 API 为红框目标生成自然语言定位 Query。
-
-### Query 自动生成
-
-训练数据原始标注仅包含跟踪框坐标，无自然语言描述。系统将真实 bbox 以醒目色彩绘制于 RGB 图像之上，通过 OpenAI 兼容协议批量调用 `GLM-4.6V` 视觉问答接口生成目标描述，再经过确定性格式检查和质量控制发布为 `approved.json`。
-
-生成链路具备场景级分片、请求限流、断点恢复、失败重试和显式发布机制。训练程序只接受完整通过 QC 的 approved 产物。
-
-新风格计划链路将语义内容与句式结构解耦：先按预定义句式族建立语义组，
-再抽样生成 400 个训练序列的场景卡，按场景支持度生成确定性 `style_plan`，
-最后以扩展样本 ID（如 `001_00000001_q1`）逐条生成模板族 Query。生成入口
-只接受带 `annotation_style` 字段的 expanded item，旧自由生成模式已移除。
+训练数据原始标注仅包含跟踪框坐标，无自然语言描述。自然语言 Query 由外部私有
+标注生产线（本机仓库 `query-foundry`）批量生成，经确定性 QC 与显式发布产出
+`approved.json` 后，手动放入 `outputs/annotations/`。训练程序只接受完整通过
+QC 的 approved 产物；产物 schema 与指纹合同由 `aicomp_grounding/annotation_state.py`
+在加载时强制校验。
 
 ### 定位协议与后处理
 
@@ -87,7 +80,7 @@ aicomp_grounding/
   training_core.py      平台无关训练核心（cloud 与 offline 共用）
   inference_core.py     平台无关推理核心（items 加载/评估/分片合并）
   submission.py         官方模板校验与提交 ZIP 构建（含 CLI）
-  annotation_state.py   标注计划、检查点、QC 与 approved 发布
+  annotation_state.py   approved 产物合同与加载校验（生成管线在外部 query-foundry 仓）
   artifacts.py          JSON 内容指纹与元数据校验
   bbox.py               bbox 格式化、解析与 IoU
   config.py             跨模型公共配置（数据根/云端依赖/协议版本）
@@ -96,10 +89,8 @@ aicomp_grounding/
   io.py                 原子 JSON 读写
   prompts.py            Qwen 定位 Prompt 协议（qwen3vl 适配器使用）
   query.py              Query 与训练样本结构校验
-  query_style.py        Query 样式分类、审计指标与自适应消歧提示词
-  sequence.py           Query 生成响应与文本 QC
+  sequence.py           序列指纹、Query 文本 QC 与响应解析
   sharding.py           场景级均衡分片
-  api_client.py         通用 OpenAI 协议客户端、限流与退避
   test_data.py          官方 Test 模板与索引合同
   training_state.py     训练身份、调度与 checkpoint 校验
 
@@ -123,8 +114,6 @@ docs/
 scripts/
   prepare_rgbdt.py      RGBDT 图像检查、Depth JET 伪彩转换与切分索引生成（唯一生成器）
   filter_overlap.py     SHA-256 剔除与 Test 同源的 Train/Val 样本
-  generate_queries.py   自适应消歧 Query 生成与 approved 发布
-  audit_query_style.py  Query 样式分布与语义组审计
   upload_dataset.py     ModelScope 数据集上传工具
 
 tests/                  离线单元测试与工作流契约测试
@@ -266,42 +255,17 @@ python scripts/prepare_rgbdt.py --dataset-root data
 
 > 发布后的 approved 标注集会执行 Train/Val 与 Test 的同源 SHA-256 审计，避免同源帧进入训练。
 
-### 2. Query 生成
+### 2. 标注产物接入
 
-在 bash 中设置 API Key：
-
-```bash
-export API_KEY="<your API key>"
-```
-
-执行生成与审计：
+Query 生成由外部私有生产线完成（本机仓库 `query-foundry`，含教师模型调用、
+QC、发布与审计全流程）。产物以 run 为单位交付：
 
 ```bash
-# 1. 运行 32 序列跨域抽样 Pilot（约 280 帧）
-python -u scripts/generate_queries.py \
-  --split train \
-  --limit-sequences 32 \
-  --concurrency 4 \
-  --run-tag pilot-v4
-
-# 2. 审计 Pilot 输出样式与语义组分布
-python scripts/audit_query_style.py \
-  --queries outputs/annotations/annot_<run_id>/train/merged.json \
-  --full
-
-# 3. 全量生成与 --publish 发布 approved.json
-python -u scripts/generate_queries.py \
-  --split train \
-  --concurrency 4 \
-  --publish \
-  --run-tag v4-train
-
-python -u scripts/generate_queries.py \
-  --split val \
-  --concurrency 4 \
-  --publish \
-  --run-tag v4-val
+cp -r <foundry>/outputs/annotations/annot_<run_id> outputs/annotations/
 ```
+
+训练侧只消费 `outputs/annotations/annot_<run_id>/<split>/approved.json`，
+加载时按产物合同（schema、指纹、provenance）强制校验。
 
 产物位于：
 
@@ -501,7 +465,6 @@ python -m compileall aicomp_grounding scripts offline
   - [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
   - [InternVL3.5-8B](https://huggingface.co/OpenGVLab/InternVL3_5-8B-HF)
   - [GroundingDINO-B](https://huggingface.co/IDEA-Research/grounding-dino-base)
-- Query annotator: [GLM-4.6V](https://huggingface.co/zai-org/GLM-4.6V)
-- Annotation API: [Zhipu AI](https://open.bigmodel.cn/)
+- Query annotator (历史 golden 标注): [GLM-4.6V](https://huggingface.co/zai-org/GLM-4.6V) via [Zhipu AI](https://open.bigmodel.cn/)
 
 模型、数据集及第三方服务分别遵循其原始许可证和使用条款。本仓库不分发评估数据、模型权重或 API 凭据。

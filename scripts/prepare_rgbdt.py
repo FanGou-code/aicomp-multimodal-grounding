@@ -618,8 +618,8 @@ def prepare_dataset(
                 "infrared": f"Train/{sequence}/infrared/{filename}",
                 "depth": f"Processed/Train/{sequence}/depth_jet/{filename}",
                 # Query is intentionally empty here: these indexes are the raw
-                # annotation source list. Natural-language queries are generated
-                # later by scripts/generate_queries.py and published into
+                # annotation source list. Natural-language queries are produced
+                # by the external private annotation pipeline and published into
                 # outputs/annotations/<run_id>/<split>/approved.json. Training
                 # only consumes approved.json, never these bare indexes.
                 "query": "",

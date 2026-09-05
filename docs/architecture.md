@@ -8,8 +8,8 @@
 ```text
 ┌───────────────────────────── aicomp_grounding (核心库) ─────────────────────────────┐
 │                                                                                     │
-│  数据层    prepare/annotate/QC (annotation_state, sharding, sequence, query,       │
-│                                query_style, ...)                                   │
+│  数据层    prepare/contract-QC (annotation_state, sharding, sequence, query, ...) │
+│            （标注生成管线在外部 query-foundry 仓，产物经合同校验接入）             │
 │  身份层    指纹与 run id (artifacts, training_state, inference_state)                │
 │  推理核心  inference_core (items 加载 / ACC@0.5 评估 / 分片合并)                     │
 │  训练核心  training_core (adapter 驱动训练循环, 平台无关)                          │

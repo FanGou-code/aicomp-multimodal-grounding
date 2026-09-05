@@ -21,8 +21,8 @@ data/
 
 | 文件 | 生成器 | 下游依赖 |
 | --- | --- | --- |
-| `indexes/train.json` / `indexes/val.json` | `scripts/prepare_rgbdt.py` | `scripts/generate_queries.py`（标注源索引） |
-| `indexes/split_manifest.json` | `scripts/prepare_rgbdt.py` | `generate_queries.py`（预检校验锚） |
+| `indexes/train.json` / `indexes/val.json` | `scripts/prepare_rgbdt.py` | 外部标注生产线 query-foundry（标注源索引） |
+| `indexes/split_manifest.json` | `scripts/prepare_rgbdt.py` | 外部标注生产线（预检校验锚） |
 | `audits/excluded_overlap.json` | `scripts/filter_overlap.py` | 无（纯留痕） |
 
 `prepare_rgbdt.py` 是索引的唯一生成器；不要手改这些 JSON。
@@ -41,6 +41,6 @@ rm -rf /root/rgbdt-download
 
 ## 校验锚
 
-`generate_queries.py` 预检会比对 `split_manifest.json` 的
+外部标注生产线（query-foundry）预检会比对 `split_manifest.json` 的
 `index_fingerprints[split]`（内容哈希）与 `index_sample_counts[split]`；
 因此索引文件**移动位置不影响指纹**，但内容必须由生成器产出。
