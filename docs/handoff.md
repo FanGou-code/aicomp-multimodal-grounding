@@ -136,8 +136,9 @@
   peft==0.19.1 / accelerate==1.14.0 / qwen-vl-utils==0.0.14），DSW venv、
   Modal Image、config.py、SOP 四方一致；新成员在 Modal 的专属 Image 属
   `cloud/` 壳层事务，不改本仓环境合同。
-- **仓库（沿袭）**：pyproject + ruff 全库 0 违规 + GitHub Actions CI；索引在
-  `data/indexes/`、审计在 `data/audits/`，`prepare_rgbdt.py` 唯一索引生成器；
+- **仓库（沿袭）**：pyproject + ruff 全库 0 违规 + GitHub Actions CI；索引与
+  剔除审计已迁至 query-foundry/data/（训练不读，`prepare_rgbdt.py` 仍为本仓
+  唯一索引生成器，再生成时输出指向 foundry）；
   golden `annot_dc189f029d962b27`（train 2875 / val 719）冻结不动；外部私有
   分析仓（本机路径，管理员掌握）承载 test 侧灰色分析，按其防污染规范运作，
   结论与数字不入本仓。v5 query 生产线在本机伴生仓 `query-foundry`
@@ -169,6 +170,21 @@
 端到端冒烟沿袭 2026-09-01 轮基线。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-05（标注源索引与剔除审计迁入 query-foundry）
+
+- **动因**：管理员指出训练与实验从不读取 `data/indexes/`（approved.json 数据
+  与指纹自包含）——索引的唯一运行时消费者是标注生产线，应随线迁居。
+- **核验**：全仓 grep 证实运行时零消费（`prepare_rgbdt.py`/`filter_overlap.py`
+  为一次性生成器，sop/上传流程不打包索引，测试无真实读取）。
+- **改动**：`data/indexes/`（3 件）与 `data/audits/excluded_overlap.json` 移入
+  `query-foundry/data/`（其 git 追踪，共 1.2MB）；foundry 侧 `data/Train`、
+  `data/Processed` 符号链接指回本仓取图，`--data-root` 默认改指 foundry 本地；
+  data-contract.md 改写目录布局与迁移说明（含 golden 指纹不受影响依据）。
+- **验证**：foundry train/val preflight 冒烟通过且 run-id 与迁移前逐字节一致
+  （`annot_3836e2903eda23a2`，内容哈希不变）；foundry 46 项测试 OK；
+  本仓 174 项测试 OK；golden 合同校验不受影响。
+- **下一步**：Phase 1 普查协议 + 20 序列试点（待管理员指令）；push 待批准。
 
 ### 2026-09-05（标注管线分离至 query-foundry：主仓只留产物合同校验 + key 池上线）
 
