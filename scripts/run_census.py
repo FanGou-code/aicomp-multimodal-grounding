@@ -123,6 +123,7 @@ def build_census_plan(
         "generation_config": GENERATION_CONFIG,
         "seed": seed,
         "limit_sequences": limit_sequences,
+        "requested_num_shards": num_shards,
     }
     run_id = f"census_{stable_json_hash(identity, length=16)}"
     selected_sequences = shard_scene_ids(
@@ -366,7 +367,7 @@ def census_shard(
                     frame["error"] = findall_1["error"] or findall_2["error"]
                 frames[sample_id] = frame
                 frames_since_save += 1
-                if frames_since_save >= 4:
+                if frames_since_save >= 2:
                     save_checkpoint()
                     frames_since_save = 0
                 if progress is None:
