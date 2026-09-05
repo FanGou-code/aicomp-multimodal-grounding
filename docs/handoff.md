@@ -34,7 +34,7 @@
 训练/推理用 `offline/`（魔搭 DSW）或 `cloud/`（Modal，H100）；`modal` 命令由
 用户本人执行。checkpoint/标注/提交包留 `/mnt/workspace`（持久盘）。
 
-## 当前状态（最后更新 2026-09-05，模型阵容定案 + 归因修正 + 输入层封存）
+## 当前状态（最后更新 2026-09-05，v5 生产线启动：query-foundry 建仓 + Phase 0 完成）
 
 - **模型阵容（本轮定案，均为调研结论、尚未接入）**：主力 `Qwen3.5-9B`——原生
   多模态（Qwen3.5 世代起不再发独立“-VL”版，`config.json` 含 `vision_config`），
@@ -61,12 +61,19 @@
   而官方反跌——同分布 val 对此失明。**全线新训练 α32 起步**（=2r LoRA 标准
   默认、唯一有胜绩的值）；调度与选优保留现行 cosine + acc@0.5；`v4×α32`
   重训将产出首个干净 α 读数。
-- **标注定性（v5 工程靶子，工程本身待管理员另启）**：官方 test 9555 条 vs
+- **标注定性（v5 工程靶子，生产线已启动见下条）**：官方 test 9555 条 vs
   golden 2875 条 vs 旧标注 `annot_ac72f1d926bb2d23` 2875 条全量对照，四维
   错位：① 方向枚举句式（“from left to right”系）test 1046 条(109‰)/新旧标注
   均 0；② 序数桶占比 test 33.5%/新 22.0%/旧 4.3%（属性动作桶旧 71.7% 严重
   超配）；③ 词表(频≥5)与 test 交集新 30%/旧 25%；④ extreme(-most) 新标注
-  超配 4.8 倍(157‰ vs 33‰)。旧标注另有 39.7% 逐字重复、词数 6.0（test 10.3）。
+  超配 4.8 倍(157‰ vs 33‰)。供给侧补充（对比研究复算，同口径）：逐字重复
+  旧 39.0%/新 24.9%/test 7.6%；词数 旧 6.0/新 11.0（已对齐 test 10.3）；
+  秩数+方向轴句式（宽口径，含 “from the left” 类）供给 旧 11‰/新 45‰ vs
+  test 193‰（欠 4.3 倍），nearest/farthest 新 15‰ vs test 105‰（欠 7 倍）。
+  run 身份由 LoRA 路径实证：BASE=`train_89aa55`、Iter02=`train_d77d5c`、
+  NewAnn=`train_7b312e`、InternVL=`train_6c493d`；v4 换标注时 val 719 已联动
+  重生成过一次（val 指纹 5abd38…→7132802…）；`exp-qwen8-retrain` 本地 3 个
+  run 目录仅 1 个 completed。
   序数密度 5 倍提升仅换官方总分 +0.03pp → 曝光≠能力，v5 预期收益诚实标注为
   有限，序数大头押底座能力换代。v5 spec = 四维对齐 + 去重 + **val 719 联动
   重生成**（19.5pp 断层下，现行 best-epoch 选优器优化的是错误分布）。
@@ -82,6 +89,39 @@
   包含枚举推理链——与「思考模式全线关闭」定案耦合，默认按纯 bbox 目标
   设计，管理员拍板。④ 全部调查脚本与三方句式频次对照已归档至外部私有
   分析仓 `scripts/`（其 handoff 可复现全部读数）。
+- **v5 生产线定案与启动（本轮）**：架构 = 三权分立——教师 GLM-4.6V 只看
+  （census 普查：带红框图普查同类 peer 框与属性，跨帧对账滤幻觉）、代码只说
+  （query 文本由本地组装器拼装）、规划器只分（按 style_spec 配额分配句式）。
+  11 版生成协议失败的共同根因 = 教师同时承担看和说、指望近 4000 次独立 API
+  采样涌现分布；分布必须本地构造。四决策：① MT 怪癖只学高频（机械阈值：test
+  出现 ≥20 次进语法）；② 伪 peer 枚举增强进（GLM-4.6V 多遍冗余 + 全量 IoU≥0.5
+  客观审查 + 唯一性检查）；③ 自定位 QC 全量跑（GLM，非抽检）；④ 分布封顶
+  降级为保险丝（原则 = 只造事实支撑的句子，缺口用别的句式补不硬编）。红线：
+  val 719 永远只用真框；每条样本带出身字段（真标/伪 peer）可分开称重可消融；
+  真:伪 ≈ 1:1 起步；同一 peer 只取 2-3 帧；涨分归因 = 双 run 对照（带伪/不带伪
+  其余全同）。阶段序：0 句式挖掘 → 1 普查协议+20 序列试点 → 2 组装器 →
+  3 规划器 → 4 全量 run（新 run-tag）→ 5 val 联动+α32 重训（回接本仓执行序）。
+- **query-foundry 伴生仓（本轮建仓，Phase 0 完成）**：本机
+  `~/dev/projects/query-foundry`，私有、无 remote；可读本仓 `data/` 公开件
+  （Train 图与 `queries.json` 文本），永不读外部分析仓；产物包 = query + bbox +
+  出身字段 + 分布审计报告 + 语法版本 hash，交回本仓薄入库口校验后编
+  annotation run-id 落 `outputs/annotations/`——`scripts/generate_queries.py`
+  与 `aicomp_grounding/query_style.py` 一字不删（golden v4 指纹链指着它们），
+  语法版本 hash 替代 prompt hash 进 run 指纹。Phase 0 产物
+  `spec/style_spec.json`（draft-awaiting-admin-review）+ `spec/vocab_freq.json`，
+  待管理员审阅冻结。
+- **Phase 0 读数（queries.json 文本层，非 GT 衍生）**：重复率基线 7.6%、词数
+  均值 10.33、序数桶 335.6‰（=已载 33.5%）、空间 329.0‰、属性动作 232.8‰、
+  距离 102.6‰（草案文本分类器口径，规则在挖掘脚本内）。框架集中：
+  `from left to right` 496 条 / `from right to left` 449 条近对称成对；
+  `closest to the camera` 354 条 vs `farthest from the camera` 39 条（5.5:1
+  不对称，语法需复刻该偏置）；`the far right/left` 288/255 条是 extreme 位置
+  的独立主力框架；`of the image` 303 条作画幅锚点、camera 锚定 691 条。
+  **深度行句式在 test 几乎不存在**（`front row`/`back row` 各 1 条，`row` 43 条
+  全为物理行 "a row of X"）——现行 `DISAMBIGUATION_QUERY_PROMPT` 的
+  "depth row" cue 不属官方方言，v5 语法不含深度行句式。MT 错误低频：非 ASCII
+  中文夹杂 32 条（唯一过 ≥20 阈值的错误怪癖）、邻接重复词 14、撇号脱落 8、
+  冠词误用 4、双空格 3——高频 MT 特征在框架结构本身，不在语法错误。
 - **输入层封存**：两大失分区（序数类、框精修区）均模态无关；残余多模态依赖题
   占比极小且现有三图拼接方案已覆盖（test 侧逐样本分析在外部私有分析仓，按其
   防污染规范数字不入本仓）；中期融合（DualVision/Flamingo 类）与热显式专项
@@ -98,7 +138,8 @@
   `data/indexes/`、审计在 `data/audits/`，`prepare_rgbdt.py` 唯一索引生成器；
   golden `annot_dc189f029d962b27`（train 2875 / val 719）冻结不动；外部私有
   分析仓（本机路径，管理员掌握）承载 test 侧灰色分析，按其防污染规范运作，
-  结论与数字不入本仓。
+  结论与数字不入本仓。v5 query 生产线在本机伴生仓 `query-foundry`
+  （私有无 remote；可读本仓 `data/` 公开件，永不读外部分析仓）。
 - **cloud/**：Modal 双壳就绪（H100 / 8 核 / 32GiB，Volume `aicomp` 挂
   `/mnt/workspace`）；`modal volume put` 上传 Test 子集仍为首跑前置（管理员
   操作）；第五席 Youtu-VL-4B 走专属 Image。
@@ -125,6 +166,25 @@
 端到端冒烟沿袭 2026-09-01 轮基线。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-05（v5 生产线启动：query-foundry 建仓 + Phase 0 完成 + 标注对比数字拆分入库）
+
+- **动因**：管理员拍板 v5 生成策略（三权分立 + 四决策 + 红线），并裁决两件
+  悬项：伴生仓名定 `query-foundry`；对比研究数字拆分入库（成绩侧入外部私有
+  分析仓，供给侧与 run 身份入本仓）。
+- **改动（本仓零代码改动，仅 `docs/handoff.md`）**：「当前状态」新增 v5 生产线
+  定案、query-foundry 建仓、Phase 0 读数三条目；标注定性条目补供给侧新数字
+  与 run 身份实证；仓库条目补 query-foundry 边界。
+- **伴生仓（本机 `~/dev/projects/query-foundry`，git main 无 remote，首提交
+  `5540435`）**：README（边界红线）+ `scripts/phase0_mine_test_style.py`
+  （纯 stdlib 可复现）+ `spec/style_spec.json`（draft-awaiting-admin-review）
+  + `spec/vocab_freq.json` + 其 handoff。
+- **验证**：Phase 0 挖掘可复现（`queries.json` sha256 `2a08cd3a…` 入 spec 溯源），
+  总数 9555 / 重复率 0.076 / 词数 10.33 / 序数桶 335.6‰ 与既往读数互洽；
+  本仓 `python -m unittest discover -s tests` 213 项 OK（跳过 4 项 GPU 相关）。
+- **下一步**：管理员审阅冻结 `style_spec.json` → Phase 1 普查协议 + 20 序列
+  试点方案（preview 机制现成）；Phase 4/5（全量 run、val 联动 + α32 重训）按
+  上述阶段序回接本仓执行序。
 
 ### 2026-09-05（模型阵容定案：主力 Qwen3.5-9B，WBF 4+1，检测器独立角色关闭）
 
