@@ -171,6 +171,22 @@
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-09-05（分离收尾：清除主仓 sequence/config 中的生成侧残留）
+
+- **动因**：管理员追问主仓是否还有未迁移的类似文件；文件级已清零，本条
+  处理函数/常量级残留——`sequence.py` 的教师响应解析三件套
+  （`parse_frame_query_candidates`/`_parse_json_object`/`_reject_duplicate_json_keys`）
+  与无人引用的 `sequence_keys`、`config.py` 的 12 个生成侧常量
+  （`ANNOTATION_PROVIDER` 至 `ANNOTATION_SPLITS`）在主仓已零消费者。
+- **改动**：`sequence.py` 138→82 行（保留 `source_fingerprint` 与
+  `validate_annotation_query` QC 链）；`config.py` 生成侧常量删除
+  （`ANNOTATION_PROTOCOL_VERSION` 保留——产物合同在用，注释注明其余
+  常量居于 query-foundry）；对应 3 个 parse 测试方法迁至
+  foundry `tests/test_sequence_parsing.py`。
+- **验证**：主仓 171 项 OK（174−3 迁出）、foundry 49 项 OK（46+3）；
+  golden train(2875)/val(719) 经合同校验器端到端复验通过。
+- **下一步**：Phase 1 普查协议 + 20 序列试点（待管理员指令）。
+
 ### 2026-09-05（标注源索引与剔除审计迁入 query-foundry）
 
 - **动因**：管理员指出训练与实验从不读取 `data/indexes/`（approved.json 数据
