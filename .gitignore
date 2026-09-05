@@ -5,3 +5,4 @@ keys/api_keys.txt
 outputs/
 data/Train
 data/Processed
+.vscode/

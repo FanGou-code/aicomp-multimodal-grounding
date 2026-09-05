@@ -23,11 +23,11 @@
 
 ## 红线（v5 定案，改动须管理员确认）
 
-- val 719 永远只用真框；伪样本进 val = 教师给自己打分的自证循环。
-- 每条样本带出身字段（真标 / 伪 peer），可分开称重、可消融。
-- 伪样本 真:伪 ≈ 1:1 起步。
-- 同一 peer 只取 2-3 帧（近重复灌水无益）。
-- 涨分归因 = 双 run 对照（带伪 / 不带伪，其余全同）。
+- 教师框目标过确定性门（findall×2 一致 + 金丝雀 + 排序 + 无自重复 + 人审卡）即为正式标注，与组织者真框同等直接入数据；无"伪框"概念，标不对的帧整帧废弃换备选帧。
+- 挑帧扩容：跳帧挑 3 帧/序列，每帧 1 条真框 + 教师新目标若干条，总量对齐旧训练量（≈2880）。
+- 普查为跨类别全景枚举（帧内某类别 ≥2 实例即序数可行）；每个目标的句子只由其所在帧的普查事实支撑。
+- val 与 train 同生产线同结构：跳帧挑帧 + 普查 + 过门目标全进 val + v5 文本重写，密度 ≈3 条/帧。
+- 归因 = 双 run 对照（含扩充目标 / 仅真框，其余全同）。
 - 只造事实支撑的句子；凑不够的句式缺口用别的句式补，不硬编（封顶只是保险丝）。
 - MT 怪癖只学高频（机械阈值，如 test 中出现 ≥20 次），低频语病不学。
 
@@ -36,7 +36,9 @@
 ```
 foundry/  生产线包：管线状态机、API 客户端（含 key 池）、QC、提示词合同、
           复制的共享工具（io/artifacts/bbox/images/sequence/query/sharding/config）
-scripts/  generate_queries.py（生成入口）/ audit_query_style.py（样式审计）
+scripts/  generate_queries.py（生成入口）/ run_census.py（census 普查入口）/
+          assemble_queries.py（Phase 2 组装器，纯本地零调用）/
+          audit_query_style.py（样式审计）/ check_keys.py（key 测活）
 spec/     style_spec.json（test 句式规范）与后续语法版本
 keys/     api_keys.txt（gitignored，key 池文档，一行一把，行序=调用序）
 tests/    离线单测
@@ -73,8 +75,27 @@ python scripts/generate_queries.py --split train --publish --run-tag v5-train
 python scripts/audit_query_style.py --queries outputs/annotations/annot_<run_id>/train/approved.json --full
 ```
 
-key 池行为：固定顺序、耗尽即退（401/402/403 立即换号，429 同号重试一次后换号，
-5xx/网络错误按既有退避在同一把上重试）；全池耗尽快速失败退出并在终端明示，
-checkpoint 已落盘，补 key 后重跑同一指令即续。终端只显示 key 编号，永不显示明文。
+### Phase 2 组装器（纯本地，零 API 调用）
+
+```bash
+python scripts/assemble_queries.py --census-run outputs/census/census_<run_id> \
+  --run-tag asm-<tag>
+```
+
+从 census run 的 merged.json 取事实（教师目标 + attr 属性 + 几何关系），每帧
+选 1 真框目标 + 最多 2 教师目标，代码拼装 query 文本。每条句子双门：事实
+支撑（本帧普查事实）+ 代码可验证唯一性（描述在本帧只解析到一个对象，杜绝
+歧义监督）。桶配额按冻结 style_spec 份额始终化，配额耗尽记 overshoot、
+无解记 shortfall，均不上报伪造。产物 `outputs/assembly/<tag>/assembly.json`
+（含出身字段与事实溯源）+ `audit.json`（重复率/桶占比/词数 vs test 参照）。
+人审与 Phase 3 规划器在其后。
+
+key 池行为（12 key = 12 个独立账号，平台按账号维度限流，文档无 per-key 数字）：
+每个请求轮转换下一把 key，各账号在飞请求 ≈1，远低于任何档位并发上限。
+401/402/403 立即退役并**自动注释回写 key 文件**（行首加 `#` + 日期原因，原子写、
+保留 0600）；429 只退避重试（至多 8 次）绝不退役，累计 30 次持续限流才退役并注释
+回写；传输超时/网络错误连续 2 次挂起该 key——本 run 生效、不写文件（可能复活，
+事后用 scripts/check_keys.py 复查）。全池耗尽快速失败退出并在终端明示，checkpoint
+已落盘，补 key 后重跑同一指令即续。终端只显示 key 编号，永不显示明文。
 也可用环境变量 `ANNOTATION_API_KEY_FILE`（指定文件）或 `ANNOTATION_API_KEYS`
 （逗号分隔）替代仓库 key 文件。
