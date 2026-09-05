@@ -67,5 +67,29 @@ class StyleStatsTests(unittest.TestCase):
         self.assertIn("either=", row)
 
 
+class ExtractQueriesShapeTests(unittest.TestCase):
+    def test_merged_run_results_shape_is_supported(self):
+        payload = {
+            "metadata": {"run_id": "annot_x"},
+            "results": {
+                "001": {"status": "completed", "frames": {
+                    "001_00000001": {"status": "completed", "query": "The first cone from left to right"},
+                    "001_00000002": {"status": "failed", "query": None},
+                }},
+                "002": {"status": "in_progress", "frames": {
+                    "002_00000001": {"status": "completed", "query": "The leftmost sign"},
+                }},
+            },
+        }
+        self.assertEqual(
+            extract_queries(payload),
+            ["The first cone from left to right", "The leftmost sign"],
+        )
+
+    def test_approved_data_shape_still_supported(self):
+        payload = {"data": {"a": {"query": "The red car"}, "b": {"query": "The blue car"}}}
+        self.assertEqual(extract_queries(payload), ["The red car", "The blue car"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -32,9 +32,28 @@ ORDINAL_RE = re.compile(
 
 
 def extract_queries(payload: object) -> list[str]:
-    """Extract query strings from approved/merged/custom query JSON."""
+    """Extract query strings from approved/merged/custom query JSON.
+
+    Supported shapes: approved.json (``data -> {sample: {query}}``),
+    annotation run results (``results -> {sequence: {frames: {sample:
+    {status, query}}}}`` as written to merged.json), or a flat list/dict of
+    ``{query}`` items.
+    """
     queries: list[str] = []
     if isinstance(payload, dict):
+        results = payload.get("results")
+        if isinstance(results, dict):
+            for result in results.values():
+                if not isinstance(result, dict):
+                    continue
+                for frame in result.get("frames", {}).values():
+                    if (
+                        isinstance(frame, dict)
+                        and frame.get("status") == "completed"
+                        and isinstance(frame.get("query"), str)
+                    ):
+                        queries.append(frame["query"])
+            return queries
         data = payload.get("data", payload)
         if isinstance(data, dict):
             values = list(data.values())
