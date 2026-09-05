@@ -61,7 +61,7 @@ class FindallParseTests(unittest.TestCase):
             "category": "person",
             "objects": [{"i": 1, "bbox": [0.42, 0.40, 1.50, 0.60]}],
         })
-        with self.assertRaisesRegex(ValueError, "outside"):
+        with self.assertRaisesRegex(ValueError, "every coordinate convention"):
             parse_findall_response(bad, gt_bbox=GT)
 
     def test_nonsequential_index_rejected(self):
@@ -104,8 +104,29 @@ class FindallParseTests(unittest.TestCase):
             "category": "person",
             "objects": [{"i": 1, "bbox": [615, 346, 845, 518]}],
         })
-        with self.assertRaisesRegex(ValueError, "outside"):
+        with self.assertRaisesRegex(ValueError, "every coordinate convention"):
             parse_findall_response(payload, gt_bbox=GT)
+
+    def test_per_mille_convention_auto_detected(self):
+        import json
+        # GLM/Qwen family convention: 0-1000 per-mille. The teacher's deer box
+        # lands on the GT target after /1000 (IoU ~0.93).
+        payload = json.dumps({
+            "category": "deer",
+            "objects": [{"i": 1, "bbox": [400, 400, 550, 600]}],
+        })
+        result = parse_findall_response(payload, gt_bbox=GT, image_size=(1536, 864))
+        self.assertEqual(result["bbox_convention"], "per-mille-0-1000")
+        self.assertAlmostEqual(result["objects"][0]["bbox"][0], 0.572)
+
+    def test_all_conventions_failing_reports_combined(self):
+        import json
+        payload = json.dumps({
+            "category": "deer",
+            "objects": [{"i": 1, "bbox": [10, 10, 30, 30]}],
+        })
+        with self.assertRaisesRegex(ValueError, "every coordinate convention"):
+            parse_findall_response(payload, gt_bbox=GT, image_size=(1536, 864))
 
 
 class AttrParseTests(unittest.TestCase):

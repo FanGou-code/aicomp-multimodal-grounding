@@ -74,7 +74,8 @@ def _parse_json_object(text: object, *, label: str) -> dict:
     return payload
 
 
-def _clean_bbox(raw: object, *, image_size: tuple[int, int] | None) -> list[float]:
+def _scale_bbox(raw: object, scale: tuple[float, float]) -> list[float]:
+    """Validate one raw bbox and convert it to normalized [0, 1] via (sx, sy)."""
     if not isinstance(raw, (list, tuple)) or len(raw) != 4:
         raise ValueError("census bbox must be [x1, y1, x2, y2]")
     values = []
@@ -82,22 +83,32 @@ def _clean_bbox(raw: object, *, image_size: tuple[int, int] | None) -> list[floa
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError("census bbox coordinates must be numbers")
         values.append(float(value))
+    sx, sy = scale
+    values = [values[0] * sx, values[1] * sy, values[2] * sx, values[3] * sy]
     if any(not -BBOX_SLACK <= value <= 1.0 + BBOX_SLACK for value in values):
-        # Pixel convention: the teacher answered in the coordinate space of the
-        # image it was shown. Convert instead of burning retries on style.
-        if image_size is None or any(value < -BBOX_SLACK for value in values):
-            raise ValueError(f"census bbox coordinate {values!r} outside [0, 1]")
-        width, height = image_size
-        values = [
-            values[0] / width, values[1] / height,
-            values[2] / width, values[3] / height,
-        ]
-        if any(not -BBOX_SLACK <= value <= 1.0 + BBOX_SLACK for value in values):
-            raise ValueError(f"census pixel bbox normalizes outside [0, 1]: {values!r}")
+        raise ValueError(f"census bbox normalizes outside [0, 1]: {values!r}")
     values = [min(1.0, max(0.0, value)) for value in values]
     if values[2] - values[0] < 0.001 or values[3] - values[1] < 0.001:
         raise ValueError("census bbox is degenerate")
     return values
+
+
+def _check_order(cleaned: list[dict]) -> None:
+    for left, right in zip(cleaned, cleaned[1:]):
+        if right["bbox"][0] < left["bbox"][0] - 1e-6:
+            raise ValueError("Census objects are not ordered left to right")
+
+
+def _check_self_dup(cleaned: list[dict]) -> None:
+    for i, left in enumerate(cleaned):
+        for right in cleaned[i + 1:]:
+            if compute_iou(left["bbox"], right["bbox"]) >= SELF_DUP_IOU:
+                raise ValueError("Census lists the same object twice")
+
+
+def _check_canary(cleaned: list[dict], gt_bbox: list[float]) -> None:
+    if not any(compute_iou(item["bbox"], gt_bbox) >= CANARY_IOU for item in cleaned):
+        raise ValueError("Census canary failed: red-boxed target not re-found")
 
 
 def parse_findall_response(
@@ -108,8 +119,11 @@ def parse_findall_response(
 ) -> dict:
     """Validate one findall response through every deterministic gate.
 
-    ``image_size`` is the (width, height) of the image the teacher saw; when
-    given, pixel-convention responses are auto-normalized instead of rejected.
+    The teacher's coordinate convention is auto-detected: if all values are
+    within [0, 1] the response is used directly; otherwise the per-mille
+    (0-1000, GLM/Qwen family convention) and shown-image-pixel candidates are
+    both normalized and the canary acts as the oracle — the first candidate
+    whose full gate set passes (order, self-duplicates, canary) wins.
     """
     payload = _parse_json_object(text, label="Census findall")
     if set(payload) != {"category", "objects"}:
@@ -120,25 +134,44 @@ def parse_findall_response(
     objects = payload["objects"]
     if not isinstance(objects, list) or not 1 <= len(objects) <= MAX_OBJECTS:
         raise ValueError(f"Census findall must list 1..{MAX_OBJECTS} objects")
-    cleaned: list[dict] = []
+    raw_boxes: list[dict] = []
     for expected_i, item in enumerate(objects, start=1):
         if not isinstance(item, dict) or set(item) != {"i", "bbox"}:
             raise ValueError("Census object entries must be exactly {i, bbox}")
         index = item["i"]
         if isinstance(index, bool) or not isinstance(index, int) or index != expected_i:
             raise ValueError("Census object indices must be sequential 1..N")
-        box = _clean_bbox(item["bbox"], image_size=image_size)
-        cleaned.append({"i": index, "bbox": box})
-    for left, right in zip(cleaned, cleaned[1:]):
-        if right["bbox"][0] < left["bbox"][0] - 1e-6:
-            raise ValueError("Census objects are not ordered left to right")
-    for i, left in enumerate(cleaned):
-        for right in cleaned[i + 1:]:
-            if compute_iou(left["bbox"], right["bbox"]) >= SELF_DUP_IOU:
-                raise ValueError("Census lists the same object twice")
-    if not any(compute_iou(item["bbox"], gt_bbox) >= CANARY_IOU for item in cleaned):
-        raise ValueError("Census canary failed: red-boxed target not re-found")
-    return {"category": category.strip(), "objects": cleaned}
+        raw_boxes.append({"i": index, "bbox": item["bbox"]})
+
+    flat = [value for item in raw_boxes for value in item["bbox"]]
+    numeric = all(
+        isinstance(value, (int, float)) and not isinstance(value, bool) for value in flat
+    )
+    candidates: list[tuple[str, tuple[float, float]]] = []
+    if numeric and all(-BBOX_SLACK <= value <= 1.0 + BBOX_SLACK for value in flat):
+        candidates.append(("normalized-0-1", (1.0, 1.0)))
+    else:
+        candidates.append(("per-mille-0-1000", (1.0 / 1000.0, 1.0 / 1000.0)))
+        if image_size is not None:
+            candidates.append(("pixels-of-shown-image", (1.0 / image_size[0], 1.0 / image_size[1])))
+
+    errors: list[str] = []
+    for name, scale in candidates:
+        try:
+            cleaned = [
+                {"i": item["i"], "bbox": _scale_bbox(item["bbox"], scale)}
+                for item in raw_boxes
+            ]
+            _check_order(cleaned)
+            _check_self_dup(cleaned)
+            _check_canary(cleaned, gt_bbox)
+        except ValueError as exc:
+            errors.append(f"[{name}] {exc}")
+            continue
+        return {"category": category.strip(), "objects": cleaned, "bbox_convention": name}
+    raise ValueError(
+        "Census response failed under every coordinate convention: " + " | ".join(errors)
+    )
 
 
 def parse_attr_response(text: object, *, indices: list[int]) -> dict:

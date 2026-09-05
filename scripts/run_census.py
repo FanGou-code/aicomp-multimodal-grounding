@@ -206,6 +206,8 @@ def census_preflight(*, data_root, output_root, split, limit_sequences, seed, nu
 def _complete_with_repair(client, build_messages, *, max_tokens, previous_error, parse, parser_kwargs):
     last_error = previous_error or ""
     attempts = 0
+    api_calls: list[dict] = []
+    last_raw = ""
     for attempt in range(1, ATTEMPTS_PER_PASS + 1):
         attempts = attempt
         try:
@@ -219,14 +221,21 @@ def _complete_with_repair(client, build_messages, *, max_tokens, previous_error,
         except APIError as exc:
             last_error = f"API error: {exc}"
             continue
-        record = dict(response.record)
+        api_calls.append(dict(response.record))
+        last_raw = response.content
         try:
             parsed = parse(response.content, **parser_kwargs)
         except ValueError as exc:
             last_error = str(exc)
             continue
-        return {"status": "completed", "attempts": attempts, "error": "", "api_calls": [record], **parsed}
-    return {"status": "failed", "attempts": attempts, "error": last_error or "census pass failed validation", "api_calls": []}
+        return {"status": "completed", "attempts": attempts, "error": "", "api_calls": api_calls, **parsed}
+    return {
+        "status": "failed",
+        "attempts": attempts,
+        "error": last_error or "census pass failed validation",
+        "api_calls": api_calls,
+        "last_raw": last_raw,
+    }
 
 
 def _load_plain_frame(data_root: Path, item: dict) -> Image.Image:
