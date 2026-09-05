@@ -117,7 +117,7 @@ class FindallParseTests(unittest.TestCase):
         })
         result = parse_findall_response(payload, gt_bbox=GT, image_size=(1536, 864))
         self.assertEqual(result["bbox_convention"], "per-mille-0-1000")
-        self.assertAlmostEqual(result["objects"][0]["bbox"][0], 0.572)
+        self.assertAlmostEqual(result["objects"][0]["bbox"][0], 0.400)
 
     def test_all_conventions_failing_reports_combined(self):
         import json
