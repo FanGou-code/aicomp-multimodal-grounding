@@ -1,0 +1,309 @@
+"""Census protocol: the teacher only reports facts, code validates everything.
+
+Passes (frozen v5 design, 2026-09-05):
+- ``findall`` x2 independent passes per frame: enumerate EVERY object of the
+  red-boxed category, ordered left to right, each with a normalized bbox.
+- ``attr``: numbered-box attribute report for the reconciled object set of
+  selected frames.
+
+Deterministic gates in code (the teacher never self-certifies):
+- canary: the returned set must re-find the GT box (IoU >= 0.5)
+- ordering: objects must arrive sorted by x1 (the prompt demands left->right)
+- no self-duplicates: pairwise IoU < 0.95
+- cross-pass agreement: one-to-one IoU >= 0.5 matching gates ordinal capability
+
+Prompts contain no example queries and no style options by design — the
+teacher has nothing stylistic to imitate.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+
+from PIL import Image, ImageDraw
+
+from foundry.bbox import compute_iou
+
+FINDALL_PROMPT = """The red rectangle marks one object of a category.
+Task: list EVERY object of that same category visible in the image, ordered from left to right.
+Number them 1..N (N is the total count) and give each object's bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
+Exactly one listed box must correspond to the object inside the red rectangle.
+Output JSON only:
+{"category": "<category name>", "objects": [{"i": 1, "bbox": [x1, y1, x2, y2]}, ...]}"""
+
+ATTR_PROMPT = """The image shows numbered boxes around objects of one category.
+For each numbered object report only what is directly visible: its color and one notable visible feature.
+Do not guess occluded or unclear properties.
+Output JSON only:
+{"1": {"color": "...", "features": "..."}, ...}"""
+
+FINDALL_PROMPT_HASH = hashlib.sha256(FINDALL_PROMPT.encode("utf-8")).hexdigest()
+ATTR_PROMPT_HASH = hashlib.sha256(ATTR_PROMPT.encode("utf-8")).hexdigest()
+
+CANARY_IOU = 0.5
+MATCH_IOU = 0.5
+SELF_DUP_IOU = 0.95
+BBOX_SLACK = 0.02
+MAX_OBJECTS = 50
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
+    result: dict = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Census response contains duplicate JSON key {key!r}")
+        result[key] = value
+    return result
+
+
+def _parse_json_object(text: object, *, label: str) -> dict:
+    if not isinstance(text, str):
+        raise ValueError(f"{label} response must be text")
+    candidate = text.strip()
+    fence = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", candidate, flags=re.DOTALL | re.IGNORECASE)
+    if fence:
+        candidate = fence.group(1)
+    try:
+        payload = json.loads(candidate, object_pairs_hook=_reject_duplicate_json_keys)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} response is not valid JSON: {exc.msg}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} response must be a JSON object")
+    return payload
+
+
+def _clean_bbox(raw: object, *, image_size: tuple[int, int] | None) -> list[float]:
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        raise ValueError("census bbox must be [x1, y1, x2, y2]")
+    values = []
+    for value in raw:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("census bbox coordinates must be numbers")
+        values.append(float(value))
+    if any(not -BBOX_SLACK <= value <= 1.0 + BBOX_SLACK for value in values):
+        # Pixel convention: the teacher answered in the coordinate space of the
+        # image it was shown. Convert instead of burning retries on style.
+        if image_size is None or any(value < -BBOX_SLACK for value in values):
+            raise ValueError(f"census bbox coordinate {values!r} outside [0, 1]")
+        width, height = image_size
+        values = [
+            values[0] / width, values[1] / height,
+            values[2] / width, values[3] / height,
+        ]
+        if any(not -BBOX_SLACK <= value <= 1.0 + BBOX_SLACK for value in values):
+            raise ValueError(f"census pixel bbox normalizes outside [0, 1]: {values!r}")
+    values = [min(1.0, max(0.0, value)) for value in values]
+    if values[2] - values[0] < 0.001 or values[3] - values[1] < 0.001:
+        raise ValueError("census bbox is degenerate")
+    return values
+
+
+def parse_findall_response(
+    text: object,
+    *,
+    gt_bbox: list[float],
+    image_size: tuple[int, int] | None = None,
+) -> dict:
+    """Validate one findall response through every deterministic gate.
+
+    ``image_size`` is the (width, height) of the image the teacher saw; when
+    given, pixel-convention responses are auto-normalized instead of rejected.
+    """
+    payload = _parse_json_object(text, label="Census findall")
+    if set(payload) != {"category", "objects"}:
+        raise ValueError("Census findall schema must be exactly {category, objects}")
+    category = payload["category"]
+    if not isinstance(category, str) or not category.strip() or len(category) > 64:
+        raise ValueError("Census findall category is missing or oversized")
+    objects = payload["objects"]
+    if not isinstance(objects, list) or not 1 <= len(objects) <= MAX_OBJECTS:
+        raise ValueError(f"Census findall must list 1..{MAX_OBJECTS} objects")
+    cleaned: list[dict] = []
+    for expected_i, item in enumerate(objects, start=1):
+        if not isinstance(item, dict) or set(item) != {"i", "bbox"}:
+            raise ValueError("Census object entries must be exactly {i, bbox}")
+        index = item["i"]
+        if isinstance(index, bool) or not isinstance(index, int) or index != expected_i:
+            raise ValueError("Census object indices must be sequential 1..N")
+        box = _clean_bbox(item["bbox"], image_size=image_size)
+        cleaned.append({"i": index, "bbox": box})
+    for left, right in zip(cleaned, cleaned[1:]):
+        if right["bbox"][0] < left["bbox"][0] - 1e-6:
+            raise ValueError("Census objects are not ordered left to right")
+    for i, left in enumerate(cleaned):
+        for right in cleaned[i + 1:]:
+            if compute_iou(left["bbox"], right["bbox"]) >= SELF_DUP_IOU:
+                raise ValueError("Census lists the same object twice")
+    if not any(compute_iou(item["bbox"], gt_bbox) >= CANARY_IOU for item in cleaned):
+        raise ValueError("Census canary failed: red-boxed target not re-found")
+    return {"category": category.strip(), "objects": cleaned}
+
+
+def parse_attr_response(text: object, *, indices: list[int]) -> dict:
+    """Validate one attr response against the requested numbered objects."""
+    payload = _parse_json_object(text, label="Census attr")
+    expected = {str(i) for i in indices}
+    if set(payload) != expected:
+        raise ValueError(
+            f"Census attr must cover exactly the numbered objects {sorted(expected)}"
+        )
+    result: dict[str, dict] = {}
+    for key in sorted(expected, key=int):
+        value = payload[key]
+        if not isinstance(value, dict) or set(value) != {"color", "features"}:
+            raise ValueError(f"Census attr entry {key!r} must be exactly {{color, features}}")
+        fields = {}
+        for field in ("color", "features"):
+            text_value = value[field]
+            if not isinstance(text_value, str) or not text_value.strip() or len(text_value) > 200:
+                raise ValueError(f"Census attr {key!r}.{field} is missing or oversized")
+            fields[field] = text_value.strip()
+        result[key] = fields
+    return result
+
+
+def pass_agreement(objects_a: list[dict], objects_b: list[dict]) -> dict:
+    """One-to-one greedy IoU matching between two independent findall passes."""
+    pairs = []
+    for a_index, a_item in enumerate(objects_a):
+        for b_index, b_item in enumerate(objects_b):
+            iou = compute_iou(a_item["bbox"], b_item["bbox"])
+            if iou >= MATCH_IOU:
+                pairs.append((iou, a_index, b_index))
+    pairs.sort(reverse=True)
+    used_a: set[int] = set()
+    used_b: set[int] = set()
+    matched_boxes: list[dict] = []
+    for iou, a_index, b_index in pairs:
+        if a_index in used_a or b_index in used_b:
+            continue
+        used_a.add(a_index)
+        used_b.add(b_index)
+        matched_boxes.append(objects_a[a_index])
+    count_a, count_b = len(objects_a), len(objects_b)
+    union = count_a + count_b - len(matched_boxes)
+    return {
+        "matched": len(matched_boxes),
+        "count_a": count_a,
+        "count_b": count_b,
+        "count_agree": count_a == count_b,
+        "jaccard": len(matched_boxes) / union if union else 0.0,
+        "agreed_objects": matched_boxes,
+    }
+
+
+def select_frames(candidates: list[dict], k: int = 3) -> list[dict]:
+    """Pick k frames: highest agreed-object count, ties broken by spread.
+
+    Deterministic: primary key count descending, then greatest minimum
+    distance to the already-chosen frames, then lowest frame number.
+    """
+    remaining = sorted(candidates, key=lambda c: (-c["count"], c["frame_no"]))
+    chosen: list[dict] = []
+    while remaining and len(chosen) < k:
+        if not chosen:
+            chosen.append(remaining.pop(0))
+            continue
+        best = max(
+            remaining,
+            key=lambda c: (
+                c["count"],
+                min(abs(c["frame_no"] - x["frame_no"]) for x in chosen),
+                -c["frame_no"],
+            ),
+        )
+        chosen.append(best)
+        remaining.remove(best)
+    return chosen
+
+
+def reconcile_sequence(selected: list[list[dict]]) -> list[dict]:
+    """Keep peers that appear (IoU >= 0.5) in at least 2 of the chosen frames.
+
+    ``selected`` holds the agreed object list of each chosen frame, ordered
+    left to right. The GT-canary object of each frame participates like any
+    other object.
+    """
+    peers: list[dict] = []
+    for objects in selected:
+        for item in objects:
+            box = item["bbox"]
+            hit = next(
+                (peer for peer in peers if compute_iou(peer["bbox"], box) >= MATCH_IOU),
+                None,
+            )
+            if hit is None:
+                peers.append({"bbox": box, "seen_in": 1})
+            else:
+                hit["seen_in"] += 1
+    return [peer for peer in peers if peer["seen_in"] >= 2]
+
+
+def draw_census_card(
+    image: Image.Image,
+    objects: list[dict],
+    gt_bbox: list[float] | None = None,
+) -> Image.Image:
+    """Render the ability card: census boxes numbered left to right (+ GT box)."""
+    card = image.convert("RGB").copy()
+    draw = ImageDraw.Draw(card)
+    width, height = card.size
+    if gt_bbox is not None:
+        gx1, gy1, gx2, gy2 = gt_bbox
+        draw.rectangle(
+            (gx1 * width, gy1 * height, gx2 * width, gy2 * height),
+            outline=(255, 0, 0),
+            width=3,
+        )
+    for item in objects:
+        x1, y1, x2, y2 = item["bbox"]
+        draw.rectangle(
+            (x1 * width, y1 * height, x2 * width, y2 * height),
+            outline=(0, 160, 255),
+            width=3,
+        )
+        label = str(item.get("i", ""))
+        draw.text((x1 * width + 4, max(0, y1 * height - 14)), label, fill=(0, 160, 255))
+    return card
+
+
+def findall_messages(marked_jpeg_url: str, *, previous_error: str = "") -> list[dict]:
+    repair = ""
+    if previous_error:
+        repair = (
+            "\nThe previous response failed deterministic validation for this reason: "
+            f"{previous_error}. Correct that failure and regenerate the complete JSON object."
+        )
+    return [
+        {"role": "system", "content": "You are a precise visual-grounding enumerator. Return only valid JSON."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "One complete RGB scene; the red rectangle marks the reference object."},
+                {"type": "image_url", "image_url": {"url": marked_jpeg_url, "detail": "high"}},
+                {"type": "text", "text": FINDALL_PROMPT + repair},
+            ],
+        },
+    ]
+
+
+def attr_messages(numbered_jpeg_url: str, *, previous_error: str = "") -> list[dict]:
+    repair = ""
+    if previous_error:
+        repair = (
+            "\nThe previous response failed deterministic validation for this reason: "
+            f"{previous_error}. Correct that failure and regenerate the complete JSON object."
+        )
+    return [
+        {"role": "system", "content": "You are a precise visual inspector. Return only valid JSON."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "One complete RGB scene with numbered boxes around same-category objects."},
+                {"type": "image_url", "image_url": {"url": numbered_jpeg_url, "detail": "high"}},
+                {"type": "text", "text": ATTR_PROMPT + repair},
+            ],
+        },
+    ]
