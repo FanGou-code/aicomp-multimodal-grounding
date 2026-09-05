@@ -30,8 +30,10 @@ def _objects(*x1s):
 def _response(x1s, category="person"):
     import json
     return json.dumps({
-        "category": category,
-        "objects": [{"i": i + 1, "bbox": [x, 0.40, x + 0.08, 0.60]} for i, x in enumerate(x1s)],
+        "objects": [
+            {"i": i + 1, "category": category, "bbox": [x, 0.40, x + 0.08, 0.60]}
+            for i, x in enumerate(x1s)
+        ],
     })
 
 
@@ -39,27 +41,109 @@ class FindallParseTests(unittest.TestCase):
     def test_valid_response_passes_all_gates(self):
         # 0.42 box overlaps GT 0.40-0.55 -> canary ok; sorted; no dups
         result = parse_findall_response(_response([0.10, 0.42, 0.80]), gt_bbox=GT)
-        self.assertEqual(result["category"], "person")
+        self.assertEqual([o["category"] for o in result["objects"]], ["person"] * 3)
         self.assertEqual([o["i"] for o in result["objects"]], [1, 2, 3])
         self.assertAlmostEqual(result["objects"][1]["bbox"][0], 0.42)
+
+    def test_cross_category_enumeration_accepted(self):
+        import json
+        payload = json.dumps({
+            "objects": [
+                {"i": 1, "category": "person", "bbox": [0.42, 0.40, 0.50, 0.60]},
+                {"i": 2, "category": "bench", "bbox": [0.60, 0.40, 0.68, 0.60]},
+                {"i": 3, "category": "traffic sign", "bbox": [0.80, 0.40, 0.88, 0.60]},
+            ],
+        })
+        result = parse_findall_response(payload, gt_bbox=GT)
+        self.assertEqual(
+            [o["category"] for o in result["objects"]],
+            ["person", "bench", "traffic sign"],
+        )
+        self.assertNotIn("category", result)
+
+    def test_missing_category_rejected(self):
+        import json
+        bad = json.dumps({
+            "objects": [{"i": 1, "bbox": [0.42, 0.40, 0.50, 0.60]}],
+        })
+        with self.assertRaisesRegex(ValueError, "exactly \\{i, category, bbox\\}"):
+            parse_findall_response(bad, gt_bbox=GT)
+
+    def test_blank_or_oversized_category_rejected(self):
+        import json
+        blank = json.dumps({
+            "objects": [{"i": 1, "category": "   ", "bbox": [0.42, 0.40, 0.50, 0.60]}],
+        })
+        with self.assertRaisesRegex(ValueError, "category is missing"):
+            parse_findall_response(blank, gt_bbox=GT)
+        oversized = json.dumps({
+            "objects": [{"i": 1, "category": "x" * 65, "bbox": [0.42, 0.40, 0.50, 0.60]}],
+        })
+        with self.assertRaisesRegex(ValueError, "category is missing"):
+            parse_findall_response(oversized, gt_bbox=GT)
 
     def test_canary_failure_rejected(self):
         with self.assertRaisesRegex(ValueError, "canary"):
             parse_findall_response(_response([0.05, 0.70, 0.90]), gt_bbox=GT)
 
-    def test_order_violation_rejected(self):
-        with self.assertRaisesRegex(ValueError, "ordered left to right"):
-            parse_findall_response(_response([0.42, 0.10, 0.80]), gt_bbox=GT)
+    def test_unordered_response_is_sorted_and_renumbered(self):
+        import json
+        # Panoramic enumeration may arrive out of left->right order; the
+        # parser normalizes instead of rejecting (fatal ordering killed 27
+        # pilot frames). 0.42 box overlaps GT -> canary ok.
+        payload = json.dumps({
+            "objects": [
+                {"i": 1, "category": "bench", "bbox": [0.80, 0.40, 0.88, 0.60]},
+                {"i": 2, "category": "person", "bbox": [0.42, 0.40, 0.50, 0.60]},
+                {"i": 3, "category": "sign", "bbox": [0.10, 0.40, 0.18, 0.60]},
+            ],
+        })
+        result = parse_findall_response(payload, gt_bbox=GT)
+        self.assertEqual([o["i"] for o in result["objects"]], [1, 2, 3])
+        self.assertEqual([o["bbox"][0] for o in result["objects"]], [0.10, 0.42, 0.80])
+        self.assertEqual([o["category"] for o in result["objects"]], ["sign", "person", "bench"])
 
-    def test_self_duplicate_rejected(self):
-        with self.assertRaisesRegex(ValueError, "same object twice"):
-            parse_findall_response(_response([0.42, 0.421, 0.80]), gt_bbox=GT)
+    def test_duplicate_box_is_deduplicated_not_fatal(self):
+        import json
+        # Same object listed twice (two boxes with IoU ~0.98): the parser
+        # drops the later duplicate instead of killing the frame.
+        payload = json.dumps({
+            "objects": [
+                {"i": 1, "category": "person", "bbox": [0.42, 0.40, 0.50, 0.60]},
+                {"i": 2, "category": "person", "bbox": [0.421, 0.40, 0.501, 0.60]},
+                {"i": 3, "category": "sign", "bbox": [0.80, 0.40, 0.88, 0.60]},
+            ],
+        })
+        result = parse_findall_response(payload, gt_bbox=GT)
+        self.assertEqual(len(result["objects"]), 2)
+        self.assertEqual([o["bbox"][0] for o in result["objects"]], [0.42, 0.80])
+
+    def test_degenerate_box_dropped(self):
+        import json
+        # Zero-width box is unusable under every convention: dropped, the
+        # rest of the response survives (canary box stays).
+        payload = json.dumps({
+            "objects": [
+                {"i": 1, "category": "person", "bbox": [0.42, 0.40, 0.50, 0.60]},
+                {"i": 2, "category": "sign", "bbox": [0.80, 0.40, 0.80, 0.60]},
+            ],
+        })
+        result = parse_findall_response(payload, gt_bbox=GT)
+        self.assertEqual(len(result["objects"]), 1)
+        self.assertEqual(result["objects"][0]["category"], "person")
+
+    def test_all_degenerate_rejected(self):
+        import json
+        payload = json.dumps({
+            "objects": [{"i": 1, "category": "person", "bbox": [0.42, 0.40, 0.42, 0.60]}],
+        })
+        with self.assertRaisesRegex(ValueError, "no non-degenerate"):
+            parse_findall_response(payload, gt_bbox=GT)
 
     def test_out_of_range_bbox_rejected(self):
         import json
         bad = json.dumps({
-            "category": "person",
-            "objects": [{"i": 1, "bbox": [0.42, 0.40, 1.50, 0.60]}],
+            "objects": [{"i": 1, "category": "person", "bbox": [0.42, 0.40, 1.50, 0.60]}],
         })
         with self.assertRaisesRegex(ValueError, "every coordinate convention"):
             parse_findall_response(bad, gt_bbox=GT)
@@ -67,8 +151,7 @@ class FindallParseTests(unittest.TestCase):
     def test_nonsequential_index_rejected(self):
         import json
         bad = json.dumps({
-            "category": "person",
-            "objects": [{"i": 2, "bbox": [0.42, 0.40, 0.50, 0.60]}],
+            "objects": [{"i": 2, "category": "person", "bbox": [0.42, 0.40, 0.50, 0.60]}],
         })
         with self.assertRaisesRegex(ValueError, "sequential"):
             parse_findall_response(bad, gt_bbox=GT)
@@ -76,9 +159,16 @@ class FindallParseTests(unittest.TestCase):
     def test_extra_field_rejected(self):
         import json
         bad = json.dumps({
-            "category": "person",
             "extra": 1,
-            "objects": [{"i": 1, "bbox": [0.42, 0.40, 0.50, 0.60]}],
+            "objects": [{"i": 1, "category": "person", "bbox": [0.42, 0.40, 0.50, 0.60]}],
+        })
+        with self.assertRaisesRegex(ValueError, "exactly"):
+            parse_findall_response(bad, gt_bbox=GT)
+
+    def test_object_entry_extra_field_rejected(self):
+        import json
+        bad = json.dumps({
+            "objects": [{"i": 1, "category": "person", "bbox": [0.42, 0.40, 0.50, 0.60], "j": 2}],
         })
         with self.assertRaisesRegex(ValueError, "exactly"):
             parse_findall_response(bad, gt_bbox=GT)
@@ -92,8 +182,7 @@ class FindallParseTests(unittest.TestCase):
         # Teacher answered in pixels of the shown 1536x864 view; the first box
         # lands on the GT target (615/1536 ~ 0.40).
         payload = json.dumps({
-            "category": "person",
-            "objects": [{"i": 1, "bbox": [615, 346, 845, 518]}],
+            "objects": [{"i": 1, "category": "person", "bbox": [615, 346, 845, 518]}],
         })
         result = parse_findall_response(payload, gt_bbox=GT, image_size=(1536, 864))
         self.assertAlmostEqual(result["objects"][0]["bbox"][0], 615 / 1536, places=4)
@@ -101,8 +190,7 @@ class FindallParseTests(unittest.TestCase):
     def test_pixel_convention_without_size_rejected(self):
         import json
         payload = json.dumps({
-            "category": "person",
-            "objects": [{"i": 1, "bbox": [615, 346, 845, 518]}],
+            "objects": [{"i": 1, "category": "person", "bbox": [615, 346, 845, 518]}],
         })
         with self.assertRaisesRegex(ValueError, "every coordinate convention"):
             parse_findall_response(payload, gt_bbox=GT)
@@ -112,8 +200,7 @@ class FindallParseTests(unittest.TestCase):
         # GLM/Qwen family convention: 0-1000 per-mille. The teacher's deer box
         # lands on the GT target after /1000 (IoU ~0.93).
         payload = json.dumps({
-            "category": "deer",
-            "objects": [{"i": 1, "bbox": [400, 400, 550, 600]}],
+            "objects": [{"i": 1, "category": "deer", "bbox": [400, 400, 550, 600]}],
         })
         result = parse_findall_response(payload, gt_bbox=GT, image_size=(1536, 864))
         self.assertEqual(result["bbox_convention"], "per-mille-0-1000")
@@ -122,8 +209,7 @@ class FindallParseTests(unittest.TestCase):
     def test_all_conventions_failing_reports_combined(self):
         import json
         payload = json.dumps({
-            "category": "deer",
-            "objects": [{"i": 1, "bbox": [10, 10, 30, 30]}],
+            "objects": [{"i": 1, "category": "deer", "bbox": [10, 10, 30, 30]}],
         })
         with self.assertRaisesRegex(ValueError, "every coordinate convention"):
             parse_findall_response(payload, gt_bbox=GT, image_size=(1536, 864))

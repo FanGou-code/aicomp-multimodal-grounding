@@ -1,16 +1,26 @@
 """Census protocol: the teacher only reports facts, code validates everything.
 
-Passes (frozen v5 design, 2026-09-05):
-- ``findall`` x2 independent passes per frame: enumerate EVERY object of the
-  red-boxed category, ordered left to right, each with a normalized bbox.
-- ``attr``: numbered-box attribute report for the reconciled object set of
+Passes (panoramic v2 design, admin-approved 2026-09-06):
+- ``findall`` x2 independent passes per frame: enumerate EVERY distinct
+  salient object in the scene regardless of category, ordered left to right,
+  each with its own category name and a normalized bbox. The red-boxed GT
+  object must be included (it is the canary anchor, nothing more).
+- ``attr``: numbered-box attribute report for the agreed object set of
   selected frames.
 
 Deterministic gates in code (the teacher never self-certifies):
-- canary: the returned set must re-find the GT box (IoU >= 0.5)
-- ordering: objects must arrive sorted by x1 (the prompt demands left->right)
-- no self-duplicates: pairwise IoU < 0.95
-- cross-pass agreement: one-to-one IoU >= 0.5 matching gates ordinal capability
+- canary: the returned set must re-find the GT box (IoU >= 0.5) — the only
+  frame-fatal gate (the teacher pointing at the wrong target is unfixable)
+- everything else is normalized in code, never fatal:
+  ordering -> sorted by x1 and renumbered (v1 pilot: a fatal ordering gate
+  killed 27/146 panoramic frames); near-identical boxes (IoU >= 0.95, the
+  same object listed twice, e.g. nested trolley+robot listings) -> dedup;
+  zero-area boxes -> dropped (degenerate under every convention)
+- cross-pass agreement: one-to-one IoU >= 0.5 matching between the passes
+
+Category naming may drift between passes/frames (swan/duck); normalization
+is an assembler concern, not a census gate. Object identity across frames is
+NOT established: every sample is fact-supported by its own frame only.
 
 Prompts contain no example queries and no style options by design — the
 teacher has nothing stylistic to imitate.
@@ -26,14 +36,15 @@ from PIL import Image, ImageDraw
 
 from foundry.bbox import compute_iou
 
-FINDALL_PROMPT = """The red rectangle marks one object of a category.
-Task: list EVERY object of that same category visible in the image, ordered from left to right.
-Number them 1..N (N is the total count) and give each object's bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
-Exactly one listed box must correspond to the object inside the red rectangle.
+FINDALL_PROMPT = """The red rectangle marks one object in the scene.
+Task: list every CLEARLY IDENTIFIABLE salient object in the image, regardless of category, ordered from left to right.
+Include only objects you can name with confidence and whose outline is clearly visible — skip tiny clutter, blurry ground debris, and anything you cannot identify precisely.
+You must include the object inside the red rectangle. Number them 1..N (N is the total count).
+For each object give a short common category name and its bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
 Output JSON only:
-{"category": "<category name>", "objects": [{"i": 1, "bbox": [x1, y1, x2, y2]}, ...]}"""
+{"objects": [{"i": 1, "category": "<category name>", "bbox": [x1, y1, x2, y2]}, ...]}"""
 
-ATTR_PROMPT = """The image shows numbered boxes around objects of one category.
+ATTR_PROMPT = """The image shows numbered boxes around objects in the scene.
 For each numbered object report only what is directly visible: its color and one notable visible feature.
 Do not guess occluded or unclear properties.
 Output JSON only:
@@ -74,8 +85,13 @@ def _parse_json_object(text: object, *, label: str) -> dict:
     return payload
 
 
-def _scale_bbox(raw: object, scale: tuple[float, float]) -> list[float]:
-    """Validate one raw bbox and convert it to normalized [0, 1] via (sx, sy)."""
+def _scale_bbox(raw: object, scale: tuple[float, float]) -> list[float] | None:
+    """Validate one raw bbox and convert it to normalized [0, 1] via (sx, sy).
+
+    Returns ``None`` for zero-area boxes: degeneracy (x1 == x2 or y1 == y2)
+    is preserved by uniform scaling, so such an entry is unusable under every
+    convention and is dropped instead of killing the response.
+    """
     if not isinstance(raw, (list, tuple)) or len(raw) != 4:
         raise ValueError("census bbox must be [x1, y1, x2, y2]")
     values = []
@@ -89,26 +105,28 @@ def _scale_bbox(raw: object, scale: tuple[float, float]) -> list[float]:
         raise ValueError(f"census bbox normalizes outside [0, 1]: {values!r}")
     values = [min(1.0, max(0.0, value)) for value in values]
     if values[2] - values[0] < 0.001 or values[3] - values[1] < 0.001:
-        raise ValueError("census bbox is degenerate")
+        return None
     return values
 
 
-def _check_order(cleaned: list[dict]) -> None:
-    for left, right in zip(cleaned, cleaned[1:]):
-        if right["bbox"][0] < left["bbox"][0] - 1e-6:
-            raise ValueError("Census objects are not ordered left to right")
+def _normalize_objects(cleaned: list[dict], gt_bbox: list[float]) -> list[dict]:
+    """Sort by x1, drop near-identical duplicates, verify the canary.
 
-
-def _check_self_dup(cleaned: list[dict]) -> None:
-    for i, left in enumerate(cleaned):
-        for right in cleaned[i + 1:]:
-            if compute_iou(left["bbox"], right["bbox"]) >= SELF_DUP_IOU:
-                raise ValueError("Census lists the same object twice")
-
-
-def _check_canary(cleaned: list[dict], gt_bbox: list[float]) -> None:
-    if not any(compute_iou(item["bbox"], gt_bbox) >= CANARY_IOU for item in cleaned):
+    All three steps are invariant under the uniform scaling that separates
+    the coordinate conventions, so the canary remains the sole convention
+    discriminator.
+    """
+    cleaned.sort(key=lambda item: item["bbox"][0])
+    kept: list[dict] = []
+    for item in cleaned:
+        if any(compute_iou(prev["bbox"], item["bbox"]) >= SELF_DUP_IOU for prev in kept):
+            continue
+        kept.append(item)
+    if not any(compute_iou(item["bbox"], gt_bbox) >= CANARY_IOU for item in kept):
         raise ValueError("Census canary failed: red-boxed target not re-found")
+    for index, item in enumerate(kept, start=1):
+        item["i"] = index
+    return kept
 
 
 def parse_findall_response(
@@ -119,29 +137,31 @@ def parse_findall_response(
 ) -> dict:
     """Validate one findall response through every deterministic gate.
 
-    The teacher's coordinate convention is auto-detected: if all values are
-    within [0, 1] the response is used directly; otherwise the per-mille
-    (0-1000, GLM/Qwen family convention) and shown-image-pixel candidates are
-    both normalized and the canary acts as the oracle — the first candidate
-    whose full gate set passes (order, self-duplicates, canary) wins.
+    The response is a panoramic enumeration: every entry carries its own
+    category name. The teacher's coordinate convention is auto-detected: if
+    all values are within [0, 1] the response is used directly; otherwise the
+    per-mille (0-1000, GLM/Qwen family convention) and shown-image-pixel
+    candidates are both normalized and the canary acts as the oracle — the
+    first candidate whose set survives normalization (sort, dedup, degenerate
+    drop) and passes the canary wins.
     """
     payload = _parse_json_object(text, label="Census findall")
-    if set(payload) != {"category", "objects"}:
-        raise ValueError("Census findall schema must be exactly {category, objects}")
-    category = payload["category"]
-    if not isinstance(category, str) or not category.strip() or len(category) > 64:
-        raise ValueError("Census findall category is missing or oversized")
+    if set(payload) != {"objects"}:
+        raise ValueError("Census findall schema must be exactly {objects}")
     objects = payload["objects"]
     if not isinstance(objects, list) or not 1 <= len(objects) <= MAX_OBJECTS:
         raise ValueError(f"Census findall must list 1..{MAX_OBJECTS} objects")
     raw_boxes: list[dict] = []
     for expected_i, item in enumerate(objects, start=1):
-        if not isinstance(item, dict) or set(item) != {"i", "bbox"}:
-            raise ValueError("Census object entries must be exactly {i, bbox}")
+        if not isinstance(item, dict) or set(item) != {"i", "category", "bbox"}:
+            raise ValueError("Census object entries must be exactly {i, category, bbox}")
         index = item["i"]
         if isinstance(index, bool) or not isinstance(index, int) or index != expected_i:
             raise ValueError("Census object indices must be sequential 1..N")
-        raw_boxes.append({"i": index, "bbox": item["bbox"]})
+        category = item["category"]
+        if not isinstance(category, str) or not category.strip() or len(category) > 64:
+            raise ValueError(f"Census object {index} category is missing or oversized")
+        raw_boxes.append({"i": index, "category": category.strip(), "bbox": item["bbox"]})
 
     flat = [value for item in raw_boxes for value in item["bbox"]]
     numeric = all(
@@ -158,17 +178,24 @@ def parse_findall_response(
     errors: list[str] = []
     for name, scale in candidates:
         try:
-            cleaned = [
-                {"i": item["i"], "bbox": _scale_bbox(item["bbox"], scale)}
-                for item in raw_boxes
-            ]
-            _check_order(cleaned)
-            _check_self_dup(cleaned)
-            _check_canary(cleaned, gt_bbox)
+            cleaned: list[dict] = []
+            for item in raw_boxes:
+                bbox = _scale_bbox(item["bbox"], scale)
+                if bbox is None:
+                    continue
+                cleaned.append({"i": item["i"], "category": item["category"], "bbox": bbox})
         except ValueError as exc:
             errors.append(f"[{name}] {exc}")
             continue
-        return {"category": category.strip(), "objects": cleaned, "bbox_convention": name}
+        if not cleaned:
+            errors.append(f"[{name}] census response has no non-degenerate boxes")
+            continue
+        try:
+            cleaned = _normalize_objects(cleaned, gt_bbox)
+        except ValueError as exc:
+            errors.append(f"[{name}] {exc}")
+            continue
+        return {"objects": cleaned, "bbox_convention": name}
     raise ValueError(
         "Census response failed under every coordinate convention: " + " | ".join(errors)
     )
@@ -334,7 +361,7 @@ def attr_messages(numbered_jpeg_url: str, *, previous_error: str = "") -> list[d
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": "One complete RGB scene with numbered boxes around same-category objects."},
+                {"type": "text", "text": "One complete RGB scene with numbered boxes around the enumerated objects."},
                 {"type": "image_url", "image_url": {"url": numbered_jpeg_url, "detail": "high"}},
                 {"type": "text", "text": ATTR_PROMPT + repair},
             ],

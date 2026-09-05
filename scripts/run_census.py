@@ -2,15 +2,18 @@
 
 Three passes per frame: findall x2 (independent enumeration through the
 red-anchored view) plus attr on the selected frames of each sequence.
-Everything the teacher returns is validated in code (canary, ordering,
-self-duplicates, cross-pass agreement); the run reports quality metrics and
-renders ability cards for human review. No queries are assembled here —
-this instrument measures the census, it does not produce training data.
+Everything the teacher returns is validated in code: the canary (GT target
+re-found) is the only frame-fatal gate; arrival order, near-identical
+duplicates and zero-area boxes are normalized instead. The run reports
+quality metrics and renders ability cards for human review. No queries are
+assembled here — this instrument measures the census, it does not produce
+training data.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 import threading
@@ -57,7 +60,13 @@ from foundry.images import (
     verify_dataset_images,
 )
 from foundry.io import atomic_write_json, load_json
-from foundry.keys import APIKeyPool, APIKeyPoolExhausted, load_api_keys
+from foundry.keys import (
+    APIKeyPool,
+    APIKeyPoolExhausted,
+    DEFAULT_KEY_FILE,
+    comment_out_key,
+    load_api_keys,
+)
 from foundry.sequence import source_fingerprint
 from foundry.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
 from scripts.generate_queries import (
@@ -66,7 +75,7 @@ from scripts.generate_queries import (
     _preparation_fingerprint,
 )
 
-CENSUS_PROTOCOL_VERSION = 1
+CENSUS_PROTOCOL_VERSION = 2
 FINDALL_MAX_TOKENS = 2048
 ATTR_MAX_TOKENS = 1024
 GENERATION_CONFIG = {
@@ -269,6 +278,20 @@ def _run_findall_pass(client, marked_rgb, *, gt_bbox, pass_no, frame_ref) -> dic
     return record
 
 
+def _trusted_objects(frame: dict) -> list[dict]:
+    """Forwardable object list for a completed frame.
+
+    Two-pass frames contribute the cross-pass agreed subset; single-pass
+    frames (the other pass exhausted its attempts) contribute the surviving
+    pass's full list — it already passed convention detection, canary and
+    dedup on its own.
+    """
+    if frame.get("single_pass"):
+        good = frame["findall_1"] if frame["findall_1"]["status"] == "completed" else frame["findall_2"]
+        return good["objects"]
+    return pass_agreement(frame["findall_1"]["objects"], frame["findall_2"]["objects"])["agreed_objects"]
+
+
 def _aggregate_usage(results: dict) -> dict:
     totals = {"api_calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     for sequence in results.values():
@@ -352,19 +375,31 @@ def census_shard(
                 marked = build_marked_annotation_view(_load_plain_frame(data_root, item), item["bbox"])
                 findall_1 = _run_findall_pass(client, marked, gt_bbox=item["bbox"], pass_no=1, frame_ref=sample_id)
                 findall_2 = _run_findall_pass(client, marked, gt_bbox=item["bbox"], pass_no=2, frame_ref=sample_id)
+                both_done = findall_1["status"] == "completed" and findall_2["status"] == "completed"
+                any_done = findall_1["status"] == "completed" or findall_2["status"] == "completed"
                 frame = {
                     "findall_1": findall_1,
                     "findall_2": findall_2,
-                    "status": "completed" if findall_1["status"] == "completed" and findall_2["status"] == "completed" else "failed",
+                    "status": "completed" if any_done else "failed",
                     "error": "",
                 }
-                if frame["status"] == "completed":
+                if not any_done:
+                    frame["error"] = findall_1["error"] or findall_2["error"]
+                elif both_done:
                     agreement = pass_agreement(findall_1["objects"], findall_2["objects"])
                     frame["agreement"] = {k: agreement[k] for k in ("matched", "count_a", "count_b", "count_agree", "jaccard")}
+                    frame["object_count"] = agreement["matched"]
                     frame["candidate"] = {"sample_id": sample_id, "frame_no": frame_no, "count": agreement["matched"]}
                     candidates.append(frame["candidate"])
                 else:
-                    frame["error"] = findall_1["error"] or findall_2["error"]
+                    # Single surviving pass: it passed convention detection,
+                    # canary and dedup on its own — keep it as evidence
+                    # instead of discarding the frame.
+                    good = findall_1 if findall_1["status"] == "completed" else findall_2
+                    frame["single_pass"] = good["pass_no"]
+                    frame["object_count"] = len(good["objects"])
+                    frame["candidate"] = {"sample_id": sample_id, "frame_no": frame_no, "count": len(good["objects"])}
+                    candidates.append(frame["candidate"])
                 frames[sample_id] = frame
                 frames_since_save += 1
                 if frames_since_save >= 2:
@@ -395,7 +430,7 @@ def census_shard(
             for sample_id in chosen_ids:
                 frame = frames[sample_id]
                 frame["selected"] = True
-                agreed = pass_agreement(frame["findall_1"]["objects"], frame["findall_2"]["objects"])["agreed_objects"]
+                agreed = _trusted_objects(frame)
                 indices = [obj["i"] for obj in agreed]
                 item = dataset[sample_id]
                 numbered = _numbered_view(_load_plain_frame(data_root, item), agreed)
@@ -422,7 +457,7 @@ def census_shard(
                     frame = frames[sample_id]
                     if frame["status"] != "completed":
                         continue
-                    agreed = pass_agreement(frame["findall_1"]["objects"], frame["findall_2"]["objects"])["agreed_objects"]
+                    agreed = _trusted_objects(frame)
                     card = draw_census_card(
                         _load_plain_frame(data_root, dataset[sample_id]),
                         agreed,
@@ -437,10 +472,14 @@ def census_shard(
                 "peer_count": len(peers),
                 "attr_failures": attr_failures,
             }
+            selected_counts = [
+                frames[sid].get("object_count", frames[sid].get("agreement", {}).get("matched", 0))
+                for sid in sorted(chosen_ids)
+            ]
             save_checkpoint()
             print(
                 f"[shard {shard_id} {seq_offset}/{len(todo)}] {sequence_id}: "
-                f"{results[sequence_id]['status']} selected={sorted(chosen_ids)} peers={len(peers)}",
+                f"{results[sequence_id]['status']} selected={sorted(chosen_ids)} objects={selected_counts}",
                 flush=True,
             )
     except Exception:
@@ -481,12 +520,13 @@ def finalize_census(*, plan, payloads, output_root) -> dict:
 
     frames_all = [f for seq in results.values() for f in seq.get("frames", {}).values()]
     completed = [f for f in frames_all if f.get("status") == "completed"]
-    agreements = [f["agreement"] for f in completed]
+    agreements = [f["agreement"] for f in completed if "agreement" in f]
     report = {
         "run_id": metadata["run_id"],
         "frames_total": len(frames_all),
         "frames_completed": len(completed),
         "frames_failed": len(frames_all) - len(completed),
+        "single_pass_frames": sum(1 for f in completed if f.get("single_pass")),
         "count_agree_rate": (sum(1 for a in agreements if a["count_agree"]) / len(agreements)) if agreements else 0.0,
         "mean_jaccard": (sum(a["jaccard"] for a in agreements) / len(agreements)) if agreements else 0.0,
         "count_distribution": {},
@@ -501,9 +541,15 @@ def finalize_census(*, plan, payloads, output_root) -> dict:
     attr_done = attr_ok = 0
     for sequence in results.values():
         selected_counts = [
-            sequence["frames"][sid]["agreement"]["matched"]
+            count
             for sid in sequence.get("selected", [])
             if sequence["frames"].get(sid, {}).get("status") == "completed"
+            for count in [
+                sequence["frames"][sid].get(
+                    "object_count", sequence["frames"][sid].get("agreement", {}).get("matched")
+                )
+            ]
+            if count is not None
         ]
         if selected_counts and min(selected_counts) >= 3:
             capable += 1
@@ -527,6 +573,7 @@ def run_census(
     limit_sequences: int | None = 20,
     seed: int = 42,
     concurrency: int = 8,
+    num_shards: int | None = None,
     run_tag: str = "",
     resume: bool = True,
     retry_failed: bool = True,
@@ -543,7 +590,8 @@ def run_census(
     output_root = output_root.resolve()
     plan = census_preflight(
         data_root=data_root, output_root=output_root, split=split,
-        limit_sequences=limit_sequences, seed=seed, num_shards=concurrency,
+        limit_sequences=limit_sequences, seed=seed,
+        num_shards=num_shards if num_shards is not None else concurrency,
         run_tag=run_tag, resume=resume, retry_failed=retry_failed,
         overwrite=overwrite, deep_verify_images=deep_verify_images,
     )
@@ -561,7 +609,12 @@ def run_census(
         raise RuntimeError("No API keys found. Write one key per line into keys/api_keys.txt; never store keys in the repository history.")
     key_pool = None
     if keys:
-        key_pool = APIKeyPool(keys, notify=print)
+        key_file = Path(os.environ.get("ANNOTATION_API_KEY_FILE", str(DEFAULT_KEY_FILE)))
+        key_pool = APIKeyPool(
+            keys,
+            notify=print,
+            persist_retire=lambda index, reason: comment_out_key(key_file, index, reason),
+        )
         print(f"API keys: {key_pool.size} loaded ({key_pool.describe()})", flush=True)
     limiter = SlidingWindowRateLimiter(
         requests_per_minute=requests_per_minute,
@@ -612,6 +665,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit-sequences", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--concurrency", type=int, default=8)
+    parser.add_argument("--num-shards", type=int, default=None,
+                        help="shard count; defaults to --concurrency. Part of the run fingerprint - keep stable when resuming")
     parser.add_argument("--run-tag", default="")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--retry-failed", action=argparse.BooleanOptionalAction, default=True)
