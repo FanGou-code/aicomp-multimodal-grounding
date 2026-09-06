@@ -133,7 +133,7 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
                 "category": record["category"],
             }
             if store.meta(item_id) is None:
-                store.set(item_id, [float(v) for v in record["bbox"]], annotator="v5-assembler")
+                store.set(item_id, [float(v) for v in record["bbox"]], annotator=TEACHER_ANNOTATOR)
                 stats["seeded"] += 1
             else:
                 stats["already_seeded"] += 1
