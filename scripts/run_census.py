@@ -69,11 +69,7 @@ from foundry.keys import (
 )
 from foundry.sequence import source_fingerprint
 from foundry.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
-from scripts.generate_queries import (
-    _annotation_image_fingerprint,
-    _load_annotation_source,
-    _preparation_fingerprint,
-)
+from foundry.source import image_fingerprint, load_annotation_source, preparation_fingerprint
 
 CENSUS_PROTOCOL_VERSION = 2
 FINDALL_MAX_TOKENS = 2048
@@ -117,12 +113,12 @@ def build_census_plan(
     verify_images: bool = False,
 ) -> dict:
     root = Path(data_root).resolve()
-    dataset = _load_annotation_source(root, split)
+    dataset = load_annotation_source(root, split)
     identity = {
         "protocol_version": CENSUS_PROTOCOL_VERSION,
         "run_tag": run_tag,
         "split": split,
-        "preparation_fingerprint": _preparation_fingerprint(root),
+        "preparation_fingerprint": preparation_fingerprint(root),
         "provider": ANNOTATION_PROVIDER,
         "api_base_url": ANNOTATION_API_BASE_URL,
         "model_name": ANNOTATION_MODEL_NAME,
@@ -169,7 +165,7 @@ def build_census_plan(
         ),
     }
     plan = {"metadata": metadata, "shards": selected_sequences}
-    plan["metadata"]["image_fingerprint"] = _annotation_image_fingerprint(
+    plan["metadata"]["image_fingerprint"] = image_fingerprint(
         root, dataset, sorted(sample_id for seq in selected_sequence_ids for sample_id in dataset if sample_id.startswith(f"{seq}_")),
         deep_verify=verify_images,
     )
@@ -322,7 +318,7 @@ def census_shard(
     progress,
 ) -> dict:
     metadata = plan["metadata"]
-    dataset = _load_annotation_source(data_root, metadata["split"])
+    dataset = load_annotation_source(data_root, metadata["split"])
     checkpoint_path = output_root / metadata["run_id"] / "shards" / f"shard_{shard_id:02d}.json"
     results: dict = {}
     if resume and checkpoint_path.is_file():

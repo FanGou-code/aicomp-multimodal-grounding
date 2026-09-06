@@ -31,6 +31,32 @@
 
 ## 交接日志
 
+### 2026-09-06（R0 架构瘦身执行：v4 链删除 + 协议 v3 冻结 + 定案落档）
+
+- 动因：管理员定案「仓库专业化规范化、消除过度设计」——弃用代码不冻结直接删
+  （git 可溯）；副作用类指令执行前停下由管理员定谁来跑；常规本地验证直接执行。
+- 定案落档（本轮对齐会话全部拍板项）：普查上限 6 目标 +「红框同类先列满」措辞；
+  并发 48（4/账号，官方上限 8 的一半），逐请求轮转；R0-R7 轮次序批准；消融
+  双 run 对照砍除（旧标注成绩已存在即基线，出身字段保留可随时切对照臂）；
+  深度事实加进 R1（jet 解码三档粗粒度，教师不参与，服务前景/背景消歧）；
+  审查器搬 gt-annotator 机制进本仓（census 60 张冒烟 + 组装 400 张全量两模式，
+  框只拖不删、实时写回）。
+- 改动：
+  - 删 v4 链（44 项测试随链）：`scripts/generate_queries.py`、
+    `foundry/annotation_state.py`、`foundry/query_style.py`、
+    `foundry/query.py`、`scripts/audit_query_style.py` + 6 个测试文件；
+    `foundry/sequence.py` 瘦身至 `source_fingerprint`（v4 解析三件套随链删）。
+  - 新增 `foundry/source.py`：自 v4 入口吸收 3 个数据装载/指纹函数
+    （load_annotation_source / preparation_fingerprint / image_fingerprint），
+    `run_census.py` 导入改指 foundry，v4 依赖清零。
+  - 新增 `docs/architecture.md`（模块地图 + 数据流 + 删除清单）、
+    `spec/census_protocol.md`（协议 v3 冻结：findall v3 提示词、门清单、
+    深度事实规则、并发预算）；README 用法段重写为 census/组装/check_keys
+    三入口。
+- 验证：本仓 74 项测试 OK（118 − 44 项 v4 测试）、compileall 通过。
+- 下一步：R1 = census v3 代码落地（findall v3 提示词 + 深度事实 + 每帧状态行）
+  → 20 序列冒烟预检交管理员放行。
+
 ### 2026-09-06（管理员三项定案：val 分开跑串行、2880 刻意约束、全链无推理模式；仓库入库）
 
 - 动因：管理员方向对齐轮拍板三项，并指令将工作区改动全部提交。
