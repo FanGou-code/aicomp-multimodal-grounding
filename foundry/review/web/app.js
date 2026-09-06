@@ -498,7 +498,11 @@
         dom.annotationStatusBadge.textContent = `📋 待办-需消歧 (${item.annotator.replace(':todo', '')})`;
         dom.annotationStatusBadge.className = 'badge badge-absent';
       } else if (isAiPendingItem(item)) {
-        dom.annotationStatusBadge.textContent = `🤖 待审AI预标 (${item.annotator})`;
+        const aiTags = { pass: '🤖 AI已过 · 待终审', fixed: '✏️ AI已改 · 待终审',
+                         human: '⚠️ AI转人工' };
+        let badgeText = aiTags[item.ai_verdict] || `🤖 待审AI预标 (${item.annotator})`;
+        if (item.ai_collision) badgeText += ' · ⚠同帧重复';
+        dom.annotationStatusBadge.textContent = badgeText;
         dom.annotationStatusBadge.className = 'badge badge-ai';
       } else {
         dom.annotationStatusBadge.textContent = item.annotator ? `已核验 (${item.annotator})` : '已标注';
@@ -816,11 +820,10 @@
     const y = Math.min(p1.y, p2.y);
     const w = Math.abs(p2.x - p1.x);
     const h = Math.abs(p2.y - p1.y);
-    const todo = item.annotator && item.annotator.endsWith(':todo');
-    const human = item.annotator && !isAiAnnotator(item.annotator) && !todo;
-    ctx.fillStyle = todo ? 'rgba(249, 115, 22, 0.12)' : human ? 'rgba(34, 197, 94, 0.10)' : 'rgba(148, 163, 184, 0.10)';
+    const human = item.annotator && !isAiAnnotator(item.annotator) && !item.annotator.endsWith(':todo');
+    ctx.fillStyle = human ? 'rgba(34, 197, 94, 0.10)' : 'rgba(148, 163, 184, 0.10)';
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = todo ? 'rgba(249, 115, 22, 0.9)' : human ? 'rgba(34, 197, 94, 0.9)' : 'rgba(148, 163, 184, 0.9)';
+    ctx.strokeStyle = human ? 'rgba(34, 197, 94, 0.9)' : 'rgba(148, 163, 184, 0.9)';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(x, y, w, h);
     const label = `#${item.ordinal}`;
@@ -847,11 +850,12 @@
     const h = Math.abs(p2.y - p1.y);
 
     const curItem = getCurrentItem();
-    const isAi = isAiPendingItem(curItem);
-    const boxColor = isAi ? '#c084fc' : '#06b6d4';
-    const boxFill = isAi ? 'rgba(168, 85, 247, 0.16)' : 'rgba(6, 182, 212, 0.16)';
-    const handleBorder = isAi ? '#9333ea' : '#0891b2';
-    const badgeColor = isAi ? '#d8b4fe' : '#38bdf8';
+    const verified = !!(curItem && curItem.annotator && !isAiAnnotator(curItem.annotator)
+                        && !curItem.annotator.endsWith(':todo'));
+    const boxColor = verified ? '#22c55e' : '#94a3b8';
+    const boxFill = verified ? 'rgba(34, 197, 94, 0.16)' : 'rgba(148, 163, 184, 0.16)';
+    const handleBorder = verified ? '#16a34a' : '#64748b';
+    const badgeColor = verified ? '#86efac' : '#cbd5e1';
 
     // Box semi-transparent fill
     ctx.fillStyle = boxFill;

@@ -114,9 +114,15 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
 
     items: list[dict] = []
     stats = {"seeded": 0, "frames": 0, "already_seeded": 0}
-    store = AnnotationStore(Path(review_root) / str(metadata.get("run_tag") or assembly_path.parent.name))
+    run_tag = str(metadata.get("run_tag") or assembly_path.parent.name)
+    store = AnnotationStore(Path(review_root) / run_tag)
     existing_meta = store.all_meta()
     pending_seeds: list[tuple[str, list[float], str]] = []
+    # AI pre-review overlay (downstream list; upstream manifest stays intact).
+    ai_results: dict = {}
+    ai_path = Path(PROJECT_ROOT) / "outputs" / "ai_review" / run_tag / "ai_review.json"
+    if ai_path.is_file():
+        ai_results = load_json(ai_path).get("results", {})
     for sequence_id in sorted(chosen_frames):
         for sample_id in sorted(chosen_frames[sequence_id]):
             records = sorted(chosen_frames[sequence_id][sample_id], key=lambda r: r["object_index"])
@@ -126,10 +132,22 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
             stats["frames"] += 1
             for record in records:
                 item_id = f"{sample_id}#{record['object_index']:02d}"
+                query = record["query"]
+                ai_verdict = ""
+                ai_reason = ""
+                meta = existing_meta.get(item_id)
+                if meta is not None and meta.get("annotator") != TEACHER_ANNOTATOR:
+                    pass  # human-touched: the human query/verdict always wins
+                else:
+                    ai = ai_results.get(item_id) or {}
+                    ai_verdict = str(ai.get("verdict") or "")
+                    ai_reason = str(ai.get("reason") or "")
+                    if ai_verdict == "fixed" and ai.get("query"):
+                        query = ai["query"]
                 item = {
                     "id": item_id,
                     "image": entry["visible"],
-                    "query": record["query"],
+                    "query": query,
                     "ordinal": record["object_index"],
                     "frame_id": sample_id,
                     # Only real records have a GT reference; teacher records are
@@ -139,6 +157,8 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
                     "bucket": record.get("bucket", ""),
                     "family": record.get("family", ""),
                     "corpus": split,
+                    "ai_verdict": ai_verdict,
+                    "ai_reason": ai_reason,
                 }
                 meta = existing_meta.get(item_id)
                 if meta is None or meta.get("annotator") == TEACHER_ANNOTATOR:
@@ -151,6 +171,19 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
                     stats["already_seeded"] += 1
                 items.append(item)
     store.seed_many(pending_seeds)
+    # Same-frame duplicate display queries after overlay: flag every member
+    # for the human queue (cross-item counting drift, admin 2026-09-07).
+    by_frame: dict[str, dict[str, list[str]]] = {}
+    for item in items:
+        by_frame.setdefault(item["frame_id"], {}).setdefault(
+            item["query"].lower(), []).append(item["id"])
+    collided: set[str] = set()
+    for queries in by_frame.values():
+        for ids in queries.values():
+            if len(ids) > 1:
+                collided.update(ids)
+    for item in items:
+        item["ai_collision"] = item["id"] in collided
     return {
         "name": f"assembly-review:{metadata.get('run_tag', assembly_path.parent.name)}",
         "items": items,
