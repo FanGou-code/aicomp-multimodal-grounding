@@ -138,6 +138,8 @@ class APIKeyPool:
         self._cursor = 0
         self._transport_failures: dict[int, int] = {}
         self._rate_limit_strikes: dict[int, int] = {}
+        self._suspended: set[int] = set()
+        self._revived_once: set[int] = set()
         self._lock = threading.Lock()
         self._notify = notify or (lambda message: None)
         self._persist_retire = persist_retire
@@ -163,6 +165,25 @@ class APIKeyPool:
                 if index not in self._retired:
                     self._cursor = (index + 1) % total
                     return index, self._keys[index]
+            # Pool dry. Hard retirements (auth/billing, sustained 429) stay
+            # dead, but transport-suspended keys get exactly one second wind:
+            # a provider-wide blip suspends every in-flight key at once, and
+            # that should not permanently burn the pool mid-run.
+            revivable = [i for i in sorted(self._suspended) if i not in self._revived_once]
+            if revivable:
+                for index in revivable:
+                    self._retired.discard(index)
+                    self._suspended.discard(index)
+                    self._transport_failures.pop(index, None)
+                    self._revived_once.add(index)
+                self._cursor = revivable[0]
+                self._notify(
+                    f"[key-pool] pool exhausted - {len(revivable)} suspended key(s) "
+                    "revived for a second pass"
+                )
+                index = revivable[0]
+                self._cursor = (index + 1) % total
+                return index, self._keys[index]
         raise APIKeyPoolExhausted(
             "API key pool exhausted: every key is retired. "
             "Add keys to the key file (or $ANNOTATION_API_KEYS) and rerun "
@@ -234,6 +255,7 @@ class APIKeyPool:
             if failures < TRANSPORT_FAILURES_BEFORE_SUSPEND:
                 return False
             self._retired.add(index)
+            self._suspended.add(index)
             self._notify(
                 f"[key-pool] key#{index + 1} suspended after {failures} consecutive "
                 "transport failures (re-probe with scripts/check_keys.py)"

@@ -294,3 +294,30 @@ if __name__ == "__main__":
         self.assertEqual(len(calls), 3)
         self.assertIn("content", response.content)
         self.assertEqual(pool.alive(), 1)
+
+
+    def test_suspended_keys_get_one_second_wind(self):
+        # A provider-wide blip suspends every key; the pool revives them once
+        # instead of dying mid-run. Hard retirements never revive.
+        pool = APIKeyPool(["k1", "k2"], notify=lambda m: None)
+        pool.note_transport_failure(0)
+        pool.note_transport_failure(0)
+        pool.note_transport_failure(1)
+        pool.note_transport_failure(1)
+        self.assertEqual(pool.alive(), 0)
+        self.assertEqual(pool.current(), (0, "k1"))  # revived
+        self.assertEqual(pool.current(), (1, "k2"))
+        # Second exhaustion after revival: no more wind, hard stop.
+        pool.note_transport_failure(0)
+        pool.note_transport_failure(0)
+        pool.note_transport_failure(1)
+        pool.note_transport_failure(1)
+        with self.assertRaises(APIKeyPoolExhausted):
+            pool.current()
+        # Hard retirement (auth) is never revived even before exhaustion.
+        pool2 = APIKeyPool(["a", "b"], notify=lambda m: None)
+        pool2.retire(0, "HTTP 401")
+        pool2.note_transport_failure(1)
+        pool2.note_transport_failure(1)
+        with self.assertRaises(APIKeyPoolExhausted):
+            pool2.current()

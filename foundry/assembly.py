@@ -32,6 +32,9 @@ from dataclasses import dataclass, field
 
 from foundry.bbox import compute_iou
 from foundry.census import pass_agreement
+from foundry.facts import Realization, article_for, category_head  # noqa: F401
+from foundry.facts import ObjectFacts  # noqa: F401
+from foundry.planner import TargetSupply, plan as planner_plan
 from foundry.depth import (
     DEPTH_SOURCE,
     is_background as depth_in_background,
@@ -39,7 +42,12 @@ from foundry.depth import (
     is_foreground as depth_in_foreground,
     is_nearest as depth_nearest,
 )
-from scripts.phase0_mine_test_style import RE_DIST, RE_ORD, RE_SPAT
+from foundry.buckets import (
+    FROZEN_BUCKETS,
+    FROZEN_SHARES,
+    classify_frozen,
+    parse_spec_shares,
+)
 
 ORDINAL_WORDS = [
     "first", "second", "third", "fourth", "fifth", "sixth",
@@ -65,61 +73,7 @@ MIN_TEACHER_AREA = 0.002
 MAX_TEACHER_AREA = 0.6
 MAX_ANCHORS = 3
 
-FROZEN_BUCKETS = ("ordinal", "distance", "spatial", "attribute_action")
-FROZEN_SHARES = {"ordinal": 335, "spatial": 258, "attribute_action": 256, "distance": 151}
 
-
-def classify_frozen(query: str) -> str:
-    """Frozen Phase 0 bucket rule: ordinal > distance > spatial > attribute."""
-    if RE_ORD.search(query):
-        return "ordinal"
-    if RE_DIST.search(query):
-        return "distance"
-    if RE_SPAT.search(query):
-        return "spatial"
-    return "attribute_action"
-
-
-def category_head(category: str) -> str:
-    words = category.split()
-    return words[-1] if words else category
-
-
-def article_for(word: str) -> str:
-    return "an" if word[:1].lower() in "aeiou" else "a"
-
-
-@dataclass(frozen=True)
-class ObjectFacts:
-    index: int
-    category: str
-    bbox: tuple[float, float, float, float]
-    color: str | None
-    features: str | None
-    is_canary: bool
-    count_in_head: int
-    rank_left: int | None
-    rank_right: int | None
-    is_leftmost: bool
-    is_rightmost: bool
-    is_topmost: bool
-    is_bottommost: bool
-    is_closest: bool
-    is_farthest: bool
-    side_of_image: str | None
-    anchors_left: tuple[tuple[int, str], ...]
-    anchors_right: tuple[tuple[int, str], ...]
-    median_mm: int | None = None
-    is_in_foreground: bool = False
-    is_in_background: bool = False
-
-    @property
-    def head(self) -> str:
-        return category_head(self.category)
-
-    @property
-    def area(self) -> float:
-        return max(0.0, self.bbox[2] - self.bbox[0]) * max(0.0, self.bbox[3] - self.bbox[1])
 
 
 def _clean_color(raw: object) -> str | None:
@@ -270,6 +224,15 @@ def extract_frame_facts(
             )
 
         median_mm = depth_medians.get(c["index"])
+        # Area-comparative fact: lead ratio over the same-head runner-up
+        # (admin rule 2026-09-06: derivable from bboxes, no absolute size
+        # thresholds). None when no same-head rival exists.
+        area = max(1e-9, (c["bbox"][2] - c["bbox"][0]) * (c["bbox"][3] - c["bbox"][1]))
+        rival_areas = [
+            max(1e-9, (cleaned[q]["bbox"][2] - cleaned[q]["bbox"][0]) * (cleaned[q]["bbox"][3] - cleaned[q]["bbox"][1]))
+            for q in group if q != pos
+        ]
+        area_ratio_lead = round(area / max(rival_areas), 3) if rival_areas else None
         other_medians = [
             m
             for q in range(len(cleaned))
@@ -318,17 +281,10 @@ def extract_frame_facts(
                 median_mm=median_mm,
                 is_in_foreground=depth_in_foreground(median_mm, frame_min_mm, frame_max_mm),
                 is_in_background=depth_in_background(median_mm, frame_min_mm, frame_max_mm),
+                area_ratio_lead=area_ratio_lead,
             )
         )
     return facts
-
-
-@dataclass(frozen=True)
-class Realization:
-    text: str
-    family: str
-    facts: tuple[str, ...]
-    words: int
 
 
 def _variant(text: str, family: str, facts: tuple[str, ...]) -> Realization:
@@ -410,15 +366,34 @@ def _realize_anchor(f: ObjectFacts) -> list[Realization]:
     return out
 
 
+AREA_RATIO_MIN = 1.5
+
+
 def _realize_attribute(f: ObjectFacts) -> list[Realization]:
     out: list[Realization] = []
     head = f.head
     color_ok = bool(f.color) and head not in COLOR_SUPPRESSED_HEADS
     if color_ok and f.features and " " not in f.features and not ACTION_FEATURE_RE.match(f.features):
         out.append(_variant(f"The {f.color} {f.features} {head}", "plain_attribute", ("color", "feature")))
+    if color_ok and f.features and ACTION_FEATURE_RE.match(f.features) is None:
+        out.append(_variant(f"The {color_ok and f.color or ''} {head} with {f.features}".replace("  ", " "),
+                            "plain_attribute", ("color", "feature")))
     if color_ok:
         out.append(_variant(f"The {f.color} {head}", "plain_attribute", ("color",)))
         out.append(_variant(f"{article_for(head).capitalize()} {f.color} {head}", "plain_attribute", ("color",)))
+    # Size comparative (admin rule): the object leads its same-head group in
+    # bbox area by a strict ratio. "larger" needs a rival; "largest" needs 3+.
+    if f.area_ratio_lead is not None and f.area_ratio_lead >= AREA_RATIO_MIN:
+        if f.count_in_head >= 2:
+            out.append(_variant(
+                f"The larger {f'{f.color} ' if color_ok else ''}{head}".replace("  ", " "),
+                "plain_attribute", ("area-comparative",),
+            ))
+        if f.count_in_head >= 3:
+            out.append(_variant(
+                f"The largest {f'{f.color} ' if color_ok else ''}{head}".replace("  ", " "),
+                "plain_attribute", ("area-superlative",),
+            ))
     if f.features and ACTION_FEATURE_RE.match(f.features):
         out.append(_variant(f"The {head} {f.features}", "action_feature", ("feature",)))
     elif f.features:
@@ -445,6 +420,8 @@ def realization_is_unique(
     family = realization.family
     if family == "ordinal_direction":
         return target.rank_left is not None or target.rank_right is not None
+    if family == "plain_attribute" and "area-comparative" in realization.facts or "area-superlative" in realization.facts:
+        return True  # strict area ratio holds for at most one object per head group
     if family == "superlative_camera":
         if realization.facts[0] in ("foreground", "background"):
             # Band membership is not exclusive: disambiguation requires the
@@ -555,18 +532,21 @@ def parse_spec_shares(spec: dict | None) -> dict[str, int]:
     return dict(FROZEN_SHARES)
 
 
-def _quota_plan(total: int, shares: dict[str, int]) -> dict[str, int]:
-    per_mille_total = sum(shares.values())
-    return {bucket: round(total * shares[bucket] / per_mille_total) for bucket in FROZEN_BUCKETS}
+class _SupplyItem:
+    """One allocatable target with its pre-verified realization variants."""
 
+    __slots__ = ("sample_id", "sequence_id", "source", "facts", "gt_bbox",
+                 "variants", "depth_available")
 
-def _bucket_preference(remaining: dict[str, int]) -> list[str]:
-    """Buckets with leftover quota, most-remaining first, frozen priority tiebreak."""
-    priority = {bucket: rank for rank, bucket in enumerate(FROZEN_BUCKETS)}
-    return sorted(
-        (b for b, n in remaining.items() if n > 0),
-        key=lambda b: (-remaining[b], priority[b]),
-    )
+    def __init__(self, sample_id, sequence_id, source, facts, gt_bbox, variants,
+                 depth_available):
+        self.sample_id = sample_id
+        self.sequence_id = sequence_id
+        self.source = source
+        self.facts = facts
+        self.gt_bbox = gt_bbox
+        self.variants = variants
+        self.depth_available = depth_available
 
 
 def assemble_run(
@@ -580,16 +560,16 @@ def assemble_run(
 ) -> AssemblyResult:
     """Assemble query records from a census merged.json + dataset index.
 
-    Deterministic: same inputs -> same records. Bucket quotas follow the
-    frozen spec shares; a target that cannot fill its assigned bucket falls
-    through the other buckets, and if no unique realization exists at all the
-    target is reported as shortfall — never fabricated.
+    Deterministic: same inputs -> same records. Supply (targets + their
+    fact-supported, uniqueness-verified realizations) is built first, then
+    the Phase 3 planner allocates under the frozen spec quotas. A target
+    that cannot produce a unique realization is reported as shortfall —
+    never fabricated.
     """
     result = AssemblyResult()
     sequences = merged.get("results", {})
+    supply: list[_SupplyItem] = []
 
-    # First sweep: collect every target so quotas see the full supply.
-    plan: list[tuple[str, str, ObjectFacts, list[ObjectFacts], list[float]]] = []
     for sequence_id in sorted(sequences):
         seq = sequences[sequence_id]
         if seq.get("status") != "completed":
@@ -627,60 +607,58 @@ def assemble_run(
                     {"sample_id": sample_id, "reason": "no-canary-in-agreed-objects"}
                 )
             result.sequences.append(sequence_id)
+            depth_available = (frame.get("depth") or {}).get("source") == "raw-uint16-mm"
             for source, target_facts in select_targets(facts, max_teacher=max_teacher_per_frame):
-                plan.append((sample_id, source, target_facts, facts, entry["bbox"]))
+                variants = [
+                    r for r in realizations_for(target_facts)
+                    if min_words <= r.words <= max_words
+                    and realization_is_unique(r, facts, target_facts)
+                ]
+                supply.append(_SupplyItem(
+                    sample_id=sample_id,
+                    sequence_id=sequence_id,
+                    source=source,
+                    facts=target_facts,
+                    gt_bbox=list(entry["bbox"]),
+                    variants=variants,
+                    depth_available=depth_available,
+                ))
 
-    remaining = _quota_plan(len(plan), parse_spec_shares(spec))
-    used_texts: set[str] = set()
-    for sample_id, source, target_facts, frame_facts, gt_bbox in plan:
-        variants = [
-            r for r in realizations_for(target_facts)
-            if min_words <= r.words <= max_words
-            and r.text.lower() not in used_texts
-            and realization_is_unique(r, frame_facts, target_facts)
-        ]
-        chosen: Realization | None = None
-        bucket: str | None = None
-        state = "quota"
-        ranked = sorted(variants, key=lambda v: (-v.words, v.text))
-        for candidate_bucket in _bucket_preference(remaining):
-            for r in ranked:
-                if classify_frozen(r.text) == candidate_bucket:
-                    chosen, bucket = r, candidate_bucket
-                    break
-            if chosen:
-                break
-        if chosen is None and ranked:
-            # Quotas are exhausted for every supportable bucket: keep the
-            # target rather than waste supply; the audit reports the overshoot.
-            chosen = ranked[0]
-            bucket = classify_frozen(chosen.text)
-            state = "overshoot"
-        if chosen is None:
-            result.shortfall.append(
-                {"sample_id": sample_id, "reason": "no-unique-realization", "source": source}
-            )
-            continue
-        remaining[bucket] = remaining.get(bucket, 0) - 1
-        used_texts.add(chosen.text.lower())
+    target_supplies = [
+        TargetSupply(
+            sample_id=item.sample_id,
+            sequence_id=item.sequence_id,
+            source=item.source,
+            facts=item.facts,
+            gt_bbox=item.gt_bbox,
+            realizations=item.variants,
+            depth_available=item.depth_available,
+        )
+        for item in supply
+    ]
+    plan_result = planner_plan(target_supplies, spec)
+    for allocation in plan_result.allocations:
+        chosen = allocation.realization
+        item = allocation.supply
         result.records.append(
             AssemblyRecord(
-                sample_id=sample_id,
-                sequence_id=sample_id.split("_", 1)[0],
-                source=source,
-                category=target_facts.category,
+                sample_id=item.sample_id,
+                sequence_id=item.sequence_id,
+                source=item.source,
+                category=item.facts.category,
                 # The real target trains on the organizer GT box itself; the
                 # enumerated canary box only supplies its facts.
-                bbox=list(gt_bbox) if source == "real" else list(target_facts.bbox),
-                object_index=target_facts.index,
+                bbox=list(item.gt_bbox) if item.source == "real" else list(item.facts.bbox),
+                object_index=item.facts.index,
                 query=chosen.text,
                 family=chosen.family,
-                bucket=bucket,
-                quota_state=state,
+                bucket=allocation.bucket,
+                quota_state=allocation.quota_state,
                 facts=list(chosen.facts),
                 words=chosen.words,
             )
         )
+    result.shortfall.extend(plan_result.unallocated)
     result.sequences = sorted(set(result.sequences))
     return result
 
