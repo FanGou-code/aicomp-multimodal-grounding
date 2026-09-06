@@ -117,6 +117,7 @@
     queryZhWrap: document.getElementById('query-zh-wrap'),
     queryZhText: document.getElementById('query-zh-text'),
     nextTodoBtn: document.getElementById('next-todo-btn'),
+    needsBtn: document.getElementById('needs-btn'),
     clearBtn: document.getElementById('clear-btn'),
     absentBtn: document.getElementById('absent-btn'),
     saveBtn: document.getElementById('save-btn'),
@@ -178,6 +179,7 @@
   // is treated as Todo requiring human review / final verdict.
   function isTodoItem(item) {
     if (!item) return false;
+    if (item.annotator && item.annotator.endsWith(':needs')) return false;
     const isHumanVerifiedBox = !!item.bbox && !isAiAnnotator(item.annotator);
     return !isHumanVerifiedBox;
   }
@@ -269,20 +271,23 @@
     if (state.reviewMode) {
       const total = state.items.length;
       let humanCount = 0;
+      let needsCount = 0;
       const frames = new Map();
       state.items.forEach(it => {
         const ann = it.annotator || '';
-        const isHuman = !!it.bbox && !!ann && !ann.endsWith(':absent') && !isAiAnnotator(ann);
+        const isNeeds = !!ann && ann.endsWith(':needs');
+        const isHuman = !!it.bbox && !!ann && !ann.endsWith(':absent') && !isAiAnnotator(ann) && !isNeeds;
+        if (isNeeds) needsCount++;
         if (isHuman) humanCount++;
         if (!frames.has(it.frame_id)) frames.set(it.frame_id, { total: 0, human: 0 });
         const fr = frames.get(it.frame_id);
         fr.total++;
-        if (isHuman) fr.human++;
+        if (isHuman || isNeeds) fr.human++;
       });
       let reviewedFrames = 0;
       frames.forEach(fr => { if (fr.human === fr.total) reviewedFrames++; });
-      const pct = total > 0 ? ((humanCount / total) * 100).toFixed(1) : '0.0';
-      dom.progressText.textContent = `已核验: ${humanCount} / ${total} (${pct}%)`;
+      const pct = total > 0 ? (((humanCount + needsCount) / total) * 100).toFixed(1) : '0.0';
+      dom.progressText.textContent = `已核验: ${humanCount} · 需消歧: ${needsCount} / ${total} (${pct}%)`;
       dom.imageProgressText.textContent = `整帧核验: ${reviewedFrames} / ${frames.size}`;
       dom.progressBarFill.style.width = `${pct}%`;
       return;
@@ -468,7 +473,10 @@
     }
     
     if (item.bbox) {
-      if (isAiPendingItem(item)) {
+      if (item.annotator && item.annotator.endsWith(':needs')) {
+        dom.annotationStatusBadge.textContent = `🔧 需要消歧 (${item.annotator.replace(':needs', '')})`;
+        dom.annotationStatusBadge.className = 'badge badge-absent';
+      } else if (isAiPendingItem(item)) {
         dom.annotationStatusBadge.textContent = `🤖 待审AI预标 (${item.annotator})`;
         dom.annotationStatusBadge.className = 'badge badge-ai';
       } else {
@@ -815,10 +823,11 @@
     const y = Math.min(p1.y, p2.y);
     const w = Math.abs(p2.x - p1.x);
     const h = Math.abs(p2.y - p1.y);
-    const human = item.annotator && !isAiAnnotator(item.annotator);
-    ctx.fillStyle = human ? 'rgba(34, 197, 94, 0.10)' : 'rgba(148, 163, 184, 0.10)';
+    const needs = item.annotator && item.annotator.endsWith(':needs');
+    const human = item.annotator && !isAiAnnotator(item.annotator) && !needs;
+    ctx.fillStyle = needs ? 'rgba(249, 115, 22, 0.12)' : human ? 'rgba(34, 197, 94, 0.10)' : 'rgba(148, 163, 184, 0.10)';
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = human ? 'rgba(34, 197, 94, 0.9)' : 'rgba(148, 163, 184, 0.9)';
+    ctx.strokeStyle = needs ? 'rgba(249, 115, 22, 0.9)' : human ? 'rgba(34, 197, 94, 0.9)' : 'rgba(148, 163, 184, 0.9)';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(x, y, w, h);
     const label = `#${item.ordinal}`;
@@ -1170,6 +1179,35 @@
     }
   }
 
+  async function markNeeds() {
+    // 句子本身没错,但指代在全局上有歧义:标记为"需要补消歧信息",
+    // 保留当前框,署名带 :needs 后缀,后续流程为它补充更具体的描述。
+    const item = getCurrentItem();
+    if (!item || !state.activeBbox) return;
+    const name = (dom.annotatorInput.value || state.annotator || (state.reviewMode ? 'reviewer' : '')).trim();
+    if (!name) {
+      showToast('请先在右上角填写标注者', 'error');
+      return;
+    }
+    state.annotator = name;
+    localStorage.setItem(STORAGE_KEY_ANNOTATOR, name);
+    try {
+      const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/bbox`, {
+        method: 'PUT',
+        body: JSON.stringify({ bbox: state.activeBbox, annotator: `${name}:needs` })
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+      item.annotator = `${name}:needs`;
+      updateOverallProgress();
+      goToNextTodo();
+    } catch (err) {
+      showToast('标记失败: ' + err.message, 'error');
+    }
+  }
+
   async function confirmAbsent() {
     const item = getCurrentItem();
     if (!item) return;
@@ -1354,6 +1392,13 @@
       return;
     }
 
+    if (e.key === 'p' || e.key === 'P') {
+      if (state.reviewMode && !e.repeat) {
+        markNeeds();
+      }
+      return;
+    }
+
     if (e.key === 'x' || e.key === 'X') {
       if (state.reviewMode) return;
       e.preventDefault();
@@ -1508,6 +1553,7 @@
 
     // Navigation & Action Buttons
     dom.nextTodoBtn.addEventListener('click', goToNextTodo);
+    dom.needsBtn.addEventListener('click', markNeeds);
     dom.clearBtn.addEventListener('click', clearBbox);
     dom.absentBtn.addEventListener('click', markAbsent);
     dom.saveBtn.addEventListener('click', submitCurrent);

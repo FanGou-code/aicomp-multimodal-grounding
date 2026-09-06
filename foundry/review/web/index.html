@@ -86,6 +86,11 @@
           核验
         </button>
 
+        <button id="needs-btn" class="btn btn-warning" title="句子正确但指代有歧义,标记后补消歧信息 (P)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+          需要处理
+        </button>
+
         <button id="absent-btn" class="btn btn-warning" title="确认无目标/判空 (X)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
           判空
@@ -146,6 +151,7 @@
       </div>
       <div class="footer-right">
         <span class="shortcut-tip"><kbd>Enter</kbd>/<kbd>Space</kbd> 提交</span>
+        <span class="shortcut-tip"><kbd>P</kbd> 需处理</span>
         <span class="shortcut-tip"><kbd>H</kbd>/<kbd>L</kbd> 前后</span>
         <span class="shortcut-tip"><kbd>J</kbd>/<kbd>K</kbd> 待审AI</span>
         <span class="shortcut-tip"><kbd>N</kbd> 未标</span>
