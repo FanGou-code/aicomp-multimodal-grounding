@@ -28,6 +28,7 @@ outputs/assembly/<tag>/assembly.json ──→ plan_queries.py（Phase 3 规划�
 | 模块 | 职责 | 状态 |
 | --- | --- | --- |
 | `foundry/census.py` | 普查协议：提示词、响应解析、确定性门、坐标约定识别 | 冻结于 `spec/census_protocol.md` |
+| `foundry/depth.py` | 深度事实：原始 uint16 毫米图 → 对象中值/排名/前后景分带（零图片落仓） | 冻结于 `spec/census_protocol.md` |
 | `foundry/assembly.py` | 组装器：事实提取 + 句族实现 + 唯一性门 + 临时配额器 | 配额器待 Phase 3 规划器替换 |
 | `foundry/source.py` | split 索引装载 + 三类指纹（preparation/image/source） | 稳定 |
 | `foundry/keys.py` `api_client.py` | key 池（逐请求轮转、分级退役）+ API 客户端 | 稳定 |

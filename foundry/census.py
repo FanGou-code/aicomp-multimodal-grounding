@@ -1,10 +1,11 @@
 """Census protocol: the teacher only reports facts, code validates everything.
 
-Passes (panoramic v2 design, admin-approved 2026-09-06):
-- ``findall`` x2 independent passes per frame: enumerate EVERY distinct
-  salient object in the scene regardless of category, ordered left to right,
-  each with its own category name and a normalized bbox. The red-boxed GT
-  object must be included (it is the canary anchor, nothing more).
+Passes (v3 design, frozen in ``spec/census_protocol.md``, 2026-09-06):
+- ``findall`` x2 independent passes per frame: enumerate up to 6 objects the
+  teacher is most confident about (clear outline, nameable at a glance), the
+  red-boxed category first when multiple instances exist, ordered left to
+  right, each with its own category name and a normalized bbox. The red-boxed
+  GT object must be included (it is the canary anchor, nothing more).
 - ``attr``: numbered-box attribute report for the agreed object set of
   selected frames.
 
@@ -16,7 +17,8 @@ Deterministic gates in code (the teacher never self-certifies):
   killed 27/146 panoramic frames); near-identical boxes (IoU >= 0.95, the
   same object listed twice, e.g. nested trolley+robot listings) -> dedup;
   zero-area boxes -> dropped (degenerate under every convention)
-- cross-pass agreement: one-to-one IoU >= 0.5 matching between the passes
+- cross-pass agreement: one-to-one IoU >= 0.5 matching between the passes;
+  the intersection is the trusted object set (the second pass IS the review)
 
 Category naming may drift between passes/frames (swan/duck); normalization
 is an assembler concern, not a census gate. Object identity across frames is
@@ -37,8 +39,7 @@ from PIL import Image, ImageDraw
 from foundry.bbox import compute_iou
 
 FINDALL_PROMPT = """The red rectangle marks one object in the scene.
-Task: list every CLEARLY IDENTIFIABLE salient object in the image, regardless of category, ordered from left to right.
-Include only objects you can name with confidence and whose outline is clearly visible — skip tiny clutter, blurry ground debris, and anything you cannot identify precisely.
+Task: list up to 6 objects you are MOST CONFIDENT about — clear outline, nameable at a glance — regardless of category, ordered from left to right. If multiple instances of the red-boxed category exist, include them all first, then fill the remaining slots with other confident objects. Skip tiny clutter, blurry ground debris, and anything you cannot identify precisely.
 You must include the object inside the red rectangle. Number them 1..N (N is the total count).
 For each object give a short common category name and its bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
 Output JSON only:
@@ -299,34 +300,6 @@ def reconcile_sequence(selected: list[list[dict]]) -> list[dict]:
             else:
                 hit["seen_in"] += 1
     return [peer for peer in peers if peer["seen_in"] >= 2]
-
-
-def draw_census_card(
-    image: Image.Image,
-    objects: list[dict],
-    gt_bbox: list[float] | None = None,
-) -> Image.Image:
-    """Render the ability card: census boxes numbered left to right (+ GT box)."""
-    card = image.convert("RGB").copy()
-    draw = ImageDraw.Draw(card)
-    width, height = card.size
-    if gt_bbox is not None:
-        gx1, gy1, gx2, gy2 = gt_bbox
-        draw.rectangle(
-            (gx1 * width, gy1 * height, gx2 * width, gy2 * height),
-            outline=(255, 0, 0),
-            width=3,
-        )
-    for item in objects:
-        x1, y1, x2, y2 = item["bbox"]
-        draw.rectangle(
-            (x1 * width, y1 * height, x2 * width, y2 * height),
-            outline=(0, 160, 255),
-            width=3,
-        )
-        label = str(item.get("i", ""))
-        draw.text((x1 * width + 4, max(0, y1 * height - 14)), label, fill=(0, 160, 255))
-    return card
 
 
 def findall_messages(marked_jpeg_url: str, *, previous_error: str = "") -> list[dict]:

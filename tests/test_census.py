@@ -8,12 +8,10 @@ from PIL import Image
 
 from foundry.census import (
     attr_messages,
-    draw_census_card,
     findall_messages,
     parse_attr_response,
     parse_findall_response,
     pass_agreement,
-    reconcile_sequence,
     select_frames,
 )
 
@@ -286,33 +284,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(len(chosen), 1)
 
 
-class ReconcileTests(unittest.TestCase):
-    def test_peer_seen_in_two_frames_survives(self):
-        selected = [
-            _objects(0.10, 0.42),
-            _objects(0.10, 0.42, 0.80),
-            _objects(0.80),
-        ]
-        peers = reconcile_sequence(selected)
-        boxes = [p["bbox"][0] for p in peers]
-        # 0.10 seen in 2 frames, 0.42 in 2, 0.80 in 2 -> all survive
-        self.assertEqual(len(peers), 3)
-
-    def test_single_frame_peer_dropped(self):
-        selected = [_objects(0.10), _objects(0.80), _objects(0.82)]
-        peers = reconcile_sequence(selected)
-        self.assertEqual(len(peers), 1)
-        self.assertEqual(peers[0]["bbox"][0], 0.80)
-
-
 class CardAndMessageTests(unittest.TestCase):
-    def test_draw_card_returns_rgb_same_size(self):
-        image = Image.new("RGB", (320, 200), "white")
-        card = draw_census_card(image, _objects(0.10, 0.42), gt_bbox=GT)
-        self.assertEqual(card.size, (320, 200))
-        self.assertEqual(card.mode, "RGB")
-        flattened = list(card.get_flattened_data())
-        self.assertTrue(any(pixel == (255, 0, 0) for pixel in flattened))
 
     def test_messages_carry_exactly_one_image_and_prompt(self):
         messages = findall_messages("data:image/jpeg;base64,xxx")

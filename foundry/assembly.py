@@ -32,6 +32,13 @@ from dataclasses import dataclass, field
 
 from foundry.bbox import compute_iou
 from foundry.census import pass_agreement
+from foundry.depth import (
+    DEPTH_SOURCE,
+    is_background as depth_in_background,
+    is_farthest as depth_farthest,
+    is_foreground as depth_in_foreground,
+    is_nearest as depth_nearest,
+)
 from scripts.phase0_mine_test_style import RE_DIST, RE_ORD, RE_SPAT
 
 ORDINAL_WORDS = [
@@ -102,6 +109,9 @@ class ObjectFacts:
     side_of_image: str | None
     anchors_left: tuple[tuple[int, str], ...]
     anchors_right: tuple[tuple[int, str], ...]
+    median_mm: int | None = None
+    is_in_foreground: bool = False
+    is_in_background: bool = False
 
     @property
     def head(self) -> str:
@@ -164,8 +174,23 @@ def extract_frame_facts(
     objects: list[dict],
     gt_bbox: list[float],
     attr: dict | None,
+    depth_facts: dict | None = None,
 ) -> list[ObjectFacts]:
-    """Derive per-object facts from one frame's trusted enumeration."""
+    """Derive per-object facts from one frame's trusted enumeration.
+
+    ``depth_facts`` is the census frame's stored depth record; when present,
+    closest/farthest switch from the y2 geometric proxy to exact millimeter
+    margins and the foreground/background band facts become available.
+    """
+    depth_medians: dict[int, int | None] = {}
+    frame_min_mm = frame_max_mm = None
+    if depth_facts and depth_facts.get("source") == DEPTH_SOURCE:
+        frame_min_mm = depth_facts.get("frame_min_mm")
+        frame_max_mm = depth_facts.get("frame_max_mm")
+        depth_medians = {
+            int(index): entry.get("median_mm")
+            for index, entry in (depth_facts.get("objects") or {}).items()
+        }
     cleaned: list[dict] = []
     for obj in objects:
         bbox = obj["bbox"]
@@ -244,6 +269,22 @@ def extract_frame_facts(
                 (cleaned[q]["index"], cleaned[q]["category"]) for _, q in candidates[:MAX_ANCHORS]
             )
 
+        median_mm = depth_medians.get(c["index"])
+        other_medians = [
+            m
+            for q in range(len(cleaned))
+            if q != pos and (m := depth_medians.get(cleaned[q]["index"])) is not None
+        ]
+        if median_mm is not None:
+            is_closest = depth_nearest(median_mm, other_medians)
+            is_farthest = depth_farthest(median_mm, other_medians)
+        else:
+            is_closest = _exclusive(
+                bottoms[pos], bottoms[:pos] + bottoms[pos + 1:], DIST_MARGIN, higher=True
+            )
+            is_farthest = _exclusive(
+                bottoms[pos], bottoms[:pos] + bottoms[pos + 1:], DIST_MARGIN, higher=False
+            )
         facts.append(
             ObjectFacts(
                 index=c["index"],
@@ -267,17 +308,16 @@ def extract_frame_facts(
                 is_bottommost=_exclusive(
                     centers_y[pos], centers_y[:pos] + centers_y[pos + 1:], EXTREME_MARGIN, higher=True
                 ),
-                is_closest=_exclusive(
-                    bottoms[pos], bottoms[:pos] + bottoms[pos + 1:], DIST_MARGIN, higher=True
-                ),
-                is_farthest=_exclusive(
-                    bottoms[pos], bottoms[:pos] + bottoms[pos + 1:], DIST_MARGIN, higher=False
-                ),
+                is_closest=is_closest,
+                is_farthest=is_farthest,
                 side_of_image=(
                     "left" if centers_x[pos] < lo_x else "right" if centers_x[pos] > hi_x else None
                 ),
                 anchors_left=anchors("left"),
                 anchors_right=anchors("right"),
+                median_mm=median_mm,
+                is_in_foreground=depth_in_foreground(median_mm, frame_min_mm, frame_max_mm),
+                is_in_background=depth_in_background(median_mm, frame_min_mm, frame_max_mm),
             )
         )
     return facts
@@ -342,6 +382,10 @@ def _realize_superlative(f: ObjectFacts) -> list[Realization]:
         out.append(_variant(f"The topmost {color_slot}{f.head}", "superlative_camera", ("y-min",)))
     if f.is_bottommost:
         out.append(_variant(f"The bottommost {color_slot}{f.head}", "superlative_camera", ("y-max",)))
+    if f.is_in_foreground:
+        out.append(_variant(f"The {color_slot}{f.head} in the foreground".replace("  ", " "), "superlative_camera", ("foreground",)))
+    if f.is_in_background:
+        out.append(_variant(f"The {color_slot}{f.head} in the background".replace("  ", " "), "superlative_camera", ("background",)))
     return out
 
 
@@ -402,6 +446,12 @@ def realization_is_unique(
     if family == "ordinal_direction":
         return target.rank_left is not None or target.rank_right is not None
     if family == "superlative_camera":
+        if realization.facts[0] in ("foreground", "background"):
+            # Band membership is not exclusive: disambiguation requires the
+            # target to be the only same-head object in that band.
+            if realization.facts[0] == "foreground":
+                return sum(1 for o in frame if o.head == target.head and o.is_in_foreground) == 1
+            return sum(1 for o in frame if o.head == target.head and o.is_in_background) == 1
         return True  # each exclusive flag holds for at most one object per frame
     if family == "side_of_anchor":
         text = realization.text.lower()
@@ -571,7 +621,7 @@ def assemble_run(
             if not objects:
                 result.shortfall.append({"sample_id": sample_id, "reason": "no-agreed-objects"})
                 continue
-            facts = extract_frame_facts(objects, entry["bbox"], frame.get("attr"))
+            facts = extract_frame_facts(objects, entry["bbox"], frame.get("attr"), frame.get("depth"))
             if not any(f.is_canary for f in facts):
                 result.shortfall.append(
                     {"sample_id": sample_id, "reason": "no-canary-in-agreed-objects"}

@@ -31,6 +31,37 @@
 
 ## 交接日志
 
+### 2026-09-06（R1 执行：census v3 + 原始毫米深度事实，冒烟预检就绪待管理员放行）
+
+- 动因：按冻结的 `spec/census_protocol.md` v3 落代码。管理员两次方向纠正
+  已吸收：① 深度事实读**原始 uint16 毫米图**（`Train/<seq>/depth/`，由
+  visible 路径 color→depth 段推导），不解码 depth_jet 伪彩图（逐帧归一化
+  跨帧不可比 + 无效像素涂黑与 jet 蓝端混淆两坑）——毫米值精确，无降级阶梯；
+  ② 全程零图片落仓，census 的 preview 卡片渲染路径整体删除（审查器 R2 落地，
+  直读 merged.json + 源图渲染）。
+- 改动：
+  - `foundry/depth.py` 新增：对象 bbox 内有效像素（>0）深度中值 → 帧内排名
+    （1=近）+ 前景/背景三分带；`frame["depth"]` 以 JSON 数字进 merged.json。
+  - `foundry/census.py`：findall 提示词 v3（上限 6 个最有把握目标 + 红框同类
+    先列满）；`draw_census_card` 删除。
+  - `scripts/run_census.py`：协议版本 2→3（run-id 指纹随之更新）；每帧集成
+    深度事实（文件缺失帧记 `depth=unavailable`，组装器退回 y2 代理）；每帧
+    状态行增 conv/depth/latency 字段；`--concurrency` 默认 48、
+    `MAX_API_CONCURRENCY` 16→96（12 账号 × 官方 8 并发上限）；peers/preview
+    残余清理。
+  - `foundry/assembly.py`：消费深度记录——closest/farthest 改毫米余量
+    （≥200mm）判定替代 y2 代理；前景/背景分带实现 + 句族
+    （"The swan in the foreground"）；前景/背景主张的唯一性门 = 同头名词
+    目标在带内唯一（分带非独占，不能按构造唯一）。
+  - 真实数据 sanity：070_00000001 GT 框深度 12,671mm（帧跨度 4,167-19,999mm，
+    物理合理）；val 索引路径推导同样成立（Train/004/...）。
+- 验证：本仓 82 项测试 OK（+11 项深度测试）；compileall 通过；v3 冒烟预检
+  通过：run `census_3038171f8c20c6bd`（20 序列/16 分片，零调用）。
+- 注意：v2 时代的第四批/val 预检 run（`census_8d8e87efac3f5bb3`、
+  `census_63bca023afdc208e`）指纹已过时作废，v3 全量命令以新预检为准。
+- 执行点（管理员定）：冒烟真跑命令 =
+  `python scripts/run_census.py --split train --limit-sequences 20 --concurrency 48 --num-shards 16 --run-tag census-v3-smoke`
+
 ### 2026-09-06（R0 架构瘦身执行：v4 链删除 + 协议 v3 冻结 + 定案落档）
 
 - 动因：管理员定案「仓库专业化规范化、消除过度设计」——弃用代码不冻结直接删

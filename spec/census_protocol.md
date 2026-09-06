@@ -51,14 +51,22 @@ Output JSON only: `{"<i>": {"color": "...", "features": "..."}}`
 
 ## 深度事实生成规则（R1 实现，服务距离/前景桶）
 
-- 输入：`data/Processed/<split>/<seq>/depth_jet/*.png`（本地解码，零 API）。
-- 前置验证：jet 色表解码后单调性 sanity check（近景目标深值 < 远景目标）；
-  验不过 → 降级为底边 y2 几何代理并在 run report 标注降级。
-- 事实三档（带余量，不贴边）：
-  - `in the foreground` / `in the background`：帧内深度排序近端/远端带；
-  - `closest to the camera` / `farthest from the camera`：深度极值（唯一性天然成立）；
+- 输入：**原始 uint16 毫米深度图** `data/Train/<seq>/depth/<frame>.png`
+  （由索引 visible 路径的 `color` 段换为 `depth` 段推导，train/val 同构）。
+  不解码 depth_jet 伪彩图——伪彩存在逐帧归一化跨帧不可比、无效像素涂黑与
+  jet 蓝端混淆两个坑；原始毫米值无此问题，无解码风险即无降级阶梯。
+- 计算：本地进程内完成（PIL 读 uint16 + numpy 中值），对象 bbox 内有效像素
+  （>0）中值 = 该对象深度；毫米语义精确：值小 = 近。
+- 事实三档（存储进 census merged.json 的 `frame["depth"]`，**零图片落仓**）：
+  - `closest to the camera` / `farthest from the camera`：帧内毫米余量
+    ≥200mm 的极值（唯一性天然成立）；
+  - `in the foreground` / `in the background`：帧有效深度跨度的近端/远端
+    三分带（非独占，唯一性门要求同头名词目标在带内唯一）；
   - 不做细粒度比较（"比 X 更近"），中景不做（test 仅 4 条）。
-- 用途定位：消歧工具优先（多同类别目标前后景混排时锁定目标），配额其次。
+- 深度记录缺失的帧（文件不存在等）：组装器退回底边 y2 几何代理，run 内
+  通过每帧状态行 `depth=-` 可见。
+- 用途定位：消歧工具优先（多同类别目标前后景混排时锁定目标），配额其次；
+  训练输入层不变，RGB+T+D 照旧喂图。
 
 ## 并发与预算（管理员定案）
 

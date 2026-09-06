@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
 import shutil
 import sys
 import threading
@@ -33,14 +34,13 @@ from foundry.census import (
     ATTR_PROMPT_HASH,
     FINDALL_PROMPT_HASH,
     attr_messages,
-    draw_census_card,
     findall_messages,
     pass_agreement,
     parse_attr_response,
     parse_findall_response,
-    reconcile_sequence,
     select_frames,
 )
+from foundry.depth import frame_depth_facts, load_depth_millimeters, raw_depth_path
 from foundry.config import (
     ANNOTATION_API_BASE_URL,
     ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST,
@@ -71,7 +71,7 @@ from foundry.sequence import source_fingerprint
 from foundry.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
 from foundry.source import image_fingerprint, load_annotation_source, preparation_fingerprint
 
-CENSUS_PROTOCOL_VERSION = 2
+CENSUS_PROTOCOL_VERSION = 3
 FINDALL_MAX_TOKENS = 2048
 ATTR_MAX_TOKENS = 1024
 GENERATION_CONFIG = {
@@ -83,8 +83,7 @@ GENERATION_CONFIG = {
     "response_format": None,
     "image_detail": "high",
 }
-MAX_API_CONCURRENCY = 16
-CARD_SEQUENCE_LIMIT = 20
+MAX_API_CONCURRENCY = 96  # 12 accounts x provider cap 8
 SELECTED_FRAMES_PER_SEQUENCE = 3
 ATTEMPTS_PER_PASS = 3
 
@@ -350,11 +349,6 @@ def census_shard(
             {"metadata": {"run_id": metadata["run_id"], "shard_id": shard_id, "sequence_ids": list(sequence_ids)}, "results": results},
         )
 
-    cards_enabled = (
-        metadata["limit_sequences"] is not None
-        and metadata["limit_sequences"] <= CARD_SEQUENCE_LIMIT
-    )
-    preview_dir = output_root / metadata["run_id"] / "preview"
     frames_since_save = 0
     try:
         for seq_offset, sequence_id in enumerate(todo, start=1):
@@ -369,8 +363,10 @@ def census_shard(
                     candidates.append(previous["candidate"])
                     continue
                 marked = build_marked_annotation_view(_load_plain_frame(data_root, item), item["bbox"])
+                frame_started = time.monotonic()
                 findall_1 = _run_findall_pass(client, marked, gt_bbox=item["bbox"], pass_no=1, frame_ref=sample_id)
                 findall_2 = _run_findall_pass(client, marked, gt_bbox=item["bbox"], pass_no=2, frame_ref=sample_id)
+                frame_latency = time.monotonic() - frame_started
                 both_done = findall_1["status"] == "completed" and findall_2["status"] == "completed"
                 any_done = findall_1["status"] == "completed" or findall_2["status"] == "completed"
                 frame = {
@@ -396,6 +392,13 @@ def census_shard(
                     frame["object_count"] = len(good["objects"])
                     frame["candidate"] = {"sample_id": sample_id, "frame_no": frame_no, "count": len(good["objects"])}
                     candidates.append(frame["candidate"])
+                if frame["status"] == "completed":
+                    depth_path = raw_depth_path(data_root, item["visible"])
+                    if depth_path.is_file():
+                        depth_mm = load_depth_millimeters(depth_path)
+                        frame["depth"] = frame_depth_facts(depth_mm, _trusted_objects(frame))
+                    else:
+                        frame["depth"] = {"source": "unavailable"}
                 frames[sample_id] = frame
                 frames_since_save += 1
                 if frames_since_save >= 2:
@@ -409,10 +412,16 @@ def census_shard(
                     )
                 else:
                     processed, passed, failed = progress.update(sample_id, frame["status"])
-                detail = (
-                    f"findall {findall_1.get('attempts', '-')}+{findall_2.get('attempts', '-')} "
-                    f"objects {frame.get('agreement', {}).get('count_a', '-')}|{frame.get('agreement', {}).get('count_b', '-')}"
-                ) if frame["status"] == "completed" else f"error={frame['error'][:80]}"
+                if frame["status"] == "completed":
+                    convention = (findall_1 if "bbox_convention" in findall_1 else findall_2).get("bbox_convention", "-")
+                    detail = (
+                        f"attempts={findall_1.get('attempts', '-')}+{findall_2.get('attempts', '-')} "
+                        f"conv={convention} objects={frame.get('object_count', '-')} "
+                        f"depth={'ok' if frame.get('depth', {}).get('source') == 'raw-uint16-mm' else '-'} "
+                        f"lat={frame_latency:.1f}s"
+                    )
+                else:
+                    detail = f"error={frame['error'][:80]}"
                 print(
                     f"[shard {shard_id} seq {seq_offset}/{len(todo)} frame {frame_offset}/{len(sample_ids)}] "
                     f"{sample_id}: {frame['status']} | total={processed}/{progress.total if progress else len(plan['metadata']['selected_sequence_ids']) * 10} "
@@ -442,30 +451,11 @@ def census_shard(
                 if attr["status"] != "completed":
                     attr_failures += 1
                 selected_records.append(frame)
-            peers = reconcile_sequence([
-                pass_agreement(f["findall_1"]["objects"], f["findall_2"]["objects"])["agreed_objects"]
-                for f in selected_records
-                if f["findall_1"]["status"] == "completed" and f["findall_2"]["status"] == "completed"
-            ])
-            if cards_enabled:
-                preview_dir.mkdir(parents=True, exist_ok=True)
-                for sample_id in chosen_ids:
-                    frame = frames[sample_id]
-                    if frame["status"] != "completed":
-                        continue
-                    agreed = _trusted_objects(frame)
-                    card = draw_census_card(
-                        _load_plain_frame(data_root, dataset[sample_id]),
-                        agreed,
-                        gt_bbox=dataset[sample_id]["bbox"],
-                    )
-                    card.save(preview_dir / f"{sample_id}.jpg", quality=92, optimize=True)
             sequence_failed = any(f["status"] != "completed" for f in frames.values()) or not frames
             results[sequence_id] = {
                 "status": "failed" if sequence_failed else "completed",
                 "frames": frames,
                 "selected": sorted(chosen_ids),
-                "peer_count": len(peers),
                 "attr_failures": attr_failures,
             }
             selected_counts = [
@@ -660,7 +650,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-root", type=Path, default=Path("outputs/census"))
     parser.add_argument("--limit-sequences", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--concurrency", type=int, default=8)
+    parser.add_argument("--concurrency", type=int, default=48)
     parser.add_argument("--num-shards", type=int, default=None,
                         help="shard count; defaults to --concurrency. Part of the run fingerprint - keep stable when resuming")
     parser.add_argument("--run-tag", default="")
