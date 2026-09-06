@@ -20,8 +20,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from foundry.bbox import compute_iou  # noqa: E402
+from foundry.census import trusted_objects  # noqa: E402
 from foundry.io import load_json  # noqa: E402
-from foundry.review.census_session import TEACHER_ANNOTATOR, _trusted_objects  # noqa: E402
+from foundry.review.census_session import TEACHER_ANNOTATOR  # noqa: E402
 from foundry.review.store import AnnotationStore  # noqa: E402
 
 
@@ -48,7 +49,7 @@ def build_report(census_run_dir: Path, review_root: Path) -> dict:
             frame = sequence["frames"].get(sample_id)
             if not frame or frame.get("status") != "completed":
                 continue
-            objects = sorted(_trusted_objects(frame), key=lambda o: o["bbox"][0])
+            objects = sorted(trusted_objects(frame), key=lambda o: o["bbox"][0])
             for obj in objects:
                 item_id = f"{sample_id}#{obj['i']:02d}"
                 teacher_box = [float(v) for v in obj["bbox"]]

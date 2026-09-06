@@ -20,8 +20,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from foundry.assembly import assemble_run, audit_assembly, classify_frozen  # noqa: E402
+from foundry.assembly import assemble_run, audit_assembly  # noqa: E402
+from foundry.buckets import classify_frozen  # noqa: E402
 from foundry.io import atomic_write_json, load_json  # noqa: E402
+from foundry.text_qc import apply_text_qc  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--show", type=int, default=15, help="sample records to print")
     parser.add_argument("--all-frames", action="store_true",
                         help="keep every frame with records (review all, not 1/sequence)")
+    parser.add_argument("--force", action="store_true",
+                        help="allow writing into an existing output dir (default: refuse)")
     return parser
 
 
@@ -78,12 +82,15 @@ def main() -> None:
         min_words=args.min_words,
         max_words=args.max_words,
     )
+    text_edits = apply_text_qc(result.records)
     audit = audit_assembly(result.records)
 
     metadata = merged.get("metadata", {})
     run_id = metadata.get("run_id", args.census_run.name)
     tag = args.run_tag or f"asm-{run_id}"
     out_dir = args.output_root / tag
+    if out_dir.exists() and not args.force:
+        raise SystemExit(f"output dir already exists: {out_dir} (pass --force to overwrite)")
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
         "metadata": {
@@ -98,12 +105,15 @@ def main() -> None:
             "all_frames": bool(args.all_frames),
             "max_teacher_per_frame": args.max_teacher_per_frame,
             "word_window": [args.min_words, args.max_words],
+            "text_qc_edits": len(text_edits),
         },
         "records": [record.__dict__ for record in result.records],
         "shortfall": result.shortfall,
     }
     atomic_write_json(out_dir / "assembly.json", manifest)
     atomic_write_json(out_dir / "audit.json", audit)
+    if text_edits:
+        atomic_write_json(out_dir / "text_edits.json", text_edits)
 
     print(f"assembled {audit['count']} records "
           f"(real {audit['sources']['real']} / teacher {audit['sources']['teacher']}) "

@@ -16,7 +16,9 @@ from pathlib import Path
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 
+from foundry.review.census_session import build_assembly_session
 from foundry.review.server import create_server
+from foundry.review.store import AnnotationStore
 
 
 def make_census_run(tmp: Path) -> tuple[Path, Path]:
@@ -184,3 +186,111 @@ class ReviewReportTest(unittest.TestCase):
             self.assertEqual(adjusted[0]["iou_to_teacher"], 0.0)
             untouched = [r for r in seq["items"] if not r["human_adjusted"]]
             self.assertNotIn("iou_to_teacher", untouched[0])
+
+
+class StoreReplayTest(unittest.TestCase):
+    """Journal replay must survive every record shape the server writes."""
+
+    def test_query_edit_preserves_box_across_replay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AnnotationStore(Path(tmp) / "store")
+            store.set("070_00000001#01", [0.1, 0.4, 0.2, 0.6], annotator="fang0")
+            store.set_query("070_00000001#01", "the gray swan closest to the camera",
+                            annotator="fang0")
+            # Live in-memory state: the box must survive the query edit...
+            self.assertEqual(store.get("070_00000001#01"), [0.1, 0.4, 0.2, 0.6])
+            self.assertEqual(store.meta("070_00000001#01")["annotator"], "fang0")
+            # ...and a fresh replay of the same journal must too.
+            replay = AnnotationStore(Path(tmp) / "store")
+            self.assertEqual(replay.get("070_00000001#01"), [0.1, 0.4, 0.2, 0.6])
+            self.assertEqual(replay.meta("070_00000001#01")["annotator"], "fang0")
+            self.assertEqual(replay.get_query("070_00000001#01"),
+                             "the gray swan closest to the camera")
+
+    def test_box_overwrite_and_delete_replay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AnnotationStore(Path(tmp) / "store")
+            store.set("f#01", [0.1, 0.4, 0.2, 0.6], annotator="glm-4.6v")
+            store.set("f#01", [0.2, 0.4, 0.3, 0.6], annotator="fang0")
+            replay = AnnotationStore(Path(tmp) / "store")
+            self.assertEqual(replay.get("f#01"), [0.2, 0.4, 0.3, 0.6])
+            self.assertEqual(replay.meta("f#01")["annotator"], "fang0")
+            store.delete("f#01", annotator="fang0")
+            replay2 = AnnotationStore(Path(tmp) / "store")
+            self.assertIsNone(replay2.get("f#01"))
+            self.assertIsNone(replay2.meta("f#01"))
+
+
+def make_assembly_manifest(tmp: Path) -> tuple[Path, Path]:
+    """Minimal assembly manifest + dataset index with one frame, two records."""
+    index_dir = tmp / "data" / "indexes"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    (index_dir / "train.json").write_text(
+        json.dumps({"070_00000001": {"visible": "Train/070/color/00000001.png",
+                                     "bbox": [0.10, 0.40, 0.20, 0.60]}}),
+        encoding="utf-8",
+    )
+    records = [
+        {"sequence_id": "070", "sample_id": "070_00000001", "object_index": 1,
+         "query": "the white swan on the left side of the image", "bbox": [0.10, 0.40, 0.20, 0.60],
+         "source": "real", "category": "swan", "bucket": "spatial"},
+        {"sequence_id": "070", "sample_id": "070_00000001", "object_index": 2,
+         "query": "a duck closest to the camera", "bbox": [0.50, 0.40, 0.60, 0.60],
+         "source": "teacher", "category": "duck", "bucket": "distance"},
+    ]
+    assembly_path = tmp / "assembly.json"
+    assembly_path.write_text(
+        json.dumps({"metadata": {"run_tag": "asm-test", "split": "train"}, "records": records}),
+        encoding="utf-8",
+    )
+    return assembly_path, tmp / "review"
+
+
+class SeedBatchingTest(unittest.TestCase):
+    """Startup bulk seeding must not replay the journal per record."""
+
+    def test_seed_many_journal_snapshot_and_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AnnotationStore(Path(tmp) / "store")
+            n = store.seed_many([
+                ("070_00000001#01", [0.1, 0.4, 0.2, 0.6], "glm-4.6v"),
+                ("070_00000001#02", [0.5, 0.4, 0.6, 0.6], "glm-4.6v"),
+            ])
+            self.assertEqual(n, 2)
+            self.assertEqual(store.get("070_00000001#01"), [0.1, 0.4, 0.2, 0.6])
+            self.assertEqual(store.meta("070_00000001#02")["annotator"], "glm-4.6v")
+            journal = (Path(tmp) / "store" / "annotations.jsonl").read_text().splitlines()
+            self.assertEqual(len(journal), 2)
+            snapshot = json.loads(
+                (Path(tmp) / "store" / "annotations.predictions.json").read_text()
+            )
+            self.assertEqual(snapshot, {
+                "070_00000001#01": [0.1, 0.4, 0.2, 0.6],
+                "070_00000001#02": [0.5, 0.4, 0.6, 0.6],
+            })
+            # Empty batch: no append, no error.
+            self.assertEqual(store.seed_many([]), 0)
+            self.assertEqual(len((Path(tmp) / "store" / "annotations.jsonl").read_text().splitlines()), 2)
+
+    def test_assembly_seed_respects_human_and_resyncs_stale_teacher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            assembly_path, review_root = make_assembly_manifest(tmp)
+            # Pre-existing store: #01 human-adjusted, #02 a stale teacher seed.
+            pre = AnnotationStore(review_root / "asm-test")
+            pre.set("070_00000001#01", [0.12, 0.42, 0.22, 0.62], annotator="fang0")
+            pre.set("070_00000001#02", [0.9, 0.9, 0.95, 0.95], annotator="glm-4.6v")
+
+            session = build_assembly_session(assembly_path, tmp / "data", review_root)
+            stats = session["stats"]
+            self.assertEqual(stats["seeded"], 1)          # stale teacher re-synced
+            self.assertEqual(stats["already_seeded"], 1)  # human box untouched
+            store = session["store"]
+            self.assertEqual(store.get("070_00000001#01"), [0.12, 0.42, 0.22, 0.62])
+            self.assertEqual(store.meta("070_00000001#01")["annotator"], "fang0")
+            self.assertEqual(store.get("070_00000001#02"), [0.5, 0.4, 0.6, 0.6])
+            journal = (review_root / "asm-test" / "annotations.jsonl").read_text().splitlines()
+            self.assertEqual(len(journal), 3)  # 2 pre-existing + 1 re-sync record
+            items = {i["id"]: i for i in session["items"]}
+            self.assertEqual(items["070_00000001#01"]["gt_bbox"], [0.10, 0.40, 0.20, 0.60])
+            self.assertIsNone(items["070_00000001#02"]["gt_bbox"])

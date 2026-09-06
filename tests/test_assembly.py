@@ -3,16 +3,14 @@
 import unittest
 
 from foundry.assembly import (
-    ObjectFacts,
     assemble_run,
     audit_assembly,
-    classify_frozen,
-    extract_frame_facts,
-    parse_spec_shares,
     realization_is_unique,
     realizations_for,
     select_targets,
 )
+from foundry.buckets import classify_frozen, parse_spec_shares
+from foundry.facts import ObjectFacts, extract_frame_facts
 
 SPEC = {
     "style_buckets_draft": {

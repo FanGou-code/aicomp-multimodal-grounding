@@ -280,26 +280,18 @@ def select_frames(candidates: list[dict], k: int = 3) -> list[dict]:
     return chosen
 
 
-def reconcile_sequence(selected: list[list[dict]]) -> list[dict]:
-    """Keep peers that appear (IoU >= 0.5) in at least 2 of the chosen frames.
+def trusted_objects(frame: dict) -> list[dict]:
+    """Trusted object set of one completed frame: the surviving pass's set
+    when only one findall completed, else the two-pass intersection.
 
-    ``selected`` holds the agreed object list of each chosen frame, ordered
-    left to right. The GT-canary object of each frame participates like any
-    other object.
+    The one definition of "which boxes of this frame may carry facts",
+    consumed by the assembler, the reranker, the review session builder,
+    and the adjustment report.
     """
-    peers: list[dict] = []
-    for objects in selected:
-        for item in objects:
-            box = item["bbox"]
-            hit = next(
-                (peer for peer in peers if compute_iou(peer["bbox"], box) >= MATCH_IOU),
-                None,
-            )
-            if hit is None:
-                peers.append({"bbox": box, "seen_in": 1})
-            else:
-                hit["seen_in"] += 1
-    return [peer for peer in peers if peer["seen_in"] >= 2]
+    if frame.get("single_pass"):
+        good = frame["findall_1"] if frame["findall_1"]["status"] == "completed" else frame["findall_2"]
+        return good["objects"]
+    return pass_agreement(frame["findall_1"]["objects"], frame["findall_2"]["objects"])["agreed_objects"]
 
 
 def findall_messages(marked_jpeg_url: str, *, previous_error: str = "", prompt: str | None = None) -> list[dict]:

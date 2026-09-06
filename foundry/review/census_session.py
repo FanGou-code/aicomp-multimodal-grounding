@@ -17,20 +17,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from foundry.assembly import extract_frame_facts  # noqa: E402
-from foundry.facts import category_head  # noqa: E402
-from foundry.census import pass_agreement  # noqa: E402
+from foundry.facts import category_head, extract_frame_facts  # noqa: E402
+from foundry.census import trusted_objects  # noqa: E402
 from foundry.io import load_json  # noqa: E402
 from foundry.review.store import AnnotationStore  # noqa: E402
 
 TEACHER_ANNOTATOR = "glm-4.6v"
-
-
-def _trusted_objects(frame: dict) -> list[dict]:
-    if frame.get("single_pass"):
-        good = frame["findall_1"] if frame["findall_1"]["status"] == "completed" else frame["findall_2"]
-        return good["objects"]
-    return pass_agreement(frame["findall_1"]["objects"], frame["findall_2"]["objects"])["agreed_objects"]
 
 
 def build_census_session(census_run_dir: Path, data_root: Path, review_root: Path) -> dict:
@@ -43,6 +35,8 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
     index = load_json(data_root / "indexes" / f"{split}.json")
     results = merged.get("results", {})
     store = AnnotationStore(Path(review_root) / str(metadata.get("run_id") or census_run_dir.name))
+    existing_meta = store.all_meta()
+    pending_seeds: list[tuple[str, list[float], str]] = []
 
     items: list[dict] = []
     stats = {"seeded": 0, "frames": 0, "already_seeded": 0}
@@ -60,7 +54,7 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
             # Presentation order: left to right within the frame. The
             # cross-pass intersection's greedy order is not positionally
             # stable under IoU ties, so sort explicitly here.
-            objects = sorted(_trusted_objects(frame), key=lambda o: o["bbox"][0])
+            objects = sorted(trusted_objects(frame), key=lambda o: o["bbox"][0])
             stats["frames"] += 1
             for obj in objects:
                 item_id = f"{sample_id}#{obj['i']:02d}"
@@ -73,12 +67,13 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
                     "gt_bbox": entry["bbox"],
                     "category": obj["category"],
                 }
-                if store.meta(item_id) is None:
-                    store.set(item_id, [float(v) for v in obj["bbox"]], annotator=TEACHER_ANNOTATOR)
+                if item_id not in existing_meta:
+                    pending_seeds.append((item_id, [float(v) for v in obj["bbox"]], TEACHER_ANNOTATOR))
                     stats["seeded"] += 1
                 else:
                     stats["already_seeded"] += 1
                 items.append(item)
+    store.seed_many(pending_seeds)
     return {
         "name": f"census-review:{metadata.get('run_id', census_run_dir.name)}",
         "items": items,
@@ -185,6 +180,8 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
     items: list[dict] = []
     stats = {"seeded": 0, "frames": 0, "already_seeded": 0}
     store = AnnotationStore(Path(review_root) / str(metadata.get("run_tag") or assembly_path.parent.name))
+    existing_meta = store.all_meta()
+    pending_seeds: list[tuple[str, list[float], str]] = []
     for sequence_id in sorted(chosen_frames):
         for sample_id in sorted(chosen_frames[sequence_id]):
             records = sorted(chosen_frames[sequence_id][sample_id], key=lambda r: r["object_index"])
@@ -227,17 +224,17 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
                     "claims": _claim_summary(record, facts_by_index[record["object_index"]])
                     if record["object_index"] in facts_by_index else f"对象:{record['category']}",
                 }
-                meta = store.meta(item_id)
-                if meta is None:
-                    store.set(item_id, [float(v) for v in record["bbox"]], annotator=TEACHER_ANNOTATOR)
-                    stats["seeded"] += 1
-                elif meta.get("annotator") == TEACHER_ANNOTATOR:
-                    # 上一轮种子未被动过: 同步到最新组装框
-                    store.set(item_id, [float(v) for v in record["bbox"]], annotator=TEACHER_ANNOTATOR)
+                meta = existing_meta.get(item_id)
+                if meta is None or meta.get("annotator") == TEACHER_ANNOTATOR:
+                    # 新条目播种; 上一轮种子未被动过则同步到最新组装框。
+                    pending_seeds.append(
+                        (item_id, [float(v) for v in record["bbox"]], TEACHER_ANNOTATOR)
+                    )
                     stats["seeded"] += 1
                 else:
                     stats["already_seeded"] += 1
                 items.append(item)
+    store.seed_many(pending_seeds)
     return {
         "name": f"assembly-review:{metadata.get('run_tag', assembly_path.parent.name)}",
         "items": items,

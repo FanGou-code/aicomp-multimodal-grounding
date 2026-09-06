@@ -18,7 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from foundry.census import pass_agreement
+from foundry.census import trusted_objects
+from foundry.io import load_json
 
 
 @dataclass
@@ -35,31 +36,11 @@ def load_enumeration(census_dir: Path) -> dict:
     path = Path(census_dir) / "enumeration.json"
     if not path.is_file():
         return {}
-    data = json_load(path)
-    return data.get("results", {})
-
-
-def json_load(path: Path) -> dict:
-    import json
-
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def original_objects(frame: dict) -> list[dict]:
-    if frame.get("single_pass"):
-        good = (
-            frame["findall_1"]
-            if frame["findall_1"]["status"] == "completed"
-            else frame["findall_2"]
-        )
-        return good["objects"]
-    return pass_agreement(
-        frame["findall_1"]["objects"], frame["findall_2"]["objects"]
-    )["agreed_objects"]
+    return load_json(path).get("results", {})
 
 
 def verdict_for(frame_id: str, frame: dict, enum_results: dict) -> FrameVerdict:
-    original = original_objects(frame)
+    original = trusted_objects(frame)
     entry = enum_results.get(frame_id)
     if not entry or entry.get("status") != "completed":
         return FrameVerdict(frame_id, "missing", None, len(original), {}, [])

@@ -14,6 +14,8 @@ Snapshots are always re-derived from a full journal replay at write time, so
 concurrent writer processes (auto_annotate.py and server.py) never drop each
 other's entries. Readers re-replay automatically whenever the journal file
 changes on disk, which hot-reloads annotations written by other processes.
+Query edits are journaled as bbox-less records and replay as text + annotator
+updates without touching box state.
 
 
 Vendored from gt-annotator (github.com/FanGou-code/gt-annotator,
@@ -87,10 +89,17 @@ class AnnotationStore:
                 item_id = record.get("id")
                 if not isinstance(item_id, str) or not item_id:
                     continue
-                bbox = record.get("bbox")
                 annotator = record.get("annotator")
                 if record.get("query"):
                     queries[item_id] = str(record["query"])
+                if "bbox" not in record:
+                    # Query-only edit (set_query shape): updates the text and
+                    # the annotator claim; box state is untouched. The old
+                    # replay treated the missing bbox as a delete and wiped
+                    # the human box on every subsequent read/replay.
+                    meta[item_id] = {"annotator": annotator, "ts": record.get("ts")}
+                    continue
+                bbox = record["bbox"]
                 if bbox is None:
                     state.pop(item_id, None)
                     if _is_absent_annotator(annotator):
@@ -150,20 +159,15 @@ class AnnotationStore:
             entry = self._meta.get(item_id)
             return dict(entry) if entry is not None else None
 
+    def all_meta(self) -> dict[str, dict]:
+        with self._lock:
+            self._refresh_locked()
+            return {item_id: dict(entry) for item_id, entry in self._meta.items()}
+
     def all_boxes(self) -> dict[str, list[float]]:
         with self._lock:
             self._refresh_locked()
             return {item_id: list(bbox) for item_id, bbox in self._state.items()}
-
-    def absent_items(self) -> dict[str, str]:
-        with self._lock:
-            self._refresh_locked()
-            return dict(self._absent)
-
-    def annotated_count(self) -> int:
-        with self._lock:
-            self._refresh_locked()
-            return len(self._state)
 
     # -- writes --------------------------------------------------------------
 
@@ -181,6 +185,40 @@ class AnnotationStore:
             self._write_snapshots()
         return bbox
 
+    def seed_many(self, seeds: list[tuple[str, list[float], str]]) -> int:
+        """Bulk AI-seed: one journal append per box, one snapshot write total.
+
+        The per-record set() path re-replays the whole journal on every write
+        for cross-process safety; across a full-corpus seed that is O(n²) and
+        stalled the review server for minutes before its port went up. Batch
+        appends keep the journal format identical (one record per box, same
+        replay semantics); excluding human-annotated items stays the caller's
+        job, decided against a single all_meta() snapshot.
+        """
+        with self._lock:
+            self._refresh_locked()
+            if not seeds:
+                return 0
+            self.journal_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.journal_path.open("a", encoding="utf-8") as fh:
+                for item_id, bbox, annotator in seeds:
+                    record = {
+                        "id": item_id,
+                        "bbox": [float(v) for v in bbox],
+                        "annotator": annotator,
+                        "ts": _now(),
+                    }
+                    fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    self._state[item_id] = record["bbox"]
+                    self._meta[item_id] = {"annotator": annotator, "ts": record["ts"]}
+                    self._absent.pop(item_id, None)
+                fh.flush()
+                os.fsync(fh.fileno())
+            # Like set(), do not advance _journal_sig: the next read re-replays
+            # once and reconciles any interleaved foreign appends.
+            self._write_snapshots()
+            return len(seeds)
+
     def set_query(self, item_id: str, query: str, annotator: str | None = None) -> str:
         """Record a human-edited query text; the box state is untouched."""
         record = {"id": item_id, "query": query, "annotator": annotator, "ts": _now()}
@@ -195,22 +233,6 @@ class AnnotationStore:
         with self._lock:
             self._refresh_locked()
             return self._queries.get(item_id)
-
-    def set_absent(self, item_id: str, annotator: str) -> dict:
-        """Record an absence verdict, e.g. human confirmation of an AI absence."""
-        record = {
-            "id": item_id,
-            "bbox": None,
-            "annotator": f"{annotator}{ABSENT_SUFFIX}",
-            "ts": _now(),
-        }
-        with self._lock:
-            self._append(record)
-            self._state.pop(item_id, None)
-            self._meta[item_id] = {"annotator": record["annotator"], "ts": record["ts"]}
-            self._absent[item_id] = record["annotator"]
-            self._write_snapshots()
-        return {"id": item_id, "bbox": None, "annotator": record["annotator"]}
 
     def delete(self, item_id: str, annotator: str | None = None) -> None:
         record = {"id": item_id, "bbox": None, "annotator": annotator, "ts": _now()}

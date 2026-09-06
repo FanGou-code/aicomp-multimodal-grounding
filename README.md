@@ -91,13 +91,16 @@ python scripts/review_server.py --census-run outputs/census/census_<run_id> --po
 ```bash
 python scripts/assemble_queries.py --census-run outputs/census/census_<run_id> \
   --run-tag asm-<tag>
+# 输出目录已存在时拒绝写入（防误覆写人审中的语料）；确要重写加 --force
 ```
 
 从 census run 的 merged.json 取事实（教师目标 + attr 名片 + 几何关系），每帧
 选 1 真框目标 + 最多 2 教师目标（val 放开，过门目标全进），代码拼装 query。
 每条句子双门：事实支撑（本帧普查事实）+ 代码可验证唯一性（描述在本帧只解析
 到一个对象，杜绝歧义监督）。桶配额按冻结 style_spec 份额始终化，配额耗尽记
-overshoot、无解记 shortfall，均不伪造。产物 `outputs/assembly/<tag>/assembly.json`
+overshoot、无解记 shortfall，均不伪造。组装后跑文本 QC（`foundry/text_qc.py`：
+冠词/回声引擎 + `spec/text_qc_echo_table.json` 冻结裁决表，逐条落盘
+`text_edits.json`）。产物 `outputs/assembly/<tag>/assembly.json`
 （含出身字段与事实溯源）+ `audit.json`（重复率/桶占比/词数 vs test 参照）。
 
 key 池行为（12 key = 12 个独立账号，平台按账号维度限流，官方上限每账号 8 并发）：

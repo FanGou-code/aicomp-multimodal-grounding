@@ -299,3 +299,29 @@ class CardAndMessageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProtocolDocSyncTest(unittest.TestCase):
+    """spec/census_protocol.md must carry the frozen prompts verbatim.
+
+    Machine check for the doc/code dual source: the doc quotes both prompt
+    constants and pins their SHA-256; any prompt edit must update the doc
+    (and thus this test) in the same commit.
+    """
+
+    def test_doc_quotes_prompts_and_fingerprints(self):
+        from pathlib import Path
+
+        from foundry.census import ATTR_PROMPT, ATTR_PROMPT_HASH, FINDALL_PROMPT, FINDALL_PROMPT_HASH
+
+        doc = (Path(__file__).resolve().parents[1] / "spec" / "census_protocol.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(FINDALL_PROMPT, doc, "protocol doc drifts from FINDALL_PROMPT")
+        self.assertIn(ATTR_PROMPT, doc, "protocol doc drifts from ATTR_PROMPT")
+        self.assertIn(FINDALL_PROMPT_HASH, doc)
+        self.assertIn(ATTR_PROMPT_HASH, doc)
+
+
+if __name__ == "__main__":
+    unittest.main()

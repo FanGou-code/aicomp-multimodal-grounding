@@ -3,37 +3,116 @@
 > 本仓 = 主仓 v5 query 生产线。边界与红线见根 README。
 > 上游定案见主仓 `docs/handoff.md` 与 `/tmp/handoff-2026-09-05-query-foundry.md`（2026-09-05 会话交接）。
 
-## 当前状态（2026-09-07，R0-R4 全链路完成，全量人审进行中，R6 打包链未建）
+## 当前状态（2026-09-07，规范化轮完成，全量人审进行中，echo 重放缺口待管理员定夺）
 
 - **生产线全链已通**：主普查（v3，train 320/320 + val 80/80）→ 补数 pass（v3.1，
   train 549 + val 134 顶满帧双遍无上限重枚举，双遍计数一致率 82.8%/82.3%）→
   重排（幻影框淘汰/场景真值序数/不一致帧禁序数）→ 颜色仲裁（同头 ≥2 同色剥除）
-  → 组装（教师目标不限量全收，`--max-teacher-per-frame -1`）→ 文本 QC（冠词/
-  回声裁决表重放）→ 全量人审（审查器，query 可编辑）。
+  → 组装（教师目标不限量全收，`--max-teacher-per-frame -1`）→ 文本 QC（已折进
+  组装器：`foundry/text_qc.py` 引擎 + `spec/text_qc_echo_table.json` 冻结表）→
+  全量人审（审查器，query 可编辑）。
 - **当前语料**：train 2,730 条 / 913 帧（`asm-train-r4`）+ val 736 条 / 233 帧
-  （`asm-val-r4`）= 3,466 条（设计量 3,600 的 96%）。四桶 368/100/248/284 与
-  344/140/253/264（test 335/151/258/256）；逐字重复 0.11%/0%；帧内唯一 100%；
-  96 项测试全绿；46 个提交。
+  （`asm-val-r4`）= 3,466 条（设计量 3,600 的 96%）。**已知缺口：r4 放量重组装
+  时 head-echo 人工裁决（train 45 + val 3 条）未重放**，这 48 条在盘文本与
+  `text_edits.json` 裁决自相矛盾；修复后管线的完整重放产物在
+  `outputs/assembly/asm-{train,val}-r5-verify/`（item id 与 r4 一致，人审进度
+  可直接沿用），切换与否待管理员定夺。
 - **人审进度**（outputs/review/）：train 65 条已核验 + 5 条待办（reviewer 署名
-  真实有效），val 未开始；种子全部 glm-4.6v 署名。审查器 = vendor gt-annotator
-  （MIT）+ census/assembly 双模式 + 全量帧模式 + query 可编辑（journal 持久化 +
-  声明行同步）+ 需消歧待办（:todo 后缀）。
+  真实有效），val 未开始；种子全部 glm-4.6v 署名。store 重放修复后，历史
+  query 编辑记录在下次启动时按 journal 正确重放（人工框自动恢复，无需补救）。
+- **规范化轮（2026-09-07，本轮）**：审查器两处实质 bug 修复——① store 日志
+  重放把「只改 query」记录当删除处理，人工框在重启/热重载后被抹掉并被教师
+  种子覆盖（journal 是追加账本，修复重放即追溯治愈，无需迁移）；② 启动播种
+  逐条全量重放 journal（O(n²)，3,466 条 = 2 分 17 秒 CPU / 4.9GB 读、端口
+  绑定前前端不可达——管理员遇到的「前端打不开 + 风扇狂转」），改 `seed_many`
+  批量播种后启动 0.6 秒。模块边界：`trusted_objects`（帧级可信对象集）三处
+  重复实现合一进 `census.py`；`extract_frame_facts` 及几何阈值迁入
+  `foundry/facts.py`（review 不再依赖整个组装器）；死代码清除（死
+  `reconcile_sequence`、重复 `parse_spec_shares`、review 的 absent/判空 UI 与
+  写入路径、query_zh 翻译层——journal 重放仍容忍历史 absent 记录）。协议双源：
+  `spec/census_protocol.md` 提示词改与代码逐字一致 + SHA-256 指纹，由
+  `tests/test_census.py` 机器校验（此前文档与代码已漂移）。组装输出目录默认
+  拒绝覆写（`--force` 放行）。测试 96 → 111 项全绿（+store 回归 4、text_qc 10、
+  协议同步 1）。
 - **两个既有 census run 的用途**：`census_da571f4a3c91eb22`（train，含
   enumeration.json）与 `census_c85c9d9b1c74bf85`（val，含 enumeration.json）——
   merged.json + enumeration.json 是组装器的事实源，**不许删**。
 - **审查器启动**（管理员自管进程）：
   `python scripts/review_server.py --assembly outputs/assembly/asm-train-r4/assembly.json --port 8788`
   （val 用 asm-val-r4 + 8789）。声明行 = 方向箭头 ◀▶ · 序数词 · 主体（从 query
-  逐字摘取）。Enter 核验 / P 进待办 / query 输入框直接改。
-- **下一步（R6）**：人审完 → 处理 :todo 清单（补数计数上下文消歧或废弃）→
-  人工 query 修改合并 → 快照 → approved 产物包 → 主仓合同校验 → α32 重训
-  （主仓 SOP）。
-- **已知债务**：① 文本 QC 裁决表在 /tmp（易失），重组装前应折进组装器实现层；
-  ② 拥挤帧序数可信域问题（教师自一致性 ~83%）——当前每条序数都过补数重排，
-  但 test 侧模型数数能力仍是最大变量；③ shell 的 http_proxy 无 127 豁免——
-  测试已内置 no_proxy 覆盖，管理员浏览器访问 localhost 需注意代理 TUN 模式。
+  逐字摘取）。Enter 核验 / P 进待办 / query 输入框直接改。判空（X）/清除
+  （Esc/DELETE）与翻译层已移除。
+- **下一步**：① 管理员定夺 echo 重放缺口（切 r5-verify 或维持 r4 现状续审）
+  → 处理 :todo 清单（补数计数上下文消歧或废弃）→ 人工 query 修改合并 → 快照
+  → approved 产物包 → 主仓合同校验 → α32 重训（主仓 SOP）。
+- **已知债务**：① scripts 入口幂等性部分统一（组装入口有 --force 保护，
+  audit/compare 类脚本仍直接落盘）；② 拥挤帧序数可信域问题（教师自一致性
+  ~83%）——test 侧模型数数能力仍是最大变量；③ 旧 handoff 所记「shell 无 127
+  豁免」已闭环：实测为 WSL 镜像网络 autoProxy 同步 Windows 系统代理所致，
+  no_proxy 含 127.* 与 localhost，测试内置覆盖保留为防御。
 
 ## 交接日志
+
+### 2026-09-07（规范化轮：两处审查器实质 bug + QC 数据化折进组装器 + 边界/死代码/协议双源清理）
+
+- **动因**：管理员指派审阅生产线并执行规范化（找过度设计、错误设计、模块
+  边界、死代码、可简化处）；当日先以显性问题入口报告「8788 前端打不开 +
+  风扇狂转」，顺线挖出审查存储两处实质缺陷。
+- **错误设计修复（审查器）**：
+  - ① store 重放丢框：`set_query` 的 journal 记录无 bbox 键，重放走
+    「bbox=null = 删除」分支，把该条目人工框与署名从 state 抹掉——活内存态
+    在下一次读时即丢（前端本地态掩盖了症状），重启后人工框更会被教师种子
+    覆盖。修复：按「无 bbox 键 = query 记录」区分，query 记录只更新文本与
+    署名；journal 为追加账本，历史记录自动治愈。回归测试双路径
+    （live 态 + 全新重放）。
+  - ② 播种 O(n²)：逐条 `set()` 每写一条全量重放 journal（跨进程安全设计），
+    全量 2,730 条播种 ≈5,500 次全量解析（实测 2 分 17 秒 CPU / 4.9GB 读），
+    且端口在播种完成后才绑定——冒烟 240 条时无感，全量模式过阈值。修复：
+    `AnnotationStore.seed_many`（批量 append + 一次快照重写）+ `all_meta`
+    快照读，census/assembly 双模式播种策略逐字保留（人审框不动、教师旧种子
+    重同步）。启动实测 0.54-0.71 秒。
+- **文本 QC 数据化（已知债务 ① 清账）**：/tmp/fix_articles.py（tmpfs 易失）
+  的引擎三件套（KEEP / 复数物质词表 / EXCEPTIONS，约 180 条裁决数据）原样
+  迁入 `foundry/text_qc.py` 并与原件机器比对一致；head-echo 人工裁决
+  （train+val 共 144 条，(item_id, before)→after，零冲突）冻结为
+  `spec/text_qc_echo_table.json`；`assemble_queries.py` 在规划后应用并落盘
+  `text_edits.json`（格式与历史一致），`AssemblyRecord` 增 `edited` 标记，
+  words 保持 QC 前口径（与历史审计一致）。
+- **重组装对照验证**：新管线全量重跑（train/val，参数复刻 r4）→ 与 r4 在盘
+  文本逐条 diff：train 45 + val 3 处差异**全部**等于 echo 表应用，0 条不可
+  解释。**这证实一起历史事故：r4 放量重组装（2,522→2,730）时冠词引擎重放过，
+  head-echo 人工裁决未重放**——当前被审的 r4 语料残留 48 条应改写句子，且其
+  text_edits.json 与在盘文本自相矛盾。完整重放产物存
+  `outputs/assembly/asm-{train,val}-r5-verify/`（条数/桶占比/shortfall 与 r4
+  全同，item id 不变，人审进度可直接沿用；echo 修复合流产生 5 对逐字重复，
+  0.18% 远低于 10% 验收线）。切换待管理员定夺。
+- **边界与死代码**：`trusted_objects`（单遍兜底/双遍交集的唯一实现）合一进
+  `census.py`，替换 census_session/rerank/assembly 三处重复；review_report 改
+  从 census 导入；`extract_frame_facts` + 几何阈值 + attr 清洗迁入
+  `foundry/facts.py`（census_session 不再 import assembly）；删除死
+  `reconcile_sequence`（v2 跨帧 peer 遗留，全仓零调用）、assembly 重复的
+  `parse_spec_shares`（与 buckets 逐字重复且遮蔽导入）、函数内重复
+  `compute_iou` 导入、rerank 私有 `json_load`（改用 foundry.io）；魔数
+  "raw-uint16-mm" 改用 DEPTH_SOURCE 常量。
+- **review vendor 清理（已知债务 ② 清账）**：absent/判空全套 UI（判空按钮、
+  X 键、确认流、进度里的判空计数）、清除按钮与 DELETE 调用（本仓服务端无
+  DELETE 端点，调了就是 501）、query_zh 翻译层（服务端恒发 null）删除；
+  `store.set_absent/absent_items/annotated_count`（零调用）删除；:todo 消歧
+  流与 badge 完整保留；journal 重放对历史 absent 记录的容忍保留（数据合同）。
+- **协议双源机器校验（已知债务 ⑤ 清账）**：`spec/census_protocol.md` 的
+  findall/attr 提示词改为与 `foundry/census.py` 逐字一致（此前文档已漂移：
+  "only those you are most confident about" vs 代码实发的
+  "MOST CONFIDENT about — regardless of category..."），并钉 SHA-256 指纹，
+  `tests/test_census.py` 新增文档-代码一致性测试。
+- **幂等性（已知债务 ④ 部分清账）**：`assemble_queries.py` 输出目录已存在
+  即拒绝写入（`--force` 放行），防止误覆写人审中的语料；约定记入
+  architecture.md。
+- **验证**：111 项测试全绿（96 → 111：store 回归 +2、批量播种 +2、text_qc
+  +10、协议同步 +1）；app.js `node --check` 通过；compileall 通过；重组装
+  对照 diff 归零（除 echo 表应用）。architecture.md 模块地图/数据流重写，
+  README 组装段更新。
+- **下一步**：管理员定夺 echo 重放缺口 → 人审续行（服务下次启动即带两处
+  bug 修复）→ :todo 清单 → R6 打包链。
 
 ### 2026-09-07（人审工具完全体：全量模式 + 可编辑 query；语料放量至 3,466）
 

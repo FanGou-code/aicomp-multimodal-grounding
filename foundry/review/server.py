@@ -71,7 +71,6 @@ class AnnotatorState:
                     "image_url": "/image?src=" + quote(item["image"]),
                     "query_en": edited_query or item["query"],
                     "query_edited": edited_query is not None,
-                    "query_zh": None,
                     "bbox": self.store.get(item["id"]),
                     "annotator": meta.get("annotator"),
                     "ordinal": item["ordinal"],

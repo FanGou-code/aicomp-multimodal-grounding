@@ -13,30 +13,32 @@
 | 挑帧 | 0（代码） | 按交集目标数 + 帧间距挑 3 帧 |
 | attr 名片 | 每选中帧 1 次 | 每编号对象 color + 一条显著可见特征 |
 
-## findall 提示词 v3（变更点加粗）
+## findall 提示词 v3(本节文本 = `foundry/census.py` 的 `FINDALL_PROMPT` 逐字副本)
 
+```text
 The red rectangle marks one object in the scene.
-Task: list **up to 6** objects, **only those you are most confident about** —
-clear outline, nameable at a glance. **If multiple instances of the red-boxed
-category exist, include them all first, then fill the remaining slots with
-other confident objects. Skip tiny clutter, blurry ground debris, and anything
-you cannot identify precisely.**
-You must include the object inside the red rectangle. Order from left to right.
-Number them 1..N (N is the total count).
-For each object give a short common category name and its bounding box as
-normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the
-left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
+Task: list up to 6 objects you are MOST CONFIDENT about — clear outline, nameable at a glance — regardless of category, ordered from left to right. If multiple instances of the red-boxed category exist, include them all first, then fill the remaining slots with other confident objects. Skip tiny clutter, blurry ground debris, and anything you cannot identify precisely.
+You must include the object inside the red rectangle. Number them 1..N (N is the total count).
+For each object give a short common category name and its bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
 Output JSON only:
-`{"objects": [{"i": 1, "category": "<category name>", "bbox": [x1, y1, x2, y2]}, ...]}`
+{"objects": [{"i": 1, "category": "<category name>", "bbox": [x1, y1, x2, y2]}, ...]}
+```
 
-上限 6 = test 均值 4.78 query/图、众数 5 的现实；「同类先列满」保序数供给。
+## attr 提示词(不变;本节文本 = `foundry/census.py` 的 `ATTR_PROMPT` 逐字副本)
 
-## attr 提示词（不变）
-
+```text
 The image shows numbered boxes around objects in the scene.
-For each numbered object report only what is directly visible: its color and
-one notable visible feature. Do not guess occluded or unclear properties.
-Output JSON only: `{"<i>": {"color": "...", "features": "..."}}`
+For each numbered object report only what is directly visible: its color and one notable visible feature.
+Do not guess occluded or unclear properties.
+Output JSON only:
+{"1": {"color": "...", "features": "..."}, ...}
+```
+
+提示词指纹(`tests/test_census.py` 机器校验文档与代码一致,改任一侧必须同步):
+FINDALL `b9f33a9cd0492ccce4a7b1c7f516bdd4ecd070226078a0e3d9f1b552592906a5`、
+ATTR `d41666252810fa4b6747fbe291d6fedb8b06b1e84416c2ab5b6e9ea63e313785`。
+
+上限 6 = test 均值 4.78 query/图、众数 5 的现实;「同类先列满」保序数供给。
 
 ## 门清单（全部机械校验）
 

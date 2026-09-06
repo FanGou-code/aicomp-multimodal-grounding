@@ -317,7 +317,7 @@ body, html {
   background: var(--text-dim);
 }
 
-.query-en-wrap, .query-zh-wrap {
+.query-en-wrap {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -340,16 +340,6 @@ body, html {
   font-size: 15px;
   font-weight: 600;
   color: #ffffff;
-  flex: 1;
-  min-width: 0;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.query-zh {
-  font-size: 13px;
-  color: #94a3b8;
   flex: 1;
   min-width: 0;
   line-height: 1.45;

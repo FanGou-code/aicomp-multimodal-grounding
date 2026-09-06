@@ -114,12 +114,8 @@
     currentIdBadge: document.getElementById('current-id-badge'),
     annotationStatusBadge: document.getElementById('annotation-status-badge'),
     queryEnText: document.getElementById('query-en-text'),
-    queryZhWrap: document.getElementById('query-zh-wrap'),
-    queryZhText: document.getElementById('query-zh-text'),
     nextTodoBtn: document.getElementById('next-todo-btn'),
     todoBtn: document.getElementById('todo-btn'),
-    clearBtn: document.getElementById('clear-btn'),
-    absentBtn: document.getElementById('absent-btn'),
     saveBtn: document.getElementById('save-btn'),
 
     // Canvas
@@ -158,25 +154,16 @@
     return !!annotator && (annotator.startsWith('glm') || annotator.includes('ai'));
   }
 
-  // Absence verdict record: no box, annotator "<name>:absent"
-  function isAbsentItem(item) {
-    return !item.bbox && !!item.annotator && item.annotator.endsWith(':absent');
-  }
-
-  // AI pre-annotation awaiting human review: a glm-drawn box or a glm absence verdict
+  // AI pre-annotation awaiting human review: a glm-drawn box
   function isAiPendingItem(item) {
     const ann = item.annotator || '';
-    if (!ann) return false;
-    if (ann.endsWith(':absent')) {
-      return isAiAnnotator(ann.slice(0, -':absent'.length));
-    }
-    return !!item.bbox && isAiAnnotator(ann);
+    return !!item.bbox && !!ann && isAiAnnotator(ann);
   }
 
   // Todo item predicate:
   // Only items with a human-verified bounding box are considered Done.
-  // Everything else (unannotated, AI pre-annotated box, AI absence, and human provisional absence)
-  // is treated as Todo requiring human review / final verdict.
+  // Everything else (unannotated, AI pre-annotated box) is treated as Todo
+  // requiring human review / final verdict.
   function isTodoItem(item) {
     if (!item) return false;
     if (item.annotator && item.annotator.endsWith(':todo')) return false;
@@ -228,17 +215,13 @@
       state.totalItems = data.total_items || data.items.length;
       state.items = data.items || [];
       state.reviewMode = data.mode === 'census-review';
-      if (state.reviewMode) {
-        dom.clearBtn.classList.add('hidden');
-        dom.absentBtn.classList.add('hidden');
-      }
-      
+
       dom.manifestBadge.textContent = state.manifest;
-      
+
       // Resolve initial item index with 3-tier precedence:
       // 1. URL hash (#<id>) if matching an item
       // 2. Last viewed item remembered in localStorage
-      // 3. First todo item (unannotated, AI pre-box, AI absent, or human provisional absent)
+      // 3. First todo item (unannotated or AI pre-box)
       let initialIdx = -1;
       const hashId = (window.location.hash || '').replace(/^#/, '').trim();
       if (hashId) {
@@ -276,7 +259,7 @@
       state.items.forEach(it => {
         const ann = it.annotator || '';
         const isNeeds = !!ann && ann.endsWith(':todo');
-        const isHuman = !!it.bbox && !!ann && !ann.endsWith(':absent') && !isAiAnnotator(ann) && !isNeeds;
+        const isHuman = !!it.bbox && !!ann && !isAiAnnotator(ann) && !isNeeds;
         if (isNeeds) needsCount++;
         if (isHuman) humanCount++;
         if (!frames.has(it.frame_id)) frames.set(it.frame_id, { total: 0, human: 0 });
@@ -290,29 +273,7 @@
       dom.progressText.textContent = `已核验: ${humanCount} · 待办: ${needsCount} / ${total} (${pct}%)`;
       dom.imageProgressText.textContent = `整帧核验: ${reviewedFrames} / ${frames.size}`;
       dom.progressBarFill.style.width = `${pct}%`;
-      return;
     }
-    const total = state.items.length;
-    let annotatedCount = 0;
-    let absentCount = 0;
-    const imageSet = new Set();
-    const annotatedImageSet = new Set();
-
-    state.items.forEach(it => {
-      imageSet.add(it.image_url);
-      if (it.bbox) {
-        annotatedCount++;
-        annotatedImageSet.add(it.image_url);
-      } else if (it.annotator) {
-        absentCount++;
-      }
-    });
-
-    const processed = annotatedCount + absentCount;
-    const pct = total > 0 ? ((processed / total) * 100).toFixed(1) : '0.0';
-    dom.progressText.textContent = `已标: ${annotatedCount} · 判空: ${absentCount} / ${total} (${pct}%)`;
-    dom.imageProgressText.textContent = `图片: ${annotatedImageSet.size} / ${imageSet.size}`;
-    dom.progressBarFill.style.width = `${pct}%`;
   }
 
   // --- Item Navigation ---
@@ -483,15 +444,6 @@
         dom.annotationStatusBadge.textContent = item.annotator ? `已核验 (${item.annotator})` : '已标注';
         dom.annotationStatusBadge.className = 'badge badge-annotated';
       }
-    } else if (isAbsentItem(item)) {
-      if (isAiPendingItem(item)) {
-        dom.annotationStatusBadge.textContent = `⚠️ 目标不存在 (AI判空待审)`;
-        dom.annotationStatusBadge.className = 'badge badge-absent';
-      } else {
-        const name = item.annotator.replace(/:absent$/, '');
-        dom.annotationStatusBadge.textContent = `✓ 已确认判空 (${name})`;
-        dom.annotationStatusBadge.className = 'badge badge-annotated';
-      }
     } else {
       dom.annotationStatusBadge.textContent = '未标注';
       dom.annotationStatusBadge.className = 'badge badge-unannotated';
@@ -520,13 +472,6 @@
     const claimsEl = document.getElementById('query-claims');
     if (claimsEl) {
       claimsEl.textContent = item.claims || '';
-    }
-    if (item.query_zh) {
-      dom.queryZhWrap.classList.remove('hidden');
-      dom.queryZhText.textContent = item.query_zh;
-    } else {
-      dom.queryZhWrap.classList.add('hidden');
-      dom.queryZhText.textContent = '';
     }
 
     // Recalculate canvas size immediately to account for any height shifts in the query panel
@@ -1268,103 +1213,6 @@
     }
   }
 
-  async function confirmAbsent() {
-    const item = getCurrentItem();
-    if (!item) return;
-
-    const annotatorName = (dom.annotatorInput.value || '').trim();
-    if (!annotatorName) {
-      showToast('判空需署名：请先在右上角填写标注者', 'error');
-      dom.annotatorInput.focus();
-      return;
-    }
-    state.annotator = annotatorName;
-    localStorage.setItem(STORAGE_KEY_ANNOTATOR, annotatorName);
-
-    try {
-      dom.saveBtn.disabled = true;
-      const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/absent`, {
-        method: 'PUT',
-        body: JSON.stringify({ annotator: annotatorName })
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error || `HTTP ${resp.status}`);
-      }
-
-      const result = await resp.json();
-      item.bbox = null;
-      item.annotator = result.annotator;
-      state.activeBbox = null;
-      updateOverallProgress();
-      renderCurrentItem();
-      showToast('已确认判空 (无目标)', 'success');
-      goToNextTodo();
-    } catch (err) {
-      showToast('判空失败: ' + err.message, 'error');
-    } finally {
-      dom.saveBtn.disabled = false;
-    }
-  }
-
-  // X key: human absence verdict on the current item
-  function markAbsent() {
-    const item = getCurrentItem();
-    if (!item) return;
-    if (state.activeBbox) {
-      showToast('当前已有目标框；如确认无目标请先按 Esc 清除', 'error');
-      return;
-    }
-    if (isAbsentItem(item)) {
-      showToast('当前条目已是判空状态', 'info');
-      return;
-    }
-    confirmAbsent();
-  }
-
-  async function clearBbox() {
-    const item = getCurrentItem();
-    if (!item) return;
-
-    if (!state.activeBbox && !item.bbox && !item.annotator) {
-      showToast('当前无已绘制的目标框', 'info');
-      return;
-    }
-
-    // If item has server-side state (a saved box or an absence verdict), call DELETE
-    if (item.bbox || item.annotator) {
-      try {
-        dom.clearBtn.disabled = true;
-        const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/bbox`, {
-          method: 'DELETE'
-        });
-
-        if (!resp.ok) {
-          const err = await resp.json();
-          throw new Error(err.error || `HTTP ${resp.status}`);
-        }
-
-        item.bbox = null;
-        item.annotator = null;
-        state.activeBbox = null;
-        updateOverallProgress();
-        renderCurrentItem();
-        showToast('已清除标注', 'info');
-      } catch (err) {
-        showToast('清除失败: ' + err.message, 'error');
-      } finally {
-        dom.clearBtn.disabled = false;
-      }
-    } else {
-      // Just clear unsaved drawn box
-      state.activeBbox = null;
-      updateFooterBboxInfo();
-      redraw();
-      showToast('已清除画布草稿', 'info');
-    }
-  }
-
   // --- Pending-item Jump (button + post-save smart jump) ---
   function goToPrevAi() {
     for (let i = state.currentIndex - 1; i >= 0; i--) {
@@ -1410,15 +1258,9 @@
     }
   }
 
-  // --- API Mutations (Save, Absent & Delete) ---
+  // --- API Mutations (Save) ---
 
-  // Enter/Space dispatcher: confirm absence on AI-absent items, save boxes otherwise
   async function submitCurrent() {
-    const item = getCurrentItem();
-    if (item && !state.activeBbox && isAbsentItem(item)) {
-      await confirmAbsent();
-      return;
-    }
     await saveBbox();
   }
 
@@ -1455,15 +1297,6 @@
     if (e.key === 'p' || e.key === 'P') {
       if (state.reviewMode && !e.repeat) {
         markTodo();
-      }
-      return;
-    }
-
-    if (e.key === 'x' || e.key === 'X') {
-      if (state.reviewMode) return;
-      e.preventDefault();
-      if (!e.repeat) {
-        markAbsent();
       }
       return;
     }
@@ -1521,13 +1354,6 @@
       e.preventDefault();
       dom.jumpInput.focus();
       dom.jumpInput.select();
-      return;
-    }
-
-    if (e.key === 'Escape' || e.key === 'Delete' || e.key === 'Backspace') {
-      if (state.reviewMode) return;
-      e.preventDefault();
-      clearBbox();
       return;
     }
 
@@ -1614,8 +1440,6 @@
     // Navigation & Action Buttons
     dom.nextTodoBtn.addEventListener('click', goToNextTodo);
     dom.todoBtn.addEventListener('click', markTodo);
-    dom.clearBtn.addEventListener('click', clearBbox);
-    dom.absentBtn.addEventListener('click', markAbsent);
     dom.saveBtn.addEventListener('click', submitCurrent);
     if (dom.queryEnText) {
       dom.queryEnText.addEventListener('keydown', (e) => {

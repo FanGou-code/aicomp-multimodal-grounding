@@ -67,10 +67,6 @@
           <input id="query-en-text" class="query-en query-edit" value="加载中..." autocomplete="off" spellcheck="false" />
           <span id="query-claims" class="query-claims"></span>
         </div>
-        <div id="query-zh-wrap" class="query-zh-wrap">
-          <span class="query-label">ZH</span>
-          <span id="query-zh-text" class="query-zh"></span>
-        </div>
       </div>
 
       <div class="nav-actions">
@@ -89,16 +85,6 @@
         <button id="todo-btn" class="btn btn-warning" title="这条有问题:加入待办,后续补消歧或废弃 (P)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
           加入待办
-        </button>
-
-        <button id="absent-btn" class="btn btn-warning" title="确认无目标/判空 (X)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-          判空
-        </button>
-
-        <button id="clear-btn" class="btn btn-danger" title="清除当前框 / 撤销判空 (Esc)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-          清除
         </button>
       </div>
     </section>
@@ -178,11 +164,10 @@
             <tr><td><kbd>鼠标左键拖拽</kbd></td><td>在画布绘制新框 / 拖拽移动现有框 / 按住 8 个控制点缩放</td></tr>
             <tr><td><kbd>滚轮</kbd></td><td>以鼠标所在位置为中心无损平滑缩放</td></tr>
             <tr><td><kbd>拖拽空白 / 鼠标中键 / 鼠标右键</kbd></td><td>平移画布视口</td></tr>
-            <tr><td><kbd>Enter</kbd> 或 <kbd>Space</kbd></td><td>提交/核验当前标注并自动跳至下一条待处理；在 <strong>AI 判空条目</strong>上按下 = 确认判空</td></tr>
-            <tr><td><kbd>X</kbd></td><td>确认无目标（判空）：以当前署名记录为「已确认判空」，自动跳转下一条</td></tr>
-            <tr><td><kbd>Esc</kbd> 或 <kbd>Delete</kbd></td><td>清除当前标注框（若已保存会向后端发送 DELETE，判空状态也会一并撤销）</td></tr>
+            <tr><td><kbd>Enter</kbd> 或 <kbd>Space</kbd></td><td>提交/核验当前标注并自动跳至下一条待处理</td></tr>
+            <tr><td><kbd>P</kbd></td><td>这条有问题：加入待办（需消歧），后续补描述或废弃</td></tr>
             <tr><td><kbd>H</kbd> / <kbd>L</kbd>（或 <kbd>←</kbd> / <kbd>→</kbd>）</td><td>切换到上一条 / 下一条</td></tr>
-            <tr><td><kbd>J</kbd> / <kbd>K</kbd>（或 <kbd>Alt + ←</kbd> / <kbd>Alt + →</kbd>）</td><td>快速跳至下一条 / 上一条 <strong>AI 待审条目</strong>（含 AI 预标框与 AI 判空）</td></tr>
+            <tr><td><kbd>J</kbd> / <kbd>K</kbd>（或 <kbd>Alt + ←</kbd> / <kbd>Alt + →</kbd>）</td><td>快速跳至下一条 / 上一条 <strong>AI 待审条目</strong>（AI 预标框）</td></tr>
             <tr><td><kbd>N</kbd> / <kbd>Shift + N</kbd>（或 <kbd>Shift + ←</kbd> / <kbd>Shift + →</kbd>）</td><td>快速跳至下一条 / 上一条未处理条目</td></tr>
             <tr><td><kbd>G</kbd> / <kbd>Shift + G</kbd></td><td>跳至第一条 / 最后一条</td></tr>
             <tr><td><kbd>/</kbd></td><td>聚焦顶部图号跳转输入框（配合 <kbd>Enter</kbd> 跳转）</td></tr>
