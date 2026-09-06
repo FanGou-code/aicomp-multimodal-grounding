@@ -16,6 +16,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from foundry.assembly import extract_frame_facts  # noqa: E402
+from foundry.facts import category_head  # noqa: E402
 from foundry.census import pass_agreement  # noqa: E402
 from foundry.io import load_json  # noqa: E402
 from foundry.review.store import AnnotationStore  # noqa: E402
@@ -86,6 +88,56 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
     }
 
 
+def _claim_summary(record: dict, facts) -> str:
+    """Human-readable claim sheet: 对象/颜色/特征/序数/方位/深度/面积."""
+    parts = [f"对象:{record['category']}"]
+    if facts.color:
+        parts.append(f"颜色:{facts.color}")
+    if facts.features:
+        parts.append(f"特征:{facts.features}")
+    if facts.rank_left and facts.rank_right:
+        parts.append(
+            f"序数:左起第{facts.rank_left}·右起第{facts.rank_right}(共{facts.count_in_head})"
+        )
+    elif facts.rank_left:
+        parts.append(f"序数:左起第{facts.rank_left}/{facts.count_in_head}")
+    elif facts.rank_right:
+        parts.append(f"序数:右起第{facts.rank_right}/{facts.count_in_head}")
+    sp = []
+    if facts.is_leftmost:
+        sp.append("极左")
+    if facts.is_rightmost:
+        sp.append("极右")
+    if facts.is_topmost:
+        sp.append("最顶")
+    if facts.is_bottommost:
+        sp.append("最底")
+    if facts.side_of_image:
+        sp.append("画幅左侧" if facts.side_of_image == "left" else "画幅右侧")
+    if facts.anchors_left:
+        sp.append(f"在{category_head(facts.anchors_left[0][1])}的左边")
+    if facts.anchors_right:
+        sp.append(f"在{category_head(facts.anchors_right[0][1])}的右边")
+    if sp:
+        parts.append("方位:" + "/".join(sp))
+    dp = []
+    if facts.is_closest:
+        dp.append("最近")
+    if facts.is_farthest:
+        dp.append("最远")
+    if facts.is_in_foreground:
+        dp.append("前景")
+    if facts.is_in_background:
+        dp.append("背景")
+    if facts.median_mm:
+        dp.append(f"{facts.median_mm}mm")
+    if dp:
+        parts.append("深度:" + "/".join(dp))
+    if facts.area_ratio_lead and facts.area_ratio_lead >= 1.5:
+        parts.append(f"面积:同类{facts.area_ratio_lead:.1f}倍")
+    return " · ".join(parts)
+
+
 def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Path) -> dict:
     """Review items from an assembled query manifest (1 sampled frame/sequence).
 
@@ -101,6 +153,11 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
     metadata = manifest.get("metadata", {})
     split = metadata.get("split", "train")
     index = load_json(data_root / "indexes" / f"{split}.json")
+    census_merged = None
+    census_run_id = metadata.get("census_run_id")
+    census_path = Path(PROJECT_ROOT) / "outputs" / "census" / str(census_run_id) / "merged.json"
+    if census_path.is_file():
+        census_merged = load_json(census_path)
 
     by_sequence: dict[str, dict[str, list[dict]]] = {}
     for record in manifest.get("records", []):
@@ -118,6 +175,24 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
         entry = index.get(sample_id)
         if entry is None:
             continue
+        facts_by_index = {}
+        if census_merged is not None:
+            seq = census_merged.get("results", {}).get(sequence_id, {})
+            frame = seq.get("frames", {}).get(sample_id, {})
+            if frame.get("status") == "completed":
+                if frame.get("single_pass"):
+                    good = (frame["findall_1"] if frame["findall_1"]["status"] == "completed"
+                            else frame["findall_2"])
+                    objects = good["objects"]
+                else:
+                    objects = pass_agreement(
+                        frame["findall_1"]["objects"], frame["findall_2"]["objects"]
+                    )["agreed_objects"]
+                attr = frame.get("attr")
+                depth = frame.get("depth")
+                if objects:
+                    frame_facts = extract_frame_facts(objects, entry["bbox"], attr, depth)
+                    facts_by_index = {f.index: f for f in frame_facts}
         stats["frames"] += 1
         for record in records:
             item_id = f"{sample_id}#{record['object_index']:02d}"
@@ -133,6 +208,8 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
                 "category": record["category"],
                 "bucket": record.get("bucket", ""),
                 "family": record.get("family", ""),
+                "claims": _claim_summary(record, facts_by_index[record["object_index"]])
+                if record["object_index"] in facts_by_index else f"对象:{record['category']}",
             }
             if store.meta(item_id) is None:
                 store.set(item_id, [float(v) for v in record["bbox"]], annotator=TEACHER_ANNOTATOR)

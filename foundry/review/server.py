@@ -77,6 +77,7 @@ class AnnotatorState:
                     "gt_bbox": item["gt_bbox"],
                     "bucket": item.get("bucket", ""),
                     "category": item.get("category", ""),
+                    "claims": item.get("claims", ""),
                 }
             )
         frames: dict[str, list[dict]] = {}

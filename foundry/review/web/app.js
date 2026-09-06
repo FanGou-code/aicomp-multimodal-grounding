@@ -504,6 +504,10 @@
       }[bucketTag] || '#475569';
     }
     dom.queryEnText.textContent = item.query_en || '';
+    const claimsEl = document.getElementById('query-claims');
+    if (claimsEl) {
+      claimsEl.textContent = item.claims ? `　【${item.claims}】` : '';
+    }
     if (item.query_zh) {
       dom.queryZhWrap.classList.remove('hidden');
       dom.queryZhText.textContent = item.query_zh;
