@@ -1,6 +1,7 @@
 """Tests for the census review server (foundry.review)."""
 
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -8,6 +9,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+# The admin shell exports http_proxy without a 127.* no_proxy exemption;
+# route localhost test requests directly so the real review server (8788)
+# and the proxy are both out of the loop.
+os.environ["no_proxy"] = "127.0.0.1,localhost"
+os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 
 from foundry.review.server import create_server
 
