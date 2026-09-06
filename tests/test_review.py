@@ -142,3 +142,38 @@ class ReviewServerTest(unittest.TestCase):
 if __name__ == "__main__":
 
     unittest.main()
+
+
+class ReviewReportTest(unittest.TestCase):
+    def test_report_counts_adjustments_and_iou(self):
+        import json as _json
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+
+        from scripts.review_report import build_report
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            tmp = _Path(tmp)
+            run_dir, data_root = make_census_run(tmp)
+            review_root = tmp / "review"
+            server, state = create_server(
+                census_run_dir=run_dir, data_root=data_root,
+                review_root=review_root, host="127.0.0.1", port=0,
+            )
+            store = state.session["store"]
+            # Human adjusts #01 strongly, confirms #02 untouched.
+            store.set("070_00000001#01", [0.30, 0.40, 0.40, 0.60], annotator="fang0")
+            server.server_close()
+
+            report = build_report(run_dir, review_root)
+            self.assertEqual(report["totals"]["total_items"], 2)
+            self.assertEqual(report["totals"]["human_adjusted"], 1)
+            self.assertEqual(report["totals"]["sequences_affected"], 1)
+            seq = report["sequences"]["070"]
+            adjusted = [r for r in seq["items"] if r["human_adjusted"]]
+            self.assertEqual(len(adjusted), 1)
+            self.assertEqual(adjusted[0]["item_id"], "070_00000001#01")
+            # Teacher box [0.10..0.20] vs human [0.30..0.40]: zero overlap.
+            self.assertEqual(adjusted[0]["iou_to_teacher"], 0.0)
+            untouched = [r for r in seq["items"] if not r["human_adjusted"]]
+            self.assertIsNone(untouched[0]["iou_to_teacher"], None)
