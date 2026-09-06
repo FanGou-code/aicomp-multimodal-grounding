@@ -278,7 +278,9 @@ def review_shard(
         with lock:
             atomic_write_json(shard_path, {"results": results})
 
-    todo = [it for it in items if it["item_id"] not in results]
+    # Resume re-attempts failed items; only completed audits are final.
+    todo = [it for it in items
+            if results.get(it["item_id"], {}).get("status") != "completed"]
     print(f"[ai-review shard {shard_id}] {len(todo)}/{len(items)} items to do", flush=True)
     for done, item in enumerate(todo, 1):
         try:
