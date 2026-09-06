@@ -45,7 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--run-tag", default="")
     parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "outputs" / "assembly")
-    parser.add_argument("--max-teacher-per-frame", type=int, default=2)
+    parser.add_argument("--max-teacher-per-frame", type=int, default=2,
+                        help="teacher targets per frame; -1 = take all quality-sorted")
     parser.add_argument("--min-words", type=int, default=3)
     parser.add_argument("--max-words", type=int, default=18)
     parser.add_argument("--show", type=int, default=15, help="sample records to print")

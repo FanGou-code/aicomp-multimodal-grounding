@@ -516,7 +516,10 @@ def select_targets(
         ),
         reverse=True,
     )
-    targets.extend(("teacher", f) for f in teachers[:max_teacher])
+    if max_teacher < 0:
+        targets.extend(("teacher", f) for f in teachers)  # -1 = uncapped
+    else:
+        targets.extend(("teacher", f) for f in teachers[:max_teacher])
     return targets
 
 
