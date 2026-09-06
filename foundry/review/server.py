@@ -22,7 +22,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from foundry.review.bbox import normalize_bbox  # noqa: E402
-from foundry.review.census_session import TEACHER_ANNOTATOR, build_census_session  # noqa: E402
+from foundry.review.census_session import (  # noqa: E402
+    TEACHER_ANNOTATOR,
+    build_assembly_session,
+    build_census_session,
+)
 from foundry.review.store import ABSENT_SUFFIX, AnnotationStore  # noqa: E402
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
@@ -233,10 +237,14 @@ def create_server(
     census_run_dir: str | Path,
     data_root: str | Path,
     review_root: str | Path,
+    assembly_path: str | Path | None = None,
     host: str = "127.0.0.1",
     port: int = 0,
 ) -> tuple[ThreadingHTTPServer, AnnotatorState]:
-    session = build_census_session(Path(census_run_dir), Path(data_root), Path(review_root))
+    if assembly_path is not None:
+        session = build_assembly_session(Path(assembly_path), Path(data_root), Path(review_root))
+    else:
+        session = build_census_session(Path(census_run_dir), Path(data_root), Path(review_root))
     images_root = Path(data_root).resolve()
     server = ThreadingHTTPServer((host, port), AnnotationHandler)
     server.daemon_threads = True
@@ -248,18 +256,22 @@ def create_server(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="census review server (gt-annotator adapted)")
-    parser.add_argument("--census-run", required=True, help="census run dir with merged.json")
+    parser.add_argument("--census-run", help="census run dir with merged.json (box review mode)")
+    parser.add_argument("--assembly", help="assembly.json path (query review mode); overrides --census-run")
     parser.add_argument("--data-root", default=PROJECT_ROOT / "data")
     parser.add_argument("--review-root", default=PROJECT_ROOT / "outputs" / "review")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8788)
     args = parser.parse_args(argv)
 
+    if not args.census_run and not args.assembly:
+        parser.error("either --census-run or --assembly is required")
     try:
         server, state = create_server(
             census_run_dir=args.census_run,
             data_root=args.data_root,
             review_root=args.review_root,
+            assembly_path=args.assembly,
             host=args.host,
             port=args.port,
         )

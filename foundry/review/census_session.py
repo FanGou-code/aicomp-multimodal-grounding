@@ -84,3 +84,65 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
         "split": split,
         "store": store,
     }
+
+
+def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Path) -> dict:
+    """Review items from an assembled query manifest (1 sampled frame/sequence).
+
+    Each record becomes an item whose query text is the assembled sentence and
+    whose seeded box is the assembled bbox (real records carry the organizer
+    GT box). Per sequence exactly one selected frame is sampled (deterministic:
+    lowest sample_id with records), matching the agreed sampling plan of one
+    reviewed frame per sequence.
+    """
+    assembly_path = Path(assembly_path)
+    data_root = Path(data_root)
+    manifest = load_json(assembly_path)
+    metadata = manifest.get("metadata", {})
+    split = metadata.get("split", "train")
+    index = load_json(data_root / "indexes" / f"{split}.json")
+
+    by_sequence: dict[str, dict[str, list[dict]]] = {}
+    for record in manifest.get("records", []):
+        sequence_id = record["sequence_id"]
+        frames = by_sequence.setdefault(sequence_id, {})
+        frames.setdefault(record["sample_id"], []).append(record)
+
+    items: list[dict] = []
+    stats = {"seeded": 0, "frames": 0, "already_seeded": 0}
+    store = AnnotationStore(Path(review_root) / str(metadata.get("run_tag") or assembly_path.parent.name))
+    for sequence_id in sorted(by_sequence):
+        frames = by_sequence[sequence_id]
+        sample_id = min(frames)  # deterministic: first sampled frame with records
+        records = sorted(frames[sample_id], key=lambda r: r["object_index"])
+        entry = index.get(sample_id)
+        if entry is None:
+            continue
+        stats["frames"] += 1
+        for record in records:
+            item_id = f"{sample_id}#{record['object_index']:02d}"
+            item = {
+                "id": item_id,
+                "image": entry["visible"],
+                "query": record["query"],
+                "ordinal": record["object_index"],
+                "frame_id": sample_id,
+                # Only real records have a GT reference; teacher records are
+                # judged on their own.
+                "gt_bbox": record["bbox"] if record["source"] == "real" else None,
+                "category": record["category"],
+            }
+            if store.meta(item_id) is None:
+                store.set(item_id, [float(v) for v in record["bbox"]], annotator="v5-assembler")
+                stats["seeded"] += 1
+            else:
+                stats["already_seeded"] += 1
+            items.append(item)
+    return {
+        "name": f"assembly-review:{metadata.get('run_tag', assembly_path.parent.name)}",
+        "items": items,
+        "stats": stats,
+        "census_run_id": metadata.get("census_run_id"),
+        "split": split,
+        "store": store,
+    }
