@@ -302,7 +302,7 @@ def reconcile_sequence(selected: list[list[dict]]) -> list[dict]:
     return [peer for peer in peers if peer["seen_in"] >= 2]
 
 
-def findall_messages(marked_jpeg_url: str, *, previous_error: str = "") -> list[dict]:
+def findall_messages(marked_jpeg_url: str, *, previous_error: str = "", prompt: str | None = None) -> list[dict]:
     repair = ""
     if previous_error:
         repair = (
@@ -316,7 +316,7 @@ def findall_messages(marked_jpeg_url: str, *, previous_error: str = "") -> list[
             "content": [
                 {"type": "text", "text": "One complete RGB scene; the red rectangle marks the reference object."},
                 {"type": "image_url", "image_url": {"url": marked_jpeg_url, "detail": "high"}},
-                {"type": "text", "text": FINDALL_PROMPT + repair},
+                {"type": "text", "text": (prompt or FINDALL_PROMPT) + repair},
             ],
         },
     ]

@@ -60,11 +60,17 @@ def main() -> None:
     merged = load_json(merged_path)
     index = load_json(args.data_root / "indexes" / f"{args.split}.json")
     spec = load_json(args.spec) if args.spec.exists() else None
+    enumeration = None
+    enum_path = args.census_run / "enumeration.json"
+    if enum_path.exists():
+        enumeration = load_json(enum_path).get("results", {})
+        print(f"enumeration pass loaded: {len(enumeration)} frames")
 
     result = assemble_run(
         merged,
         index,
         spec,
+        enumeration=enumeration,
         max_teacher_per_frame=args.max_teacher_per_frame,
         min_words=args.min_words,
         max_words=args.max_words,

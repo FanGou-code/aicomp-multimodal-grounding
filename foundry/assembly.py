@@ -28,10 +28,12 @@ ordinal bucket under this frozen rule).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass, field, replace
 
 from foundry.bbox import compute_iou
 from foundry.census import pass_agreement
+from foundry.rerank import verdict_for
 from foundry.facts import Realization, article_for, category_head  # noqa: F401
 from foundry.facts import ObjectFacts  # noqa: F401
 from foundry.planner import TargetSupply, plan as planner_plan
@@ -490,6 +492,10 @@ class AssemblyResult:
     sequences: list[str] = field(default_factory=list)
 
 
+def _with_color(f: ObjectFacts, color: str | None) -> ObjectFacts:
+    return replace(f, color=color)
+
+
 def select_targets(
     frame_facts: list[ObjectFacts], *, max_teacher: int = 2
 ) -> list[tuple[str, ObjectFacts]]:
@@ -555,6 +561,7 @@ def assemble_run(
     index: dict,
     spec: dict | None = None,
     *,
+    enumeration: dict | None = None,
     max_teacher_per_frame: int = 2,
     min_words: int = 3,
     max_words: int = 18,
@@ -602,7 +609,40 @@ def assemble_run(
             if not objects:
                 result.shortfall.append({"sample_id": sample_id, "reason": "no-agreed-objects"})
                 continue
+            # Enumeration-pass re-ranking: capped frames get scene-true
+            # object sets (up) or phantom-pruned sets (down); inconsistent
+            # frames keep the original set but lose ordinal privileges.
+            frame_verdict = None
+            if enumeration:
+                frame_verdict = verdict_for(sample_id, frame, enumeration)
+                if frame_verdict.verdict == "up" and frame_verdict.real_objects:
+                    objects = frame_verdict.real_objects
+                elif frame_verdict.verdict == "down" and frame_verdict.real_objects:
+                    # Phantom-pruned: the agreed subset surviving in the full
+                    # re-enumeration. Match originals against it by IoU.
+                    from foundry.bbox import compute_iou as _ci
+
+                    kept = [
+                        o for o in objects
+                        if any(_ci(o["bbox"], ro["bbox"]) >= 0.5 for ro in frame_verdict.real_objects)
+                    ]
+                    if kept:
+                        objects = kept
             facts = extract_frame_facts(objects, entry["bbox"], frame.get("attr"), frame.get("depth"))
+
+            # Color arbitration (admin 2026-09-06): a color claimed by 2+
+            # same-head objects has no referential power in this frame —
+            # strip it from realizations for everyone in the head group.
+            head_colors: dict[str, Counter] = {}
+            for f in facts:
+                if f.color:
+                    head_colors.setdefault(f.head, Counter())[f.color] += 1
+            facts = [
+                _with_color(f, None)
+                if f.color and head_colors.get(f.head, {}).get(f.color, 0) >= 2
+                else f
+                for f in facts
+            ]
             if not any(f.is_canary for f in facts):
                 result.shortfall.append(
                     {"sample_id": sample_id, "reason": "no-canary-in-agreed-objects"}
@@ -614,7 +654,9 @@ def assemble_run(
             # being scene-consistent. Edge ranks (1st/last) survive; the
             # red-boxed category is filled first per the prompt and keeps
             # its ordinals too.
-            frame_capped = len(objects) >= 6
+            frame_capped = len(objects) >= 6 or (
+                frame_verdict is not None and frame_verdict.verdict == "inconsistent"
+            )
             canary_head = next(
                 (f.head for f in facts if f.is_canary), None
             )
