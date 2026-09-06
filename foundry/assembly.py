@@ -536,10 +536,10 @@ class _SupplyItem:
     """One allocatable target with its pre-verified realization variants."""
 
     __slots__ = ("sample_id", "sequence_id", "source", "facts", "gt_bbox",
-                 "variants", "depth_available")
+                 "variants", "depth_available", "ordinal_allowed")
 
     def __init__(self, sample_id, sequence_id, source, facts, gt_bbox, variants,
-                 depth_available):
+                 depth_available, ordinal_allowed=True):
         self.sample_id = sample_id
         self.sequence_id = sequence_id
         self.source = source
@@ -547,6 +547,7 @@ class _SupplyItem:
         self.gt_bbox = gt_bbox
         self.variants = variants
         self.depth_available = depth_available
+        self.ordinal_allowed = ordinal_allowed
 
 
 def assemble_run(
@@ -608,12 +609,32 @@ def assemble_run(
                 )
             result.sequences.append(sequence_id)
             depth_available = (frame.get("depth") or {}).get("source") == "raw-uint16-mm"
+            # Cap-truncation gate (admin 2026-09-06): a frame at the census
+            # cap likely truncated its enumeration, so bare ordinals stop
+            # being scene-consistent. Edge ranks (1st/last) survive; the
+            # red-boxed category is filled first per the prompt and keeps
+            # its ordinals too.
+            frame_capped = len(objects) >= 6
+            canary_head = next(
+                (f.head for f in facts if f.is_canary), None
+            )
             for source, target_facts in select_targets(facts, max_teacher=max_teacher_per_frame):
+                edge_rank = (
+                    target_facts.rank_left in (1, target_facts.count_in_head)
+                    or target_facts.rank_right == 1
+                    or target_facts.rank_right == target_facts.count_in_head
+                )
+                priority_cat = canary_head is not None and target_facts.head == canary_head
+                ordinal_allowed = (
+                    not frame_capped or edge_rank or priority_cat or target_facts.is_canary
+                )
                 variants = [
                     r for r in realizations_for(target_facts)
                     if min_words <= r.words <= max_words
                     and realization_is_unique(r, facts, target_facts)
                 ]
+                if not ordinal_allowed:
+                    variants = [v for v in variants if v.family != "ordinal_direction"]
                 supply.append(_SupplyItem(
                     sample_id=sample_id,
                     sequence_id=sequence_id,
@@ -622,6 +643,7 @@ def assemble_run(
                     gt_bbox=list(entry["bbox"]),
                     variants=variants,
                     depth_available=depth_available,
+                    ordinal_allowed=ordinal_allowed,
                 ))
 
     target_supplies = [

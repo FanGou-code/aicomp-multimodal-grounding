@@ -39,6 +39,7 @@ class TargetSupply:
     gt_bbox: list[float]
     realizations: list[Realization]
     depth_available: bool = False
+    ordinal_allowed: bool = True  # capped frames suppress mid-rank ordinals
 
 
 @dataclass
@@ -77,7 +78,11 @@ def plan(supply: list[TargetSupply], spec: dict | None) -> PlanResult:
     used_texts: set[str] = set()
 
     for target in supply:
-        variants = [r for r in target.realizations if r.text.lower() not in used_texts]
+        variants = [
+            r for r in target.realizations
+            if r.text.lower() not in used_texts
+            and (target.ordinal_allowed or r.family != "ordinal_direction")
+        ]
         if not variants:
             result.unallocated.append(
                 {"sample_id": target.sample_id, "source": target.source,
