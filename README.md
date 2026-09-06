@@ -74,6 +74,18 @@ python scripts/run_census.py --split train --limit-sequences 320 \
 python scripts/check_keys.py
 ```
 
+### 人审（census 冒烟/全量，纯本地零 API 调用）
+
+```bash
+python scripts/review_server.py --census-run outputs/census/census_<run_id> --port 8788
+# 浏览器打开 http://127.0.0.1:8788/
+```
+
+教师框以 AI 预标（`glm-4.6v` 署名）预载，人工拖动/缩放调整后实时写回
+`outputs/review/<run_id>/`（journal + 快照，崩溃可恢复）；框不可删除；
+当前帧全部目标经人工核验后计入「整帧核验」。快捷键：`Enter` 核验并跳下一条
+待审、`H/L` 前后翻页、`J/K` 跳 AI 待审、滚轮缩放、拖拽平移。红虚线 = GT 参照框。
+
 ### Phase 2 组装（纯本地，零 API 调用）
 
 ```bash
