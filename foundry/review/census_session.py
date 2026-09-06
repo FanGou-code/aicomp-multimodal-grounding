@@ -9,6 +9,7 @@ seeded, so a restarted server never clobbers a finished review.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -88,53 +89,38 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
     }
 
 
+SUPERLATIVE_PHRASE = {
+    "y2-max": "closest to the camera", "y2-min": "farthest from the camera",
+    "x-min": "on the far left", "x-max": "on the far right",
+    "y-min": "topmost", "y-max": "bottommost",
+}
+ORDINAL_WORD_RE = re.compile(
+    r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b", re.I
+)
+
+
 def _claim_summary(record: dict, facts) -> str:
-    """Human-readable claim sheet: 对象/颜色/特征/序数/方位/深度/面积."""
-    parts = [f"对象:{record['category']}"]
-    if facts.color:
-        parts.append(f"颜色:{facts.color}")
-    if facts.features:
-        parts.append(f"特征:{facts.features}")
-    if facts.rank_left and facts.rank_right:
-        parts.append(
-            f"序数:左起第{facts.rank_left}·右起第{facts.rank_right}(共{facts.count_in_head})"
-        )
-    elif facts.rank_left:
-        parts.append(f"序数:左起第{facts.rank_left}/{facts.count_in_head}")
-    elif facts.rank_right:
-        parts.append(f"序数:右起第{facts.rank_right}/{facts.count_in_head}")
-    sp = []
-    if facts.is_leftmost:
-        sp.append("极左")
-    if facts.is_rightmost:
-        sp.append("极右")
-    if facts.is_topmost:
-        sp.append("最顶")
-    if facts.is_bottommost:
-        sp.append("最底")
-    if facts.side_of_image:
-        sp.append("画幅左侧" if facts.side_of_image == "left" else "画幅右侧")
-    if facts.anchors_left:
-        sp.append(f"在{category_head(facts.anchors_left[0][1])}的左边")
-    if facts.anchors_right:
-        sp.append(f"在{category_head(facts.anchors_right[0][1])}的右边")
-    if sp:
-        parts.append("方位:" + "/".join(sp))
-    dp = []
-    if facts.is_closest:
-        dp.append("最近")
-    if facts.is_farthest:
-        dp.append("最远")
-    if facts.is_in_foreground:
-        dp.append("前景")
-    if facts.is_in_background:
-        dp.append("背景")
-    if facts.median_mm:
-        dp.append(f"{facts.median_mm}mm")
-    if dp:
-        parts.append("深度:" + "/".join(dp))
-    if facts.area_ratio_lead and facts.area_ratio_lead >= 1.5:
-        parts.append(f"面积:同类{facts.area_ratio_lead:.1f}倍")
+    """方向 · 序数 · 带颜色的主体 — 原语言, 严格该顺序, 别无其他."""
+    f = record.get("facts") or []
+    parts = []
+    if f and f[0].startswith("rank:"):
+        if len(f) > 1:
+            parts.append(f[1])  # 方向短语, 如 "from left to right"
+    elif f and f[0] in SUPERLATIVE_PHRASE:
+        parts.append(SUPERLATIVE_PHRASE[f[0]])
+    elif f and f[0] == "image:left":
+        parts.append("left side of the image")
+    elif f and f[0] == "image:right":
+        parts.append("right side of the image")
+    elif f and f[0].startswith("anchor-left:"):
+        parts.append("left of the " + category_head(f[0].split(":")[2]))
+    elif f and f[0].startswith("anchor-right:"):
+        parts.append("right of the " + category_head(f[0].split(":")[2]))
+    m = ORDINAL_WORD_RE.search(record.get("query", ""))
+    if m:
+        parts.append(m.group(1).lower())
+    subject = (facts.color + " " if facts.color else "") + category_head(record["category"])
+    parts.append(subject)
     return " · ".join(parts)
 
 
