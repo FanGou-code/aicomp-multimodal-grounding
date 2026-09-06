@@ -299,35 +299,6 @@ class SeedBatchingTest(unittest.TestCase):
             self.assertIsNone(items["070_00000001#02"]["gt_bbox"])
 
 
-class AssemblySessionCensusFactsTest(unittest.TestCase):
-    """The census-attached assembly path must build claims from frame facts."""
-
-    def test_census_attached_session_builds_fact_claims(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            assembly_path, review_root = make_assembly_manifest(tmp)
-            # Minimal census merged covering the manifest's frame: two passes
-            # agreeing on two objects, one of which is the GT canary.
-            objects = [
-                {"i": 1, "category": "swan", "bbox": [0.10, 0.40, 0.20, 0.60]},
-                {"i": 2, "category": "duck", "bbox": [0.50, 0.40, 0.60, 0.60]},
-            ]
-            frame = {
-                "findall_1": {"status": "completed", "attempts": 1, "error": "", "objects": objects},
-                "findall_2": {"status": "completed", "attempts": 1, "error": "", "objects": objects},
-                "status": "completed", "error": "",
-                "attr": {"1": {"color": "white", "features": "neck curved"}},
-                "agreement": {"matched": 2, "count_a": 2, "count_b": 2, "count_agree": True, "jaccard": 1.0},
-            }
-            census = {"results": {"070": {"status": "completed", "frames": {"070_00000001": frame}}}}
-            session = build_assembly_session(assembly_path, tmp / "data", review_root,
-                                             census_merged=census)
-            items = {i["id"]: i for i in session["items"]}
-            # Claims come from census facts (subject extraction), not the
-            # no-facts fallback string.
-            self.assertFalse(items["070_00000001#01"]["claims"].startswith("对象:"))
-
-
 class MultiCorpusSessionTest(unittest.TestCase):
     """Combined train+val sessions: one server, per-corpus stores."""
 

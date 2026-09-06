@@ -9,7 +9,6 @@ seeded, so a restarted server never clobbers a finished review.
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -17,7 +16,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from foundry.facts import category_head, extract_frame_facts  # noqa: E402
 from foundry.census import trusted_objects  # noqa: E402
 from foundry.io import load_json  # noqa: E402
 from foundry.review.store import AnnotationStore  # noqa: E402
@@ -85,80 +83,14 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
     }
 
 
-SUPERLATIVE_PHRASE = {
-    "y2-max": "closest to the camera", "y2-min": "farthest from the camera",
-    "x-min": "◀◀ far left", "x-max": "far right ▶▶",
-    "y-min": "topmost", "y-max": "bottommost",
-}
-ORDINAL_WORD_RE = re.compile(
-    r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b", re.I
-)
-
-
-def _claim_summary(record: dict, facts) -> str:
-    """方向 · 序数 · 主体 — 主体直接摘自 query 本身, 保证与句子同源."""
-    f = record.get("facts") or []
-    q = record.get("query", "")
-    parts = []
-    if f and f[0].startswith("rank:"):
-        direction = f[1] if len(f) > 1 else ""
-        parts.append("▶" if direction in ("from left to right", "from the left") else "◀")
-    elif f and f[0] in SUPERLATIVE_PHRASE:
-        parts.append(SUPERLATIVE_PHRASE[f[0]])
-    elif f and f[0] == "image:left":
-        parts.append("◀ side of image")
-    elif f and f[0] == "image:right":
-        parts.append("▶ side of image")
-    elif f and f[0].startswith("anchor-left:"):
-        parts.append("◀ of the " + category_head(f[0].split(":")[2]))
-    elif f and f[0].startswith("anchor-right:"):
-        parts.append("▶ of the " + category_head(f[0].split(":")[2]))
-    m = ORDINAL_WORD_RE.search(q)
-    if m:
-        parts.append(m.group(1).lower())
-    # 主体 = query 主语名词短语 (修饰词+头名词), 与句子逐字同源。
-    # 先剥掉方向短语尾巴, 再从前往后收词到头名词为止。
-    q_body = re.sub(
-        r",?\s*(from|to) the (left|right)( to the (left|right))?$",
-        "", q, flags=re.I,
-    )
-    q_body = re.sub(
-        r",?\s*from (left|right) to (left|right)$", "", q_body, flags=re.I,
-    )
-    tokens = q_body.split()
-    stop = {"with", "wearing", "holding", "carrying", "in", "on", "from", "to",
-            "perched", "of", "by", "near", "the", "a", "an", "and"}
-    phrase: list[str] = []
-    for tok in tokens:
-        low = tok.lower()
-        if low in stop and phrase:
-            break
-        phrase.append(tok)
-    subject = " ".join(phrase)
-    if subject[:2].lower() in ("a ", "an"):
-        subject = subject[3:]
-    elif subject[:4].lower() == "the ":
-        subject = subject[4:]
-    parts.append(subject)
-    return " · ".join(parts)
-
-
-def build_assembly_session(
-    assembly_path: Path,
-    data_root: Path,
-    review_root: Path,
-    *,
-    census_merged: dict | None = None,
-) -> dict:
+def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Path) -> dict:
     """Review items from an assembled query manifest (1 sampled frame/sequence).
 
     Each record becomes an item whose query text is the assembled sentence and
     whose seeded box is the assembled bbox (real records carry the organizer
     GT box). Per sequence exactly one selected frame is sampled (deterministic:
     lowest sample_id with records), matching the agreed sampling plan of one
-    reviewed frame per sequence. ``census_merged`` may be passed directly
-    (tests); otherwise the census run referenced by the manifest metadata is
-    loaded for claim facts.
+    reviewed frame per sequence.
     """
     assembly_path = Path(assembly_path)
     data_root = Path(data_root)
@@ -166,12 +98,6 @@ def build_assembly_session(
     metadata = manifest.get("metadata", {})
     split = metadata.get("split", "train")
     index = load_json(data_root / "indexes" / f"{split}.json")
-    if census_merged is None:
-        census_run_id = metadata.get("census_run_id")
-        census_path = Path(PROJECT_ROOT) / "outputs" / "census" / str(census_run_id) / "merged.json"
-        if census_path.is_file():
-            census_merged = load_json(census_path)
-
     by_sequence: dict[str, dict[str, list[dict]]] = {}
     for record in manifest.get("records", []):
         sequence_id = record["sequence_id"]
@@ -197,17 +123,6 @@ def build_assembly_session(
             entry = index.get(sample_id)
             if entry is None:
                 continue
-            facts_by_index = {}
-            if census_merged is not None:
-                seq = census_merged.get("results", {}).get(sequence_id, {})
-                frame = seq.get("frames", {}).get(sample_id, {})
-                if frame.get("status") == "completed":
-                    objects = trusted_objects(frame)
-                    attr = frame.get("attr")
-                    depth = frame.get("depth")
-                    if objects:
-                        frame_facts = extract_frame_facts(objects, entry["bbox"], attr, depth)
-                        facts_by_index = {f.index: f for f in frame_facts}
             stats["frames"] += 1
             for record in records:
                 item_id = f"{sample_id}#{record['object_index']:02d}"
@@ -224,8 +139,6 @@ def build_assembly_session(
                     "bucket": record.get("bucket", ""),
                     "family": record.get("family", ""),
                     "corpus": split,
-                    "claims": _claim_summary(record, facts_by_index[record["object_index"]])
-                    if record["object_index"] in facts_by_index else f"对象:{record['category']}",
                 }
                 meta = existing_meta.get(item_id)
                 if meta is None or meta.get("annotator") == TEACHER_ANNOTATOR:

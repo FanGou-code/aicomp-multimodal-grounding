@@ -56,6 +56,20 @@
 
 ## 交接日志
 
+### 2026-09-07（人审器:声明行整体退役）
+
+- **动因**：管理员批量修订 query 期间,声明行（◀ · 序数 · 主体）的主体段即
+  query 原文复读,整行失去信息量,明示「可以去了,已经没有用了」。
+- **拆除**：前端 query-claims 元素与渲染、saveQueryEdit 里的主体重摘回写块、
+  server payload 的 claims 字段、`build_assembly_session` 的声明行事实机制
+  （_claim_summary/SUPERLATIVE_PHRASE/ORDINAL_WORD_RE + census merged 装载 +
+  extract_frame_facts 调用——它们只为声明行存在）,以及上一轮为此加的
+  census_merged 参数与回归测试。本轮语料会话项上的全部 corpus/多语料能力
+  不受影响。
+- **验证**：113 项测试全绿（-1 claims 回归测试随功能退役）;node --check 通过;
+  全仓无 claims 残留引用。
+
+### 2026-09-07（人审器多语料单端口 + 文本编辑键盘流；语料定版 r5 收尾）
 ### 2026-09-07（人审器多语料单端口 + 文本编辑键盘流；语料定版 r5 收尾）
 
 - **动因**：管理员要求一个端口同时审 train/val/合集以便统一修正、键盘化

@@ -529,10 +529,6 @@
     } else {
       dom.queryEnText.textContent = item.query_en || '';
     }
-    const claimsEl = document.getElementById('query-claims');
-    if (claimsEl) {
-      claimsEl.textContent = item.claims || '';
-    }
 
     // Recalculate canvas size immediately to account for any height shifts in the query panel
     resizeCanvas(false);
@@ -1215,29 +1211,6 @@
       }
       item.query_en = fresh;
       el.dataset.original = fresh;
-      // 声明主体与新 query 同源刷新(方向/序数部分不变)
-      if (item.claims) {
-        const seg = item.claims.split('·');
-        const dir = seg[0] && /[◀▶]/.test(seg[0]) ? seg[0].trim() + ' · ' : '';
-        const ord = seg.length >= 3 ? seg[1].trim() + ' · ' : (seg[1] ? seg[1].trim() + ' · ' : '');
-        const toks = fresh.split();
-        const stop = new Set(['with','wearing','holding','carrying','in','on','from','to','perched','of','by','near','the','a','an','and']);
-        const phrase = [];
-        for (const tok of toks) {
-          const low = tok.toLowerCase();
-          if (stop.has(low) && phrase.length) break;
-          phrase.push(tok);
-        }
-        let subj = phrase.join(' ');
-        if (subj.toLowerCase().startsWith('a ')) subj = subj.slice(2);
-        else if (subj.toLowerCase().startsWith('an ')) subj = subj.slice(3);
-        else if (subj.toLowerCase().startsWith('the ')) subj = subj.slice(4);
-        const ordPart = /\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/i.test(fresh)
-          ? (fresh.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/i)[1].toLowerCase() + ' · ') : '';
-        item.claims = dir + ordPart + subj;
-        const claimsEl = document.getElementById('query-claims');
-        if (claimsEl) claimsEl.textContent = item.claims;
-      }
       showToast('query 已更新', 'success');
     } catch (err) {
       showToast('query 保存失败: ' + err.message, 'error');

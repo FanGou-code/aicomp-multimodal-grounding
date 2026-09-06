@@ -96,7 +96,6 @@ class AnnotatorState:
                     "bucket": item.get("bucket", ""),
                     "category": item.get("category", ""),
                     "corpus": item.get("corpus", ""),
-                    "claims": item.get("claims", ""),
                 }
             )
         frames: dict[str, list[dict]] = {}
