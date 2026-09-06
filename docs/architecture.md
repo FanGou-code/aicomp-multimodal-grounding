@@ -29,7 +29,7 @@ outputs/assembly/<tag>/assembly.json ──→ 文本 QC（foundry/text_qc，引
 | --- | --- | --- |
 | `foundry/census.py` | 普查协议：提示词、响应解析、确定性门、坐标约定识别、`trusted_objects`（帧级可信对象集的唯一实现） | 冻结于 `spec/census_protocol.md`（提示词指纹由 `tests/test_census.py` 机器校验） |
 | `foundry/depth.py` | 深度事实：原始 uint16 毫米图 → 对象中值/排名/前后景分带（零图片落仓） | 冻结于 `spec/census_protocol.md` |
-| `foundry/review/` | 人审工具（vendor 自 gt-annotator，MIT）：崩溃安全 journal/snapshot 存储 + 审查服务；教师框以 AI 预标播种（`seed_many` 批量，幂等不覆盖人审），框不可删；gt-annotator 的判空/翻译/多人协作语义已清除（journal 重放仍容忍历史 absent 记录） | `scripts/review_server.py` 入口 |
+| `foundry/review/` | 人审工具（vendor 自 gt-annotator，MIT）：崩溃安全 journal/snapshot 存储 + 审查服务；教师框以 AI 预标播种（`seed_many` 批量，幂等不覆盖人审），框不可删；`--assembly` 可传多个清单合并 train+val 会话（store 按语料分目录、写按 corpus 路由，前端 [全部\|train\|val] 切换范围）；gt-annotator 的判空/翻译/多人协作语义已清除（journal 重放仍容忍历史 absent 记录） | `scripts/review_server.py` 入口 |
 | `foundry/assembly.py` | 组装器：句族实现 + 唯一性门 + 目标选择；事实提取在 `facts.py`，桶分类在 `buckets.py` | 稳定 |
 | `foundry/facts.py` | 数据层：`ObjectFacts`/`Realization` 类型 + `extract_frame_facts` 事实提取 | 稳定 |
 | `foundry/text_qc.py` | 文本 QC：冠词引擎（KEEP/复数物质词表/EXCEPTIONS 裁决数据）+ `spec/text_qc_echo_table.json` 冻结 echo 裁决表（item_id+before 精确回放）；`assemble_queries.py` 在规划后应用并落盘 `text_edits.json` | 冻结数据，改须管理员确认 |

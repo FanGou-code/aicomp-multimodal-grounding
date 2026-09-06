@@ -148,6 +148,21 @@ body, html {
   font-family: var(--font-mono);
 }
 
+.corpus-switch {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.corpus-switch .btn {
+  opacity: 0.55;
+}
+
+.corpus-switch .btn.active {
+  opacity: 1;
+  background: var(--accent-primary);
+  color: #fff;
+}
+
 .header-center {
   flex: 1;
   max-width: 360px;

@@ -42,15 +42,31 @@ STATIC_TYPES = {
 
 
 class AnnotatorState:
-    """Immutable per-run context shared across request handler threads."""
+    """Immutable per-run context shared across request handler threads.
 
-    def __init__(self, *, session: dict, images_root: Path, store: AnnotationStore) -> None:
+    ``stores`` maps corpus ("train"/"val") to its crash-safe store, so a
+    combined multi-assembly session keeps each split's journal where it has
+    always lived and read/write routes by the item's corpus.
+    """
+
+    def __init__(
+        self,
+        *,
+        session: dict,
+        images_root: Path,
+        stores: dict[str, AnnotationStore],
+        corpus_of: dict[str, str],
+    ) -> None:
         self.session = session
         self.images_root = Path(images_root).resolve()
         self.items = session["items"]
         self.item_by_id = {item["id"]: item for item in self.items}
         self.image_paths = {item["image"] for item in self.items}
-        self.store = store
+        self.stores = stores
+        self.corpus_of = corpus_of
+
+    def store_for(self, item_id: str) -> AnnotationStore:
+        return self.stores[self.corpus_of[item_id]]
 
     def _is_human(self, annotator: object) -> bool:
         return (
@@ -63,21 +79,23 @@ class AnnotatorState:
     def session_payload(self) -> dict:
         payload_items = []
         for item in self.items:
-            meta = self.store.meta(item["id"]) or {}
-            edited_query = self.store.get_query(item["id"])
+            store = self.store_for(item["id"])
+            meta = store.meta(item["id"]) or {}
+            edited_query = store.get_query(item["id"])
             payload_items.append(
                 {
                     "id": item["id"],
                     "image_url": "/image?src=" + quote(item["image"]),
                     "query_en": edited_query or item["query"],
                     "query_edited": edited_query is not None,
-                    "bbox": self.store.get(item["id"]),
+                    "bbox": self.store_for(item["id"]).get(item["id"]),
                     "annotator": meta.get("annotator"),
                     "ordinal": item["ordinal"],
                     "frame_id": item["frame_id"],
                     "gt_bbox": item["gt_bbox"],
                     "bucket": item.get("bucket", ""),
                     "category": item.get("category", ""),
+                    "corpus": item.get("corpus", ""),
                     "claims": item.get("claims", ""),
                 }
             )
@@ -208,7 +226,7 @@ class AnnotationHandler(BaseHTTPRequestHandler):
                 {"error": "annotator (non-empty string, max 64 chars) is required in review mode"},
                 400,
             )
-        saved = self.state.store.set(item_id, bbox, annotator.strip())
+        saved = self.state.store_for(item_id).set(item_id, bbox, annotator.strip())
         return self._send_json({"id": item_id, "bbox": saved, "annotated": True})
 
     def _handle_put_query(self, item_id: str) -> None:
@@ -224,7 +242,7 @@ class AnnotationHandler(BaseHTTPRequestHandler):
         annotator = body.get("annotator")
         if not isinstance(annotator, str) or not annotator.strip() or len(annotator) > 64:
             return self._send_json({"error": "annotator required"}, 400)
-        stored = self.state.store.set_query(item_id, query.strip(), annotator.strip())
+        stored = self.state.store_for(item_id).set_query(item_id, query.strip(), annotator.strip())
         return self._send_json({"id": item_id, "query": stored, "annotator": annotator.strip()})
 
     @staticmethod
@@ -257,30 +275,64 @@ class AnnotationHandler(BaseHTTPRequestHandler):
 
 def create_server(
     *,
-    census_run_dir: str | Path,
+    census_run_dir: str | Path | None = None,
     data_root: str | Path,
     review_root: str | Path,
-    assembly_path: str | Path | None = None,
+    assembly_path: str | Path | list[str | Path] | None = None,
     host: str = "127.0.0.1",
     port: int = 0,
 ) -> tuple[ThreadingHTTPServer, AnnotatorState]:
+    """Build the review server.
+
+    ``assembly_path`` takes one assembly manifest (unchanged behaviour) or a
+    list of them — a combined train+val session. Each split keeps its own
+    crash-safe store directory, so existing review progress carries over
+    untouched; writes route by the item's corpus.
+    """
     if assembly_path is not None:
-        session = build_assembly_session(Path(assembly_path), Path(data_root), Path(review_root))
+        paths = [assembly_path] if isinstance(assembly_path, (str, Path)) else list(assembly_path)
+        sessions = [build_assembly_session(Path(p), Path(data_root), Path(review_root)) for p in paths]
     else:
-        session = build_census_session(Path(census_run_dir), Path(data_root), Path(review_root))
+        sessions = [build_census_session(Path(census_run_dir), Path(data_root), Path(review_root))]
+
+    items: list[dict] = []
+    stores: dict[str, AnnotationStore] = {}
+    corpus_of: dict[str, str] = {}
+    for session in sessions:
+        for item in session["items"]:
+            items.append(item)
+            corpus_of[item["id"]] = item["corpus"]
+        split = session["split"]
+        if split in stores:
+            raise ValueError(f"multiple assemblies declare the same split: {split}")
+        stores[split] = session["store"]
+
+    session = {
+        "name": " + ".join(s["name"] for s in sessions),
+        "items": items,
+        "stats": {
+            key: sum(s["stats"][key] for s in sessions)
+            for key in ("seeded", "frames", "already_seeded")
+        },
+        "stores": stores,
+    }
+    if len(sessions) == 1:
+        session["store"] = sessions[0]["store"]  # single-corpus back-compat
+        session["census_run_id"] = sessions[0].get("census_run_id")
+
     images_root = Path(data_root).resolve()
     server = ThreadingHTTPServer((host, port), AnnotationHandler)
     server.daemon_threads = True
     server.annotator_state = AnnotatorState(
-        session=session, images_root=images_root, store=session["store"]  # type: ignore[arg-type]
+        session=session, images_root=images_root, stores=stores, corpus_of=corpus_of
     )
-    return server, server.annotator_state  # type: ignore[return-value]
+    return server, server.annotator_state
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="census review server (gt-annotator adapted)")
     parser.add_argument("--census-run", help="census run dir with merged.json (box review mode)")
-    parser.add_argument("--assembly", help="assembly.json path (query review mode); overrides --census-run")
+    parser.add_argument("--assembly", nargs="+", help="assembly.json path(s); several = combined session")
     parser.add_argument("--data-root", default=PROJECT_ROOT / "data")
     parser.add_argument("--review-root", default=PROJECT_ROOT / "outputs" / "review")
     parser.add_argument("--host", default="127.0.0.1")

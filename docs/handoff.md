@@ -11,15 +11,18 @@
   → 组装（教师目标不限量全收，`--max-teacher-per-frame -1`）→ 文本 QC（已折进
   组装器：`foundry/text_qc.py` 引擎 + `spec/text_qc_echo_table.json` 冻结表）→
   全量人审（审查器，query 可编辑）。
-- **当前语料**：train 2,730 条 / 913 帧（`asm-train-r4`）+ val 736 条 / 233 帧
-  （`asm-val-r4`）= 3,466 条（设计量 3,600 的 96%）。**已知缺口：r4 放量重组装
-  时 head-echo 人工裁决（train 45 + val 3 条）未重放**，这 48 条在盘文本与
-  `text_edits.json` 裁决自相矛盾；修复后管线的完整重放产物在
-  `outputs/assembly/asm-{train,val}-r5-verify/`（item id 与 r4 一致，人审进度
-  可直接沿用），切换与否待管理员定夺。
-- **人审进度**（outputs/review/）：train 65 条已核验 + 5 条待办（reviewer 署名
-  真实有效），val 未开始；种子全部 glm-4.6v 署名。store 重放修复后，历史
-  query 编辑记录在下次启动时按 journal 正确重放（人工框自动恢复，无需补救）。
+- **当前语料（定版 r5，2026-09-07 管理员拍板）**：train 2,730 条 / 913 帧
+  （`asm-train-r5`）+ val 736 条 / 233 帧（`asm-val-r5`）= 3,466 条（设计量
+  3,600 的 94.9%）。r5 = 放量重组装 + 文本 QC 完整重放（echo 裁决 48 条落
+  地，item id 与 r4 一致）；r4 保留为存档（echo 缺口的历史证据，110 条人工
+  裁决的原始上下文）。
+- **人审进度**（outputs/review/，已随迁至 asm-*-r5 目录）：train 110 条人工
+  记录（bbox 117 次 + query 编辑 24 次）已核验 65 + 待办 5，整帧核验 30；
+  val 未开始。store 重放修复后，历史 query 编辑按 journal 正确重放。
+- **审查器当前能力**：`--assembly` 可传多个清单合并 train+val 同时审（store
+  按语料分目录、写按 corpus 路由，进度目录 asm-*-r5 直接沿用）；前端顶栏
+  [全部|train|val] 范围切换，进度/跳转/搜索按范围计算；`E` 进 query 编辑框，
+  编辑框内 `Ctrl+F/B/A/E/K` linux 光标键，`Enter` 存退、`Esc` 放弃。
 - **规范化轮（2026-09-07，本轮）**：审查器两处实质 bug 修复——① store 日志
   重放把「只改 query」记录当删除处理，人工框在重启/热重载后被抹掉并被教师
   种子覆盖（journal 是追加账本，修复重放即追溯治愈，无需迁移）；② 启动播种
@@ -37,11 +40,11 @@
 - **两个既有 census run 的用途**：`census_da571f4a3c91eb22`（train，含
   enumeration.json）与 `census_c85c9d9b1c74bf85`（val，含 enumeration.json）——
   merged.json + enumeration.json 是组装器的事实源，**不许删**。
-- **审查器启动**（管理员自管进程）：
-  `python scripts/review_server.py --assembly outputs/assembly/asm-train-r4/assembly.json --port 8788`
-  （val 用 asm-val-r4 + 8789）。声明行 = 方向箭头 ◀▶ · 序数词 · 主体（从 query
-  逐字摘取）。Enter 核验 / P 进待办 / query 输入框直接改。判空（X）/清除
-  （Esc/DELETE）与翻译层已移除。
+- **审查器启动**（管理员自管进程，train+val 合并会话）：
+  `python scripts/review_server.py --assembly outputs/assembly/asm-train-r5/assembly.json outputs/assembly/asm-val-r5/assembly.json --port 8788`
+  （也可只传一个清单；val 单开用 asm-val-r5 + 8789）。声明行 = 方向箭头 ◀▶ ·
+  序数词 · 主体（从 query 逐字摘取）。Enter 核验 / E 进编辑框 / P 进待办 /
+  顶栏 [全部|train|val] 切范围。判空（X）/清除（Esc/DELETE）与翻译层已移除。
 - **下一步**：① 管理员定夺 echo 重放缺口（切 r5-verify 或维持 r4 现状续审）
   → 处理 :todo 清单（补数计数上下文消歧或废弃）→ 人工 query 修改合并 → 快照
   → approved 产物包 → 主仓合同校验 → α32 重训（主仓 SOP）。
@@ -53,6 +56,34 @@
 
 ## 交接日志
 
+### 2026-09-07（人审器多语料单端口 + 文本编辑键盘流；语料定版 r5 收尾）
+
+- **动因**：管理员要求一个端口同时审 train/val/合集以便统一修正、键盘化
+  query 修订流程（大部分时间只改几个词，不想一直动鼠标），并对齐
+  gt-annotator 不过度设计。
+- **多语料会话**：`--assembly` 接受多个清单（`nargs="+"`），合并为单一会话
+  （train 在前 val 在后，id 天然不重叠，同 split 重复即报错）；条目带
+  `corpus` 字段；**store 按语料分目录**（asm-train-r5 / asm-val-r5 各自的
+  journal 原地沿用，零迁移），读写按 corpus 路由。前端顶栏
+  [全部|train|val] 切换（localStorage 记忆），进度条/整帧核验/跳转/搜索/
+  滑杆/G 首尾全部按所选范围计算。实测合并会话 3,466 条（train 2,730 +
+  val 736），human_annotated=110 / reviewed_frames=30 原样可见。
+- **文本编辑键盘流**：`E` 聚焦 query 编辑框（光标落句尾）；编辑框内
+  `Ctrl+F/B` 前后移光标、`Ctrl+A/E` 行首/行尾、`Ctrl+K` 删到行尾（keydown
+  preventDefault 拦截浏览器查找，仅在编辑框内生效）；`Enter` 保存并退出
+  （blur 双写由 saveQueryEdit 的原值守卫天然去重）；`Esc` 恢复原文本退出。
+  退出后既有导航/核验快捷键即刻恢复。标准循环 = E 改词 → Enter 存退 →
+  Enter 核验，全程零鼠标。帮助弹窗与页脚快捷键提示同步。
+- **清理（管理员批准）**：删除 `asm-*-r5-verify/`（与 r5 逐字节相同）、空
+  `outputs/annotations/`、/tmp 的 fix_articles.py（已迁入 foundry/text_qc.py
+  且机器比对一致）与旧桥接 handoff 文档。保留：两个 census run、r4 存档、
+  keys、data 索引。
+- **验证**：114 项测试全绿（+2 多语料回归：合并会话 corpus 标签/路由、
+  重复 split 拒绝）；node --check 通过；8790 起合并服务实测（session 计数/
+  标签/进度均正确）后即关闭。
+- **下一步**：管理员以合并命令续审 r5 → :todo 清单 → R6 打包链。
+
+### 2026-09-07（语料定版 r5：echo 重放缺口采纳修复版；人审进度随迁；第四份内联副本补刀）
 ### 2026-09-07（语料定版 r5：echo 重放缺口采纳修复版；人审进度随迁；第四份内联副本补刀）
 
 - **管理员定夺**：采纳完整 QC 重放语料（三选一「丢弃 48 条」经评估放弃——

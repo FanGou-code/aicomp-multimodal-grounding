@@ -13,6 +13,7 @@
   // --- Constants & Storage Keys ---
   const STORAGE_KEY_ANNOTATOR = 'gt_annotator_name';
   const STORAGE_KEY_LAST_ITEM_ID = 'gt_last_item_id';
+  const STORAGE_KEY_CORPUS = 'gt_corpus_filter';
   const MIN_BOX_SIZE_PX = 4; // Minimum drag size in natural image pixels to avoid zero-area boxes
   const HANDLE_RADIUS_SCREEN = 7; // Radius of resize handles in canvas screen pixels
   const IMAGE_CACHE_CAPACITY = 50; // Maximum cached images in LRU cache to prevent memory explosion
@@ -65,6 +66,7 @@
     currentIndex: 0,
     annotator: localStorage.getItem(STORAGE_KEY_ANNOTATOR) || '',
     reviewMode: false,
+    corpusFilter: 'all',
     
     // Cached Images with LRU eviction
     imageCache: new ImageLRUCache(IMAGE_CACHE_CAPACITY),
@@ -103,6 +105,7 @@
     progressText: document.getElementById('progress-text'),
     imageProgressText: document.getElementById('image-progress-text'),
     progressBarFill: document.getElementById('progress-bar-fill'),
+    corpusSwitch: document.getElementById('corpus-switch'),
     seekSlider: document.getElementById('seek-slider'),
     seekPreview: document.getElementById('seek-preview'),
     jumpInput: document.getElementById('jump-input'),
@@ -216,6 +219,16 @@
       state.items = data.items || [];
       state.reviewMode = data.mode === 'census-review';
 
+      // Corpus switch labels: 全部 (N) / train (N) / val (N)
+      state.corpusFilter = localStorage.getItem(STORAGE_KEY_CORPUS) || 'all';
+      const counts = {};
+      state.items.forEach(it => { counts[it.corpus] = (counts[it.corpus] || 0) + 1; });
+      dom.corpusSwitch.querySelectorAll('button').forEach(b => {
+        const c = b.dataset.corpus;
+        b.textContent = c === 'all' ? `全部 (${state.items.length})` : `${c} (${counts[c] || 0})`;
+        b.classList.toggle('active', c === state.corpusFilter);
+      });
+
       dom.manifestBadge.textContent = state.manifest;
 
       // Resolve initial item index with 3-tier precedence:
@@ -238,6 +251,7 @@
         initialIdx = firstTodoIdx >= 0 ? firstTodoIdx : 0;
       }
       state.currentIndex = initialIdx >= 0 ? initialIdx : 0;
+      state.currentIndex = nearestVisibleIndex(state.currentIndex);
       
       updateOverallProgress();
       renderCurrentItem();
@@ -252,11 +266,12 @@
   // --- Progress Updates ---
   function updateOverallProgress() {
     if (state.reviewMode) {
-      const total = state.items.length;
+      const scoped = state.items.filter(itemVisible);
+      const total = scoped.length;
       let humanCount = 0;
       let needsCount = 0;
       const frames = new Map();
-      state.items.forEach(it => {
+      scoped.forEach(it => {
         const ann = it.annotator || '';
         const isNeeds = !!ann && ann.endsWith(':todo');
         const isHuman = !!it.bbox && !!ann && !isAiAnnotator(ann) && !isNeeds;
@@ -300,40 +315,82 @@
     renderCurrentItem();
   }
 
+  // --- Corpus filter (all / train / val) ---
+  function itemVisible(it) {
+    return state.corpusFilter === 'all' || it.corpus === state.corpusFilter;
+  }
+
+  function visibleIndices() {
+    const out = [];
+    state.items.forEach((it, i) => { if (itemVisible(it)) out.push(i); });
+    return out;
+  }
+
+  function visiblePos(index) {
+    // 1-based position of index within the visible list; 0 when hidden.
+    if (!itemVisible(state.items[index] || {})) return 0;
+    let pos = 0;
+    for (let i = 0; i <= index; i++) if (itemVisible(state.items[i])) pos++;
+    return pos;
+  }
+
+  function nearestVisibleIndex(fromIndex) {
+    if (itemVisible(state.items[fromIndex] || {})) return fromIndex;
+    const vis = visibleIndices();
+    if (!vis.length) return 0;
+    let best = vis[0];
+    for (const i of vis) if (Math.abs(i - fromIndex) < Math.abs(best - fromIndex)) best = i;
+    return best;
+  }
+
+  function setCorpusFilter(corpus) {
+    state.corpusFilter = corpus;
+    localStorage.setItem(STORAGE_KEY_CORPUS, corpus);
+    dom.corpusSwitch.querySelectorAll('button').forEach(b =>
+      b.classList.toggle('active', b.dataset.corpus === corpus));
+    state.currentIndex = nearestVisibleIndex(state.currentIndex);
+    updateOverallProgress();
+    renderCurrentItem();
+  }
+
   function nextItem() {
-    if (state.currentIndex < state.items.length - 1) {
-      goToIndex(state.currentIndex + 1);
-    } else {
-      showToast('已是最后一条', 'info');
+    for (let i = state.currentIndex + 1; i < state.items.length; i++) {
+      if (itemVisible(state.items[i])) {
+        goToIndex(i);
+        return;
+      }
     }
+    showToast('已是当前范围最后一条', 'info');
   }
 
   function prevItem() {
-    if (state.currentIndex > 0) {
-      goToIndex(state.currentIndex - 1);
-    } else {
-      showToast('已是第一条', 'info');
+    for (let i = state.currentIndex - 1; i >= 0; i--) {
+      if (itemVisible(state.items[i])) {
+        goToIndex(i);
+        return;
+      }
     }
+    showToast('已是当前范围第一条', 'info');
   }
 
   function findNextUnannotated(fromIndex = state.currentIndex) {
     for (let i = fromIndex + 1; i < state.items.length; i++) {
-      if (!state.items[i].bbox && !state.items[i].annotator) return i;
+      if (itemVisible(state.items[i]) && !state.items[i].bbox && !state.items[i].annotator) return i;
     }
     // wrap around
     for (let i = 0; i <= fromIndex; i++) {
-      if (!state.items[i].bbox && !state.items[i].annotator) return i;
+      if (itemVisible(state.items[i]) && !state.items[i].bbox && !state.items[i].annotator) return i;
     }
     return -1;
   }
 
   function findPrevUnannotated(fromIndex = state.currentIndex) {
     for (let i = fromIndex - 1; i >= 0; i--) {
-      if (!state.items[i].bbox && !state.items[i].annotator) return i;
+      if (itemVisible(state.items[i]) && !state.items[i].bbox && !state.items[i].annotator) return i;
     }
     // wrap around
     for (let i = state.items.length - 1; i >= fromIndex; i--) {
-      if (!state.items[i].bbox && !state.items[i].annotator) return i;
+      if (itemVisible(state.items[i]) && !state.items[i].bbox && !state.items[i].annotator) return i;
     }
     return -1;
   }
@@ -342,7 +399,7 @@
     const nextIdx = findNextUnannotated();
     if (nextIdx !== -1 && nextIdx !== state.currentIndex) {
       goToIndex(nextIdx);
-    } else if (state.items.every(it => it.bbox || it.annotator)) {
+    } else if (state.items.every(it => !itemVisible(it) || it.bbox || it.annotator)) {
       showToast('🎉 所有条目已标注完毕！', 'success');
     } else {
       showToast('已是最后一条未标注', 'info');
@@ -363,25 +420,27 @@
     if (!query || !query.trim()) return;
     const q = query.trim().toLowerCase();
 
-    // 0. "#N" → jump to ordinal item N (1-based)
+    // 0. "#N" → jump to ordinal item N within the visible range (1-based)
+    const vis = visibleIndices();
     if (q.startsWith('#')) {
       const n = parseInt(q.slice(1), 10);
-      if (Number.isInteger(n) && n >= 1 && n <= state.items.length) {
-        goToIndex(n - 1);
-        showToast(`已跳转到第 ${n} 条 (${state.items[n - 1].id})`, 'info');
+      if (Number.isInteger(n) && n >= 1 && n <= vis.length) {
+        goToIndex(vis[n - 1]);
+        showToast(`已跳转到第 ${n} 条 (${state.items[vis[n - 1]].id})`, 'info');
         dom.jumpInput.value = '';
       } else {
-        showToast(`序数超出范围: 1 ~ ${state.items.length}`, 'error');
+        showToast(`序数超出范围: 1 ~ ${vis.length}`, 'error');
       }
       return;
     }
 
     // 1. Match item ID exact or prefix
-    let targetIdx = state.items.findIndex(it => it.id.toLowerCase() === q || it.id.toLowerCase().startsWith(q));
+    let targetIdx = state.items.findIndex(it => itemVisible(it) && (it.id.toLowerCase() === q || it.id.toLowerCase().startsWith(q)));
 
     // 2. Match image filename
     if (targetIdx === -1) {
       targetIdx = state.items.findIndex(it => {
+        if (!itemVisible(it)) return false;
         try {
           const urlObj = new URL(it.image_url, window.location.origin);
           const srcParam = urlObj.searchParams.get('src') || it.image_url;
@@ -396,12 +455,12 @@
     // 3. Pure digits that matched nothing → treat as ordinal
     if (targetIdx === -1 && /^\d+$/.test(q)) {
       const n = parseInt(q, 10);
-      if (n >= 1 && n <= state.items.length) {
-        goToIndex(n - 1);
-        showToast(`未匹配到 id/图号，已按序数跳到第 ${n} 条 (${state.items[n - 1].id})`, 'info');
+      if (n >= 1 && n <= vis.length) {
+        goToIndex(vis[n - 1]);
+        showToast(`未匹配到 id/图号，已按序数跳到第 ${n} 条 (${state.items[vis[n - 1]].id})`, 'info');
         dom.jumpInput.value = '';
       } else {
-        showToast(`未找到匹配，且序数超出范围: 1 ~ ${state.items.length}`, 'error');
+        showToast(`未找到匹配，且序数超出范围: 1 ~ ${vis.length}`, 'error');
       }
       return;
     }
@@ -424,13 +483,14 @@
     state.activeBbox = item.bbox ? [...item.bbox] : null;
 
     // Header & Meta Info
-    dom.itemIndexDisplay.textContent = `Item #${state.currentIndex + 1} / ${state.items.length}`;
+    const pos = visiblePos(state.currentIndex);
+    dom.itemIndexDisplay.textContent = `Item #${pos} / ${visibleIndices().length}`;
     dom.currentIdBadge.textContent = `ID: ${item.id}`;
 
     // Seek slider position sync
     if (dom.seekSlider) {
-      dom.seekSlider.max = String(state.items.length);
-      dom.seekSlider.value = String(state.currentIndex + 1);
+      dom.seekSlider.max = String(visibleIndices().length);
+      dom.seekSlider.value = String(pos);
     }
     
     if (item.bbox) {
@@ -1216,7 +1276,7 @@
   // --- Pending-item Jump (button + post-save smart jump) ---
   function goToPrevAi() {
     for (let i = state.currentIndex - 1; i >= 0; i--) {
-      if (isAiPendingItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isAiPendingItem(state.items[i])) {
         goToIndex(i);
         return;
       }
@@ -1226,7 +1286,7 @@
 
   function goToNextAi() {
     for (let i = state.currentIndex + 1; i < state.items.length; i++) {
-      if (isAiPendingItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isAiPendingItem(state.items[i])) {
         goToIndex(i);
         return;
       }
@@ -1239,14 +1299,14 @@
     // Any item without a human-verified bounding box is a todo
     // (unannotated, AI-pending box, AI absence, or human provisional absence).
     for (let i = state.currentIndex + 1; i < state.items.length; i++) {
-      if (isTodoItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isTodoItem(state.items[i])) {
         goToIndex(i);
         return;
       }
     }
     // Wrap around to search from the beginning up to the current item
     for (let i = 0; i < state.currentIndex; i++) {
-      if (isTodoItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isTodoItem(state.items[i])) {
         goToIndex(i);
         return;
       }
@@ -1340,13 +1400,24 @@
 
     if (e.key === 'g') {
       e.preventDefault();
-      goToIndex(0);
+      const vis = visibleIndices();
+      if (vis.length) goToIndex(vis[0]);
       return;
     }
 
     if (e.key === 'G') {
       e.preventDefault();
-      goToIndex(state.items.length - 1);
+      const vis = visibleIndices();
+      if (vis.length) goToIndex(vis[vis.length - 1]);
+      return;
+    }
+
+    if (e.key === 'e' || e.key === 'E') {
+      // Edit the query text without touching the mouse; caret at the tail.
+      e.preventDefault();
+      dom.queryEnText.focus();
+      const end = dom.queryEnText.value.length;
+      dom.queryEnText.setSelectionRange(end, end);
       return;
     }
 
@@ -1443,9 +1514,31 @@
     dom.saveBtn.addEventListener('click', submitCurrent);
     if (dom.queryEnText) {
       dom.queryEnText.addEventListener('keydown', (e) => {
+        const el = dom.queryEnText;
+        if (e.ctrlKey && !e.altKey && !e.metaKey) {
+          // readline-style cursor motion inside the edit box
+          const pos = el.selectionStart ?? el.value.length;
+          const move = (target) => el.setSelectionRange(target, target);
+          const k = e.key.toLowerCase();
+          if (k === 'f') { e.preventDefault(); move(Math.min(el.value.length, pos + 1)); return; }
+          if (k === 'b') { e.preventDefault(); move(Math.max(0, pos - 1)); return; }
+          if (k === 'a') { e.preventDefault(); move(0); return; }
+          if (k === 'e') { e.preventDefault(); move(el.value.length); return; }
+          if (k === 'k') { e.preventDefault(); el.value = el.value.slice(0, pos); move(el.value.length); return; }
+        }
         if (e.key === 'Enter') {
+          // 保存并退出编辑: 焦点回画布, 导航快捷键即刻恢复
           e.preventDefault();
           saveQueryEdit();
+          el.blur();
+          return;
+        }
+        if (e.key === 'Escape') {
+          // 放弃修改: 恢复进入编辑前的文本, 不落 journal
+          e.preventDefault();
+          el.value = el.dataset.original || '';
+          el.blur();
+          return;
         }
         e.stopPropagation();
       });
@@ -1455,18 +1548,25 @@
     // Jump Input
     dom.jumpBtn.addEventListener('click', () => jumpToImage(dom.jumpInput.value));
 
+    // Corpus Switch
+    dom.corpusSwitch.querySelectorAll('button').forEach(b =>
+      b.addEventListener('click', () => setCorpusFilter(b.dataset.corpus)));
+
     // Seek Slider: floating preview while dragging (zero layout shift), jump on release
     dom.seekSlider.addEventListener('input', () => {
-      const idx = parseInt(dom.seekSlider.value, 10) - 1;
+      const vis = visibleIndices();
+      const idx = vis[parseInt(dom.seekSlider.value, 10) - 1];
       const item = state.items[idx];
       if (item) {
-        dom.seekPreview.textContent = `第 ${idx + 1} / ${state.items.length} 条 · ${item.id}`;
+        dom.seekPreview.textContent = `第 ${dom.seekSlider.value} / ${vis.length} 条 · ${item.id}`;
         dom.seekPreview.classList.remove('hidden');
       }
     });
     dom.seekSlider.addEventListener('change', () => {
       dom.seekPreview.classList.add('hidden');
-      goToIndex(parseInt(dom.seekSlider.value, 10) - 1);
+      const vis = visibleIndices();
+      const idx = vis[parseInt(dom.seekSlider.value, 10) - 1];
+      if (idx !== undefined) goToIndex(idx);
     });
 
     // Annotator Input

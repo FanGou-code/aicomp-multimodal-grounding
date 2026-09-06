@@ -221,26 +221,29 @@ class StoreReplayTest(unittest.TestCase):
             self.assertIsNone(replay2.meta("f#01"))
 
 
-def make_assembly_manifest(tmp: Path) -> tuple[Path, Path]:
+def make_assembly_manifest(tmp: Path, split: str = "train") -> tuple[Path, Path]:
     """Minimal assembly manifest + dataset index with one frame, two records."""
+    sample = "070_00000001" if split == "train" else "004_00000001"
+    sequence = sample.split("_")[0]
     index_dir = tmp / "data" / "indexes"
     index_dir.mkdir(parents=True, exist_ok=True)
-    (index_dir / "train.json").write_text(
-        json.dumps({"070_00000001": {"visible": "Train/070/color/00000001.png",
-                                     "bbox": [0.10, 0.40, 0.20, 0.60]}}),
+    (index_dir / f"{split}.json").write_text(
+        json.dumps({sample: {"visible": f"Train/{sequence}/color/00000001.png",
+                             "bbox": [0.10, 0.40, 0.20, 0.60]}}),
         encoding="utf-8",
     )
     records = [
-        {"sequence_id": "070", "sample_id": "070_00000001", "object_index": 1,
+        {"sequence_id": sequence, "sample_id": sample, "object_index": 1,
          "query": "the white swan on the left side of the image", "bbox": [0.10, 0.40, 0.20, 0.60],
          "source": "real", "category": "swan", "bucket": "spatial"},
-        {"sequence_id": "070", "sample_id": "070_00000001", "object_index": 2,
+        {"sequence_id": sequence, "sample_id": sample, "object_index": 2,
          "query": "a duck closest to the camera", "bbox": [0.50, 0.40, 0.60, 0.60],
          "source": "teacher", "category": "duck", "bucket": "distance"},
     ]
-    assembly_path = tmp / "assembly.json"
+    assembly_path = tmp / f"assembly-{split}.json"
     assembly_path.write_text(
-        json.dumps({"metadata": {"run_tag": "asm-test", "split": "train"}, "records": records}),
+        json.dumps({"metadata": {"run_tag": f"asm-test-{split}", "split": split},
+                    "records": records}),
         encoding="utf-8",
     )
     return assembly_path, tmp / "review"
@@ -277,7 +280,7 @@ class SeedBatchingTest(unittest.TestCase):
             tmp = Path(tmp)
             assembly_path, review_root = make_assembly_manifest(tmp)
             # Pre-existing store: #01 human-adjusted, #02 a stale teacher seed.
-            pre = AnnotationStore(review_root / "asm-test")
+            pre = AnnotationStore(review_root / "asm-test-train")
             pre.set("070_00000001#01", [0.12, 0.42, 0.22, 0.62], annotator="fang0")
             pre.set("070_00000001#02", [0.9, 0.9, 0.95, 0.95], annotator="glm-4.6v")
 
@@ -289,7 +292,7 @@ class SeedBatchingTest(unittest.TestCase):
             self.assertEqual(store.get("070_00000001#01"), [0.12, 0.42, 0.22, 0.62])
             self.assertEqual(store.meta("070_00000001#01")["annotator"], "fang0")
             self.assertEqual(store.get("070_00000001#02"), [0.5, 0.4, 0.6, 0.6])
-            journal = (review_root / "asm-test" / "annotations.jsonl").read_text().splitlines()
+            journal = (review_root / "asm-test-train" / "annotations.jsonl").read_text().splitlines()
             self.assertEqual(len(journal), 3)  # 2 pre-existing + 1 re-sync record
             items = {i["id"]: i for i in session["items"]}
             self.assertEqual(items["070_00000001#01"]["gt_bbox"], [0.10, 0.40, 0.20, 0.60])
@@ -323,3 +326,65 @@ class AssemblySessionCensusFactsTest(unittest.TestCase):
             # Claims come from census facts (subject extraction), not the
             # no-facts fallback string.
             self.assertFalse(items["070_00000001#01"]["claims"].startswith("对象:"))
+
+
+class MultiCorpusSessionTest(unittest.TestCase):
+    """Combined train+val sessions: one server, per-corpus stores."""
+
+    def test_combined_session_tags_and_routes_by_corpus(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            train_path, review_root = make_assembly_manifest(tmp, split="train")
+            val_path, _ = make_assembly_manifest(tmp, split="val")
+            server, state = create_server(
+                census_run_dir=None,
+                assembly_path=[train_path, val_path],
+                data_root=tmp / "data",
+                review_root=review_root,
+                host="127.0.0.1",
+                port=0,
+            )
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                self.assertEqual(state.session["name"].count("+"), 1)
+                corpora = [it["corpus"] for it in state.session["items"]]
+                self.assertEqual(corpora, ["train", "train", "val", "val"])
+                payload = state.session_payload()
+                self.assertEqual(payload["total_items"], 4)
+                self.assertEqual({e["corpus"] for e in payload["items"]}, {"train", "val"})
+                # A query edit on a val item must land in the val store only.
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{server.server_address[1]}/api/item/004_00000001%2301/query",
+                    data=json.dumps({"query": "a white swan closest to the camera",
+                                     "annotator": "fang0"}).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="PUT",
+                )
+                with urllib.request.urlopen(request) as resp:
+                    self.assertEqual(resp.status, 200)
+                val_journal = (review_root / "asm-test-val" / "annotations.jsonl").read_text()
+                train_journal = (review_root / "asm-test-train" / "annotations.jsonl").read_text()
+                self.assertIn("a white swan closest to the camera", val_journal)
+                self.assertNotIn("a white swan closest to the camera", train_journal)
+                # Session payload reflects the edit from the routed store.
+                fresh = state.session_payload()
+                edited = next(e for e in fresh["items"] if e["id"] == "004_00000001#01")
+                self.assertEqual(edited["query_en"], "a white swan closest to the camera")
+            finally:
+                server.shutdown()
+                server.server_close()
+
+    def test_duplicate_split_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            train_a, _ = make_assembly_manifest(tmp, split="train")
+            train_b, _ = make_assembly_manifest(tmp, split="train")
+            with self.assertRaises(ValueError):
+                create_server(
+                    census_run_dir=None,
+                    assembly_path=[train_a, train_b],
+                    data_root=tmp / "data",
+                    review_root=tmp / "review",
+                    host="127.0.0.1",
+                    port=0,
+                )

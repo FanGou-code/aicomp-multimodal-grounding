@@ -74,17 +74,25 @@ python scripts/run_census.py --split train --limit-sequences 320 \
 python scripts/check_keys.py
 ```
 
-### 人审（census 冒烟/全量，纯本地零 API 调用）
+### 人审（census/组装/合并 train+val，纯本地零 API 调用）
 
 ```bash
 python scripts/review_server.py --census-run outputs/census/census_<run_id> --port 8788
+python scripts/review_server.py --assembly outputs/assembly/asm-train-r5/assembly.json --port 8788
+# train+val 同时审（合并会话，进度目录仍按语料分开）:
+python scripts/review_server.py --assembly outputs/assembly/asm-train-r5/assembly.json \
+  outputs/assembly/asm-val-r5/assembly.json --port 8788
 # 浏览器打开 http://127.0.0.1:8788/
 ```
 
 教师框以 AI 预标（`glm-4.6v` 署名）预载，人工拖动/缩放调整后实时写回
 `outputs/review/<run_id>/`（journal + 快照，崩溃可恢复）；框不可删除；
-当前帧全部目标经人工核验后计入「整帧核验」。快捷键：`Enter` 核验并跳下一条
-待审、`H/L` 前后翻页、`J/K` 跳 AI 待审、滚轮缩放、拖拽平移。红虚线 = GT 参照框。
+当前帧全部目标经人工核验后计入「整帧核验」。顶栏切换审查范围
+[全部|train|val]，进度/跳转/搜索按所选范围计算。快捷键：`Enter` 核验并跳
+下一条待审、`E` 进 query 编辑框、`H/L` 前后翻页、`J/K` 跳 AI 待审、`N` 跳
+未标注、`G/Shift+G` 首尾、`P` 加入待办、`/` 图号跳转、滚轮缩放、拖拽平移；
+编辑框内 `Ctrl+F/B/A/E/K` 为 linux 光标键（前移/后移/行首/行尾/删到行尾），
+`Enter` 保存并退出编辑，`Esc` 放弃修改。红虚线 = GT 参照框。
 
 ### Phase 2 组装（纯本地，零 API 调用）
 

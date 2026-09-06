@@ -66,6 +66,7 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
                     "frame_id": sample_id,
                     "gt_bbox": entry["bbox"],
                     "category": obj["category"],
+                    "corpus": split,
                 }
                 if item_id not in existing_meta:
                     pending_seeds.append((item_id, [float(v) for v in obj["bbox"]], TEACHER_ANNOTATOR))
@@ -222,6 +223,7 @@ def build_assembly_session(
                     "category": record["category"],
                     "bucket": record.get("bucket", ""),
                     "family": record.get("family", ""),
+                    "corpus": split,
                     "claims": _claim_summary(record, facts_by_index[record["object_index"]])
                     if record["object_index"] in facts_by_index else f"对象:{record['category']}",
                 }
