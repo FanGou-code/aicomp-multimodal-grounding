@@ -176,4 +176,4 @@ class ReviewReportTest(unittest.TestCase):
             # Teacher box [0.10..0.20] vs human [0.30..0.40]: zero overlap.
             self.assertEqual(adjusted[0]["iou_to_teacher"], 0.0)
             untouched = [r for r in seq["items"] if not r["human_adjusted"]]
-            self.assertIsNone(untouched[0]["iou_to_teacher"], None)
+            self.assertNotIn("iou_to_teacher", untouched[0])
