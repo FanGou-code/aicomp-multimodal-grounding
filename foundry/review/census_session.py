@@ -100,12 +100,12 @@ ORDINAL_WORD_RE = re.compile(
 
 
 def _claim_summary(record: dict, facts) -> str:
-    """方向 · 序数 · 带颜色的主体 — 原语言, 严格该顺序, 别无其他."""
+    """方向 · 序数 · 主体 — 主体直接摘自 query 本身, 保证与句子同源."""
     f = record.get("facts") or []
+    q = record.get("query", "")
     parts = []
     if f and f[0].startswith("rank:"):
         direction = f[1] if len(f) > 1 else ""
-        # 箭头即方向: 左到右 ▶, 右到左 ◀ — 不读字, 一眼定方向
         parts.append("▶" if direction in ("from left to right", "from the left") else "◀")
     elif f and f[0] in SUPERLATIVE_PHRASE:
         parts.append(SUPERLATIVE_PHRASE[f[0]])
@@ -114,14 +114,35 @@ def _claim_summary(record: dict, facts) -> str:
     elif f and f[0] == "image:right":
         parts.append("▶ side of image")
     elif f and f[0].startswith("anchor-left:"):
-        # 参照物保留文字, 方向换成符号: "◀ of the fence"
         parts.append("◀ of the " + category_head(f[0].split(":")[2]))
     elif f and f[0].startswith("anchor-right:"):
         parts.append("▶ of the " + category_head(f[0].split(":")[2]))
-    m = ORDINAL_WORD_RE.search(record.get("query", ""))
+    m = ORDINAL_WORD_RE.search(q)
     if m:
         parts.append(m.group(1).lower())
-    subject = (facts.color + " " if facts.color else "") + category_head(record["category"])
+    # 主体 = query 主语名词短语 (修饰词+头名词), 与句子逐字同源。
+    # 先剥掉方向短语尾巴, 再从前往后收词到头名词为止。
+    q_body = re.sub(
+        r",?\s*(from|to) the (left|right)( to the (left|right))?$",
+        "", q, flags=re.I,
+    )
+    q_body = re.sub(
+        r",?\s*from (left|right) to (left|right)$", "", q_body, flags=re.I,
+    )
+    tokens = q_body.split()
+    stop = {"with", "wearing", "holding", "carrying", "in", "on", "from", "to",
+            "perched", "of", "by", "near", "the", "a", "an", "and"}
+    phrase: list[str] = []
+    for tok in tokens:
+        low = tok.lower()
+        if low in stop and phrase:
+            break
+        phrase.append(tok)
+    subject = " ".join(phrase)
+    if subject[:2].lower() in ("a ", "an"):
+        subject = subject[3:]
+    elif subject[:4].lower() == "the ":
+        subject = subject[4:]
     parts.append(subject)
     return " · ".join(parts)
 
