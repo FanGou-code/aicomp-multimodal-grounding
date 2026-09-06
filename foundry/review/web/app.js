@@ -1485,6 +1485,7 @@
           if (k === 'a') { e.preventDefault(); move(0); return; }
           if (k === 'e') { e.preventDefault(); move(el.value.length); return; }
           if (k === 'k') { e.preventDefault(); el.value = el.value.slice(0, pos); move(el.value.length); return; }
+          if (k === 'u') { e.preventDefault(); el.value = el.value.slice(pos); move(0); return; }
         }
         if (e.key === 'Enter') {
           // 保存并退出编辑: 焦点回画布, 导航快捷键即刻恢复
