@@ -882,7 +882,8 @@ body, html {
   border: 1px solid transparent;
   border-bottom: 1px dashed #475569;
   color: #e2e8f0;
-  font: inherit;
+  font-family: inherit;
+  font-weight: inherit;
   padding: 2px 6px;
   width: 100%;
 }
