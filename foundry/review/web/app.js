@@ -511,7 +511,12 @@
         '属性': '#15803d', '查询': '#475569'
       }[bucketTag] || '#475569';
     }
-    dom.queryEnText.textContent = item.query_en || '';
+    if (dom.queryEnText.tagName === 'INPUT') {
+      dom.queryEnText.value = item.query_en || '';
+      dom.queryEnText.dataset.original = item.query_en || '';
+    } else {
+      dom.queryEnText.textContent = item.query_en || '';
+    }
     const claimsEl = document.getElementById('query-claims');
     if (claimsEl) {
       claimsEl.textContent = item.claims || '';
@@ -1179,6 +1184,61 @@
     }
   }
 
+  async function saveQueryEdit() {
+    // 人工修缮 query: 同步到服务端 journal, 本地 item 更新, 声明主体刷新。
+    const item = getCurrentItem();
+    if (!item) return;
+    const el = dom.queryEnText;
+    if (el.tagName !== 'INPUT') return;
+    const fresh = el.value.trim();
+    if (!fresh || fresh === (el.dataset.original || '')) return;
+    const name = (dom.annotatorInput.value || state.annotator || (state.reviewMode ? 'reviewer' : '')).trim();
+    if (!name) {
+      showToast('请先在右上角填写标注者', 'error');
+      return;
+    }
+    state.annotator = name;
+    localStorage.setItem(STORAGE_KEY_ANNOTATOR, name);
+    try {
+      const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/query`, {
+        method: 'PUT',
+        body: JSON.stringify({ query: fresh, annotator: name })
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+      item.query_en = fresh;
+      el.dataset.original = fresh;
+      // 声明主体与新 query 同源刷新(方向/序数部分不变)
+      if (item.claims) {
+        const seg = item.claims.split('·');
+        const dir = seg[0] && /[◀▶]/.test(seg[0]) ? seg[0].trim() + ' · ' : '';
+        const ord = seg.length >= 3 ? seg[1].trim() + ' · ' : (seg[1] ? seg[1].trim() + ' · ' : '');
+        const toks = fresh.split();
+        const stop = new Set(['with','wearing','holding','carrying','in','on','from','to','perched','of','by','near','the','a','an','and']);
+        const phrase = [];
+        for (const tok of toks) {
+          const low = tok.toLowerCase();
+          if (stop.has(low) && phrase.length) break;
+          phrase.push(tok);
+        }
+        let subj = phrase.join(' ');
+        if (subj.toLowerCase().startsWith('a ')) subj = subj.slice(2);
+        else if (subj.toLowerCase().startsWith('an ')) subj = subj.slice(3);
+        else if (subj.toLowerCase().startsWith('the ')) subj = subj.slice(4);
+        const ordPart = /\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/i.test(fresh)
+          ? (fresh.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/i)[1].toLowerCase() + ' · ') : '';
+        item.claims = dir + ordPart + subj;
+        const claimsEl = document.getElementById('query-claims');
+        if (claimsEl) claimsEl.textContent = item.claims;
+      }
+      showToast('query 已更新', 'success');
+    } catch (err) {
+      showToast('query 保存失败: ' + err.message, 'error');
+    }
+  }
+
   async function markTodo() {
     // 加入待办: 这条有问题(指代歧义/表述不佳), 留在待办清单里
     // 由后续消歧流程处理(补描述或废弃)。保留当前框, 署名带 :todo 后缀。
@@ -1557,6 +1617,16 @@
     dom.clearBtn.addEventListener('click', clearBbox);
     dom.absentBtn.addEventListener('click', markAbsent);
     dom.saveBtn.addEventListener('click', submitCurrent);
+    if (dom.queryEnText) {
+      dom.queryEnText.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          saveQueryEdit();
+        }
+        e.stopPropagation();
+      });
+      dom.queryEnText.addEventListener('blur', () => saveQueryEdit());
+    }
 
     // Jump Input
     dom.jumpBtn.addEventListener('click', () => jumpToImage(dom.jumpInput.value));

@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 
 JOURNAL_NAME = "annotations.jsonl"
+QUERY_SNAPSHOT_NAME = "annotations.queries.json"
 SNAPSHOT_NAME = "annotations.predictions.json"
 ABSENT_SNAPSHOT_NAME = "annotations.absent.json"
 ABSENT_SUFFIX = ":absent"
@@ -55,9 +56,11 @@ class AnnotationStore:
         self.data_dir = Path(data_dir)
         self.journal_path = self.data_dir / JOURNAL_NAME
         self.snapshot_path = self.data_dir / SNAPSHOT_NAME
+        self.queries_path = self.data_dir / QUERY_SNAPSHOT_NAME
         self.absent_path = self.data_dir / ABSENT_SNAPSHOT_NAME
         self._lock = threading.Lock()
         self._state: dict[str, list[float]] = {}
+        self._queries: dict[str, str] = {}
         self._meta: dict[str, dict] = {}
         self._absent: dict[str, str] = {}
         self._journal_sig: tuple[int, int, int] | None = None
@@ -65,12 +68,13 @@ class AnnotationStore:
 
     # -- journal replay ----------------------------------------------------
 
-    def _read_journal_state(self) -> tuple[dict[str, list[float]], dict[str, dict], dict[str, str]]:
+    def _read_journal_state(self) -> tuple[dict[str, list[float]], dict[str, str], dict[str, dict], dict[str, str]]:
         state: dict[str, list[float]] = {}
+        queries: dict[str, str] = {}
         meta: dict[str, dict] = {}
         absent: dict[str, str] = {}
         if not self.journal_path.is_file():
-            return state, meta, absent
+            return state, queries, meta, absent
         with self.journal_path.open("r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
@@ -85,6 +89,8 @@ class AnnotationStore:
                     continue
                 bbox = record.get("bbox")
                 annotator = record.get("annotator")
+                if record.get("query"):
+                    queries[item_id] = str(record["query"])
                 if bbox is None:
                     state.pop(item_id, None)
                     if _is_absent_annotator(annotator):
@@ -101,7 +107,7 @@ class AnnotationStore:
                         continue
                     meta[item_id] = {"annotator": annotator, "ts": record.get("ts")}
                     absent.pop(item_id, None)
-        return state, meta, absent
+        return state, queries, meta, absent
 
     def _journal_signature(self) -> tuple[int, int, int] | None:
         try:
@@ -111,7 +117,7 @@ class AnnotationStore:
         return (st.st_ino, st.st_mtime_ns, st.st_size)
 
     def _replay(self) -> None:
-        self._state, self._meta, self._absent = self._read_journal_state()
+        self._state, self._queries, self._meta, self._absent = self._read_journal_state()
         self._journal_sig = self._journal_signature()
 
     def _refresh_locked(self) -> None:
@@ -120,12 +126,12 @@ class AnnotationStore:
             sig = self._journal_signature()
             if sig == self._journal_sig:
                 return
-            state, meta, absent = self._read_journal_state()
+            state, queries, meta, absent = self._read_journal_state()
             # Concurrent writers may have appended while we replayed; only
             # commit the replay if the file is unchanged since it started,
             # otherwise the new tail would be swallowed by this signature.
             if self._journal_signature() == sig:
-                self._state, self._meta, self._absent = state, meta, absent
+                self._state, self._queries, self._meta, self._absent = state, queries, meta, absent
                 self._journal_sig = sig
                 return
         # Journal kept changing under us; leave state as-is, next read retries.
@@ -175,6 +181,21 @@ class AnnotationStore:
             self._write_snapshots()
         return bbox
 
+    def set_query(self, item_id: str, query: str, annotator: str | None = None) -> str:
+        """Record a human-edited query text; the box state is untouched."""
+        record = {"id": item_id, "query": query, "annotator": annotator, "ts": _now()}
+        with self._lock:
+            self._append(record)
+            self._queries[item_id] = query
+            self._meta[item_id] = {"annotator": annotator, "ts": record["ts"]}
+            self._write_snapshots()
+        return query
+
+    def get_query(self, item_id: str) -> str | None:
+        with self._lock:
+            self._refresh_locked()
+            return self._queries.get(item_id)
+
     def set_absent(self, item_id: str, annotator: str) -> dict:
         """Record an absence verdict, e.g. human confirmation of an AI absence."""
         record = {
@@ -214,8 +235,9 @@ class AnnotationStore:
         absent: dict[str, str] = {}
         for _ in range(5):
             sig = self._journal_signature()
-            state, _meta, absent = self._read_journal_state()
+            state, _queries, _meta, absent = self._read_journal_state()
             if self._journal_signature() == sig:
                 break
         _atomic_write_json(self.snapshot_path, state)
+        _atomic_write_json(self.queries_path, dict(self._queries))
         _atomic_write_json(self.absent_path, absent)

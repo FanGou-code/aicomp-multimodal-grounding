@@ -64,11 +64,13 @@ class AnnotatorState:
         payload_items = []
         for item in self.items:
             meta = self.store.meta(item["id"]) or {}
+            edited_query = self.store.get_query(item["id"])
             payload_items.append(
                 {
                     "id": item["id"],
                     "image_url": "/image?src=" + quote(item["image"]),
-                    "query_en": item["query"],
+                    "query_en": edited_query or item["query"],
+                    "query_edited": edited_query is not None,
                     "query_zh": None,
                     "bbox": self.store.get(item["id"]),
                     "annotator": meta.get("annotator"),
@@ -185,6 +187,9 @@ class AnnotationHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         path = urlparse(self.path).path
+        item_id = self._match_item_route(path, "/query")
+        if item_id is not None:
+            return self._handle_put_query(item_id)
         item_id = self._match_item_route(path, "/bbox")
         if item_id is None:
             return self._send_json({"error": "not found"}, 404)
@@ -206,6 +211,22 @@ class AnnotationHandler(BaseHTTPRequestHandler):
             )
         saved = self.state.store.set(item_id, bbox, annotator.strip())
         return self._send_json({"id": item_id, "bbox": saved, "annotated": True})
+
+    def _handle_put_query(self, item_id: str) -> None:
+        if item_id not in self.state.item_by_id:
+            return self._send_json({"error": f"unknown item id: {item_id}"}, 404)
+        try:
+            body = self._read_json_body()
+        except (ValueError, json.JSONDecodeError) as exc:
+            return self._send_json({"error": str(exc)}, 400)
+        query = body.get("query")
+        if not isinstance(query, str) or not query.strip() or len(query) > 200:
+            return self._send_json({"error": "query must be a non-empty string (max 200 chars)"}, 400)
+        annotator = body.get("annotator")
+        if not isinstance(annotator, str) or not annotator.strip() or len(annotator) > 64:
+            return self._send_json({"error": "annotator required"}, 400)
+        stored = self.state.store.set_query(item_id, query.strip(), annotator.strip())
+        return self._send_json({"id": item_id, "query": stored, "annotator": annotator.strip()})
 
     @staticmethod
     def _match_item_route(path: str, suffix: str) -> str | None:
