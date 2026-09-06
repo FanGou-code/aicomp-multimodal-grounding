@@ -514,7 +514,7 @@
     dom.queryEnText.textContent = item.query_en || '';
     const claimsEl = document.getElementById('query-claims');
     if (claimsEl) {
-      claimsEl.textContent = item.claims ? `◀ ${item.claims}` : '';
+      claimsEl.textContent = item.claims || '';
     }
     if (item.query_zh) {
       dom.queryZhWrap.classList.remove('hidden');

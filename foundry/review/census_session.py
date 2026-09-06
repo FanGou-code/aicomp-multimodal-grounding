@@ -104,8 +104,9 @@ def _claim_summary(record: dict, facts) -> str:
     f = record.get("facts") or []
     parts = []
     if f and f[0].startswith("rank:"):
-        if len(f) > 1:
-            parts.append(f[1])  # 方向短语, 如 "from left to right"
+        direction = f[1] if len(f) > 1 else ""
+        # 箭头即方向: 左到右 ▶, 右到左 ◀ — 不读字, 一眼定方向
+        parts.append("▶" if direction in ("from left to right", "from the left") else "◀")
     elif f and f[0] in SUPERLATIVE_PHRASE:
         parts.append(SUPERLATIVE_PHRASE[f[0]])
     elif f and f[0] == "image:left":
