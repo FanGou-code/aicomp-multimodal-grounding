@@ -53,6 +53,27 @@
 
 ## 交接日志
 
+### 2026-09-07（语料定版 r5：echo 重放缺口采纳修复版；人审进度随迁；第四份内联副本补刀）
+
+- **管理员定夺**：采纳完整 QC 重放语料（三选一「丢弃 48 条」经评估放弃——
+  影响面 1.4%、25 条真框样本、10 帧全失，而切换零成本）。
+- **定版动作**：`asm-*-r5-verify` → 正式 `asm-*-r5`（metadata.run_tag 更名 +
+  supersedes r4；条数 2,730/736、桶占比、shortfall 与 r4 全同）；review 进度
+  目录同迁（asm-train-r4 → asm-train-r5，val 同理）。验证：两仓 journal
+  逐字节一致；train 会话 human_annotated=110 / reviewed_frames=30 原样识别，
+  教师种子重同步 2,620 条不触人工；val 全新 736 条。
+- **顺带补刀**：`build_assembly_session` 尚存第四份单遍/交集内联副本（上一轮
+  trusted_objects 合一时遗漏；该路径无测试覆盖、compileall 查不出 NameError，
+  而它正是组装会话加载普查事实的必经路）。修复为 trusted_objects + 新增
+  `census_merged` 参数（测试可注入），回归测试入套（112 项全绿）。若未修，
+  管理员切 r5 启动即崩。
+- **启动命令**（审查服务）：`--assembly outputs/assembly/asm-train-r5/assembly.json
+  --port 8788`（val 用 asm-val-r5 + 8789）。
+- **下一步**：人审器多语料单端口 + 文本编辑键盘流（方案已呈管理员待批）；
+  清理建议（空 `outputs/annotations/`、/tmp 两个易失文件、r5-verify 重复目录）
+  待批。
+- **验证**：112 项测试全绿（+1 census 事实路径回归）；会话加载实测见上。
+
 ### 2026-09-07（规范化轮：两处审查器实质 bug + QC 数据化折进组装器 + 边界/死代码/协议双源清理）
 
 - **动因**：管理员指派审阅生产线并执行规范化（找过度设计、错误设计、模块

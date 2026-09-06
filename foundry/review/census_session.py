@@ -142,14 +142,22 @@ def _claim_summary(record: dict, facts) -> str:
     return " · ".join(parts)
 
 
-def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Path) -> dict:
+def build_assembly_session(
+    assembly_path: Path,
+    data_root: Path,
+    review_root: Path,
+    *,
+    census_merged: dict | None = None,
+) -> dict:
     """Review items from an assembled query manifest (1 sampled frame/sequence).
 
     Each record becomes an item whose query text is the assembled sentence and
     whose seeded box is the assembled bbox (real records carry the organizer
     GT box). Per sequence exactly one selected frame is sampled (deterministic:
     lowest sample_id with records), matching the agreed sampling plan of one
-    reviewed frame per sequence.
+    reviewed frame per sequence. ``census_merged`` may be passed directly
+    (tests); otherwise the census run referenced by the manifest metadata is
+    loaded for claim facts.
     """
     assembly_path = Path(assembly_path)
     data_root = Path(data_root)
@@ -157,11 +165,11 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
     metadata = manifest.get("metadata", {})
     split = metadata.get("split", "train")
     index = load_json(data_root / "indexes" / f"{split}.json")
-    census_merged = None
-    census_run_id = metadata.get("census_run_id")
-    census_path = Path(PROJECT_ROOT) / "outputs" / "census" / str(census_run_id) / "merged.json"
-    if census_path.is_file():
-        census_merged = load_json(census_path)
+    if census_merged is None:
+        census_run_id = metadata.get("census_run_id")
+        census_path = Path(PROJECT_ROOT) / "outputs" / "census" / str(census_run_id) / "merged.json"
+        if census_path.is_file():
+            census_merged = load_json(census_path)
 
     by_sequence: dict[str, dict[str, list[dict]]] = {}
     for record in manifest.get("records", []):
@@ -193,14 +201,7 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
                 seq = census_merged.get("results", {}).get(sequence_id, {})
                 frame = seq.get("frames", {}).get(sample_id, {})
                 if frame.get("status") == "completed":
-                    if frame.get("single_pass"):
-                        good = (frame["findall_1"] if frame["findall_1"]["status"] == "completed"
-                                else frame["findall_2"])
-                        objects = good["objects"]
-                    else:
-                        objects = pass_agreement(
-                            frame["findall_1"]["objects"], frame["findall_2"]["objects"]
-                        )["agreed_objects"]
+                    objects = trusted_objects(frame)
                     attr = frame.get("attr")
                     depth = frame.get("depth")
                     if objects:
