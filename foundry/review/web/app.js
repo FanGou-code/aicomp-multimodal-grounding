@@ -1295,6 +1295,22 @@
 
   // --- Keyboard Shortcuts ---
   function handleKeyDown(e) {
+    // Ctrl family used by the query editor: kill browser defaults page-wide
+    // (find / view-source / select-all-page). Ctrl+A stays native inside
+    // text inputs (the edit box rebinds it to readline home itself).
+    if (e.ctrlKey && !e.altKey && !e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (['f', 'b', 'e', 'k', 'u'].includes(k)) {
+        e.preventDefault();
+        return;
+      }
+      const target = e.target;
+      if (k === 'a' && target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        return;
+      }
+    }
+
     // If typing inside an input/textarea, do not intercept navigation shortcuts
     const target = e.target;
     const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
