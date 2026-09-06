@@ -75,6 +75,8 @@ class AnnotatorState:
                     "ordinal": item["ordinal"],
                     "frame_id": item["frame_id"],
                     "gt_bbox": item["gt_bbox"],
+                    "bucket": item.get("bucket", ""),
+                    "category": item.get("category", ""),
                 }
             )
         frames: dict[str, list[dict]] = {}

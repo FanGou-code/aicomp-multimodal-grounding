@@ -131,6 +131,8 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
                 # judged on their own.
                 "gt_bbox": record["bbox"] if record["source"] == "real" else None,
                 "category": record["category"],
+                "bucket": record.get("bucket", ""),
+                "family": record.get("family", ""),
             }
             if store.meta(item_id) is None:
                 store.set(item_id, [float(v) for v in record["bbox"]], annotator=TEACHER_ANNOTATOR)
