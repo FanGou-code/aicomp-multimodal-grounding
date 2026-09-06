@@ -265,3 +265,32 @@ class PooledClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_remote_disconnected_retries_and_succeeds(self):
+        # Regression (full-run crash): the provider sometimes closes the
+        # connection without a response (http.client.RemoteDisconnected) —
+        # that is a transport failure and must retry, not crash the run.
+        from http.client import RemoteDisconnected
+
+        calls = []
+
+        def opener(request, timeout):
+            calls.append(1)
+            if len(calls) < 3:
+                raise RemoteDisconnected("Remote end closed connection without response")
+            return _FakeResponse(self._payload())
+
+        pool = APIKeyPool(["k1"], notify=lambda m: None)
+        client = OpenAIProtocolClient(
+            key_pool=pool,
+            model="glm-4.6v",
+            base_url="https://api.example.invalid/v1",
+            opener=opener,
+            sleeper=lambda delay: None,
+        )
+        response = client.complete(
+            messages=[{"role": "user", "content": "t"}], max_tokens=8, temperature=0.1
+        )
+        self.assertEqual(len(calls), 3)
+        self.assertIn("content", response.content)
+        self.assertEqual(pool.alive(), 1)

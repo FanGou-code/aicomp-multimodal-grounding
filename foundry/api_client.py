@@ -11,6 +11,7 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Callable
+from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -258,7 +259,12 @@ class OpenAIProtocolClient:
                     raise APIError(
                         f"API HTTP {exc.code}: {detail}", status=exc.code
                     ) from exc
-            except (TimeoutError, URLError) as exc:
+            except (TimeoutError, URLError, ConnectionResetError, HTTPException) as exc:
+                # ConnectionResetError covers http.client.RemoteDisconnected
+                # (provider closes the connection without a response); other
+                # HTTPException subtypes (BadStatusLine, IncompleteRead) are
+                # the same class of mid-protocol transport breakage. Both are
+                # transient and retry with backoff like any transport failure.
                 transport_failures += 1
                 if on_transport_failure is not None:
                     # May raise APIKeySuspended to abort further attempts on
