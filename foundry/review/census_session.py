@@ -91,7 +91,7 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
 
 SUPERLATIVE_PHRASE = {
     "y2-max": "closest to the camera", "y2-min": "farthest from the camera",
-    "x-min": "on the far left", "x-max": "on the far right",
+    "x-min": "◀◀ far left", "x-max": "far right ▶▶",
     "y-min": "topmost", "y-max": "bottommost",
 }
 ORDINAL_WORD_RE = re.compile(
@@ -110,13 +110,14 @@ def _claim_summary(record: dict, facts) -> str:
     elif f and f[0] in SUPERLATIVE_PHRASE:
         parts.append(SUPERLATIVE_PHRASE[f[0]])
     elif f and f[0] == "image:left":
-        parts.append("left side of the image")
+        parts.append("◀ side of image")
     elif f and f[0] == "image:right":
-        parts.append("right side of the image")
+        parts.append("▶ side of image")
     elif f and f[0].startswith("anchor-left:"):
-        parts.append("left of the " + category_head(f[0].split(":")[2]))
+        # 参照物保留文字, 方向换成符号: "◀ of the fence"
+        parts.append("◀ of the " + category_head(f[0].split(":")[2]))
     elif f and f[0].startswith("anchor-right:"):
-        parts.append("right of the " + category_head(f[0].split(":")[2]))
+        parts.append("▶ of the " + category_head(f[0].split(":")[2]))
     m = ORDINAL_WORD_RE.search(record.get("query", ""))
     if m:
         parts.append(m.group(1).lower())
