@@ -509,20 +509,7 @@
       dom.annotationStatusBadge.className = 'badge badge-unannotated';
     }
 
-    // Query text (EN / ZH) + bucket tag (审查视角: 该核对什么)
-    const BUCKET_TAGS = {
-      ordinal: '序数', distance: '距离', spatial: '方位',
-      attribute_action: '属性', '': '查询'
-    };
-    const bucketTag = BUCKET_TAGS[item.bucket] || item.bucket || '查询';
-    const labelEl = document.getElementById('query-bucket-tag');
-    if (labelEl) {
-      labelEl.textContent = bucketTag;
-      labelEl.style.background = {
-        '序数': '#7c3aed', '距离': '#0e7490', '方位': '#b45309',
-        '属性': '#15803d', '查询': '#475569'
-      }[bucketTag] || '#475569';
-    }
+    // Query text
     if (dom.queryEnText.tagName === 'INPUT') {
       dom.queryEnText.value = item.query_en || '';
       dom.queryEnText.dataset.original = item.query_en || '';

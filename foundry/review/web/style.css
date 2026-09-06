@@ -299,6 +299,7 @@ body, html {
 .query-meta {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 4px;
   min-width: 110px;
 }
@@ -335,29 +336,21 @@ body, html {
 .query-en-wrap {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
 }
 
-.query-label {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: var(--bg-tertiary);
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  flex-shrink: 0;
-}
-
 .query-en {
-  font-size: 15px;
+  font-size: 19px;
   font-weight: 600;
   color: #ffffff;
   flex: 1;
   min-width: 0;
-  line-height: 1.45;
+  max-width: 900px;
+  line-height: 1.5;
+  text-align: center;
+  padding: 4px 0;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
