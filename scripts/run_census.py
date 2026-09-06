@@ -451,7 +451,13 @@ def census_shard(
                 if attr["status"] != "completed":
                     attr_failures += 1
                 selected_records.append(frame)
-            sequence_failed = any(f["status"] != "completed" for f in frames.values()) or not frames
+            # Sequence gate (admin 2026-09-06): only the SELECTED frames must
+            # be completed. Selection draws from completed candidates, so a
+            # failed non-selected frame is discarded on its own — it never
+            # dooms the sequence (帧废弃不连坐序列).
+            sequence_failed = not chosen_ids or any(
+                frames[sid]["status"] != "completed" for sid in chosen_ids
+            )
             results[sequence_id] = {
                 "status": "failed" if sequence_failed else "completed",
                 "frames": frames,
