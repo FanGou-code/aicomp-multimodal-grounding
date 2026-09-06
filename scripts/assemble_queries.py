@@ -49,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-words", type=int, default=3)
     parser.add_argument("--max-words", type=int, default=18)
     parser.add_argument("--show", type=int, default=15, help="sample records to print")
+    parser.add_argument("--all-frames", action="store_true",
+                        help="keep every frame with records (review all, not 1/sequence)")
     return parser
 
 
@@ -92,6 +94,7 @@ def main() -> None:
             "spec_status": (spec or {}).get("status"),
             "spec_version": (spec or {}).get("version"),
             "split": args.split,
+            "all_frames": bool(args.all_frames),
             "max_teacher_per_frame": args.max_teacher_per_frame,
             "word_window": [args.min_words, args.max_words],
         },

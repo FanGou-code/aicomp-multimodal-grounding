@@ -174,58 +174,70 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
         frames = by_sequence.setdefault(sequence_id, {})
         frames.setdefault(record["sample_id"], []).append(record)
 
+    # full mode: every frame with records (admin 2026-09-06); sampled mode:
+    # one deterministic frame per sequence. Both group items by sequence.
+    full_mode = bool(manifest.get("metadata", {}).get("all_frames"))
+    if full_mode:
+        chosen_frames = {sid: frames for sid, frames in by_sequence.items()}
+    else:
+        chosen_frames = {sid: {min(frames): frames[min(frames)]} for sid in by_sequence}
+
     items: list[dict] = []
     stats = {"seeded": 0, "frames": 0, "already_seeded": 0}
     store = AnnotationStore(Path(review_root) / str(metadata.get("run_tag") or assembly_path.parent.name))
-    for sequence_id in sorted(by_sequence):
-        frames = by_sequence[sequence_id]
-        sample_id = min(frames)  # deterministic: first sampled frame with records
-        records = sorted(frames[sample_id], key=lambda r: r["object_index"])
-        entry = index.get(sample_id)
-        if entry is None:
-            continue
-        facts_by_index = {}
-        if census_merged is not None:
-            seq = census_merged.get("results", {}).get(sequence_id, {})
-            frame = seq.get("frames", {}).get(sample_id, {})
-            if frame.get("status") == "completed":
-                if frame.get("single_pass"):
-                    good = (frame["findall_1"] if frame["findall_1"]["status"] == "completed"
-                            else frame["findall_2"])
-                    objects = good["objects"]
+    for sequence_id in sorted(chosen_frames):
+        for sample_id in sorted(chosen_frames[sequence_id]):
+            records = sorted(chosen_frames[sequence_id][sample_id], key=lambda r: r["object_index"])
+            entry = index.get(sample_id)
+            if entry is None:
+                continue
+            facts_by_index = {}
+            if census_merged is not None:
+                seq = census_merged.get("results", {}).get(sequence_id, {})
+                frame = seq.get("frames", {}).get(sample_id, {})
+                if frame.get("status") == "completed":
+                    if frame.get("single_pass"):
+                        good = (frame["findall_1"] if frame["findall_1"]["status"] == "completed"
+                                else frame["findall_2"])
+                        objects = good["objects"]
+                    else:
+                        objects = pass_agreement(
+                            frame["findall_1"]["objects"], frame["findall_2"]["objects"]
+                        )["agreed_objects"]
+                    attr = frame.get("attr")
+                    depth = frame.get("depth")
+                    if objects:
+                        frame_facts = extract_frame_facts(objects, entry["bbox"], attr, depth)
+                        facts_by_index = {f.index: f for f in frame_facts}
+            stats["frames"] += 1
+            for record in records:
+                item_id = f"{sample_id}#{record['object_index']:02d}"
+                item = {
+                    "id": item_id,
+                    "image": entry["visible"],
+                    "query": record["query"],
+                    "ordinal": record["object_index"],
+                    "frame_id": sample_id,
+                    # Only real records have a GT reference; teacher records are
+                    # judged on their own.
+                    "gt_bbox": record["bbox"] if record["source"] == "real" else None,
+                    "category": record["category"],
+                    "bucket": record.get("bucket", ""),
+                    "family": record.get("family", ""),
+                    "claims": _claim_summary(record, facts_by_index[record["object_index"]])
+                    if record["object_index"] in facts_by_index else f"对象:{record['category']}",
+                }
+                meta = store.meta(item_id)
+                if meta is None:
+                    store.set(item_id, [float(v) for v in record["bbox"]], annotator=TEACHER_ANNOTATOR)
+                    stats["seeded"] += 1
+                elif meta.get("annotator") == TEACHER_ANNOTATOR:
+                    # 上一轮种子未被动过: 同步到最新组装框
+                    store.set(item_id, [float(v) for v in record["bbox"]], annotator=TEACHER_ANNOTATOR)
+                    stats["seeded"] += 1
                 else:
-                    objects = pass_agreement(
-                        frame["findall_1"]["objects"], frame["findall_2"]["objects"]
-                    )["agreed_objects"]
-                attr = frame.get("attr")
-                depth = frame.get("depth")
-                if objects:
-                    frame_facts = extract_frame_facts(objects, entry["bbox"], attr, depth)
-                    facts_by_index = {f.index: f for f in frame_facts}
-        stats["frames"] += 1
-        for record in records:
-            item_id = f"{sample_id}#{record['object_index']:02d}"
-            item = {
-                "id": item_id,
-                "image": entry["visible"],
-                "query": record["query"],
-                "ordinal": record["object_index"],
-                "frame_id": sample_id,
-                # Only real records have a GT reference; teacher records are
-                # judged on their own.
-                "gt_bbox": record["bbox"] if record["source"] == "real" else None,
-                "category": record["category"],
-                "bucket": record.get("bucket", ""),
-                "family": record.get("family", ""),
-                "claims": _claim_summary(record, facts_by_index[record["object_index"]])
-                if record["object_index"] in facts_by_index else f"对象:{record['category']}",
-            }
-            if store.meta(item_id) is None:
-                store.set(item_id, [float(v) for v in record["bbox"]], annotator=TEACHER_ANNOTATOR)
-                stats["seeded"] += 1
-            else:
-                stats["already_seeded"] += 1
-            items.append(item)
+                    stats["already_seeded"] += 1
+                items.append(item)
     return {
         "name": f"assembly-review:{metadata.get('run_tag', assembly_path.parent.name)}",
         "items": items,
