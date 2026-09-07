@@ -918,7 +918,7 @@
     }
 
     // Badge with coordinates above box
-    const badgeText = (isAi ? '🤖 [AI预标] ' : '') + (state.reviewMode && curItem && curItem.ordinal != null ? `#${curItem.ordinal} ` : '') + `${Math.round(Math.abs(imgRect.x2 - imgRect.x1))}×${Math.round(Math.abs(imgRect.y2 - imgRect.y1))} px`;
+    const badgeText = (!verified ? '🤖 [AI预标] ' : '') + (state.reviewMode && curItem && curItem.ordinal != null ? `#${curItem.ordinal} ` : '') + `${Math.round(Math.abs(imgRect.x2 - imgRect.x1))}×${Math.round(Math.abs(imgRect.y2 - imgRect.y1))} px`;
     ctx.font = '11px ui-monospace, monospace';
     const textMetrics = ctx.measureText(badgeText);
     const badgeW = textMetrics.width + 10;
