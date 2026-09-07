@@ -1,6 +1,6 @@
 """Census protocol: the teacher only reports facts, code validates everything.
 
-Passes (v3 design, frozen in ``spec/census_protocol.md``, 2026-09-06):
+Passes (prompts in ``configs/default/prompts/``):
 - ``findall`` x2 independent passes per frame: enumerate up to 12 objects the
   teacher is most confident about (clear outline, nameable at a glance), the
   red-boxed category first when multiple instances exist, ordered left to

@@ -39,7 +39,5 @@ build/
 .DS_Store
 Thumbs.db
 
-# Dataset & Benchmark exclusions
-data/test_image_hashes.json
+# Local exclusions
 data/indexes/excluded.json
-spec/

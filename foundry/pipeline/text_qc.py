@@ -6,7 +6,7 @@ stages, applied to the final query text after planning:
 1. article engine — a ``with/wearing/holding/carrying`` tail lacking an
    article gets one (a/an by vowel letter), unless the tail is in KEEP,
    ends in a plural/mass word, or matches an EXCEPTIONS ruling.
-2. echo table — ``spec/text_qc_echo_table.json`` holds the hand-adjudicated
+2. echo table — ``configs/default/rules/text_qc_echo_table.json`` holds the hand-adjudicated
    head-echo fixes keyed by ``(item_id, before)``; a ruling fires only while
    the item's current query still equals its recorded before text, so the
    replay is idempotent and cannot over-apply.

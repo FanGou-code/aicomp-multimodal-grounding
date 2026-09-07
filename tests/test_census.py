@@ -299,7 +299,7 @@ class CardAndMessageTests(unittest.TestCase):
 
 
 class ProtocolDocSyncTest(unittest.TestCase):
-    """spec/census_protocol.md must carry the frozen prompts verbatim.
+    """configs/default/prompts/ must carry the frozen prompts verbatim.
 
     Machine check for the doc/code dual source: the doc quotes both prompt
     constants and pins their SHA-256; any prompt edit must update the doc
@@ -316,10 +316,6 @@ class ProtocolDocSyncTest(unittest.TestCase):
         attr_doc = (root / "configs" / "default" / "prompts" / "attr.md").read_text(encoding="utf-8")
         self.assertEqual(FINDALL_PROMPT, findall_doc.strip(), "code FINDALL_PROMPT drifts from config")
         self.assertEqual(ATTR_PROMPT, attr_doc.strip(), "code ATTR_PROMPT drifts from config")
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 if __name__ == "__main__":
