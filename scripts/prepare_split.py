@@ -299,6 +299,8 @@ def main() -> None:
         test_hashes_path=args.test_hashes,
         out_dir=args.out_dir,
         dry_run=args.dry_run,
+        seed=args.seed,
+        train_ratio=args.train_ratio,
     )
     print(f"sequences: {stats['sequences']}")
     print(f"samples: {stats['samples']} "
