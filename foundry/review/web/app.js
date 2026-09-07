@@ -70,6 +70,7 @@
     
     // Cached Images with LRU eviction
     imageCache: new ImageLRUCache(IMAGE_CACHE_CAPACITY),
+    prefetching: new Set(),
     currentImage: null,
     isImageLoading: false,
     imageLoadError: null,
@@ -542,6 +543,26 @@
     }
   }
 
+  // Warm the cache with the next visible item's image so crossing frames
+  // paints instantly instead of lingering on the previous picture.
+  function prefetchNext() {
+    const vis = visibleIndices();
+    const at = vis.indexOf(state.currentIndex);
+    if (at === -1) return;
+    const nextIdx = vis[at + 1] ?? vis[0];
+    if (nextIdx === undefined) return;
+    const url = state.items[nextIdx].image_url;
+    if (state.imageCache.has(url) || state.prefetching.has(url)) return;
+    state.prefetching.add(url);
+    const img = new Image();
+    img.onload = () => {
+      state.imageCache.set(url, img);
+      state.prefetching.delete(url);
+    };
+    img.onerror = () => state.prefetching.delete(url);
+    img.src = url;
+  }
+
   async function loadImage(url) {
     dom.canvasError.classList.add('hidden');
     
@@ -552,6 +573,7 @@
       dom.canvasLoading.classList.add('hidden');
       fitImageToCanvas();
       redraw();
+      prefetchNext();
       return;
     }
 
@@ -571,6 +593,7 @@
         fitImageToCanvas();
         redraw();
       }
+      prefetchNext();
     };
 
     img.onerror = () => {
@@ -1549,6 +1572,12 @@
       const idx = vis[parseInt(dom.seekSlider.value, 10) - 1];
       if (idx !== undefined) goToIndex(idx);
     });
+
+    // Surface silent failures: any page exception becomes a red toast
+    window.addEventListener('error', (e) =>
+      showToast('页面错误: ' + e.message, 'error'));
+    window.addEventListener('unhandledrejection', (e) =>
+      showToast('异步错误: ' + (e.reason && e.reason.message ? e.reason.message : e.reason), 'error'));
 
     // Annotator Input
     dom.annotatorInput.value = state.annotator;
