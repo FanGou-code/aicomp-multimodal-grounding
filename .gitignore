@@ -1,9 +1,45 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-.ipynb_checkpoints/
-keys/api_keys.txt
+*.py[cod]
+*$py.class
+
+# Environment & Virtualenvs
+.env
+.env.*
+.venv/
+venv/
+
+# Sensitive keys & credentials
+*api_keys.txt
+keys/
+*.pem
+*.key
+
+# Internal handoff & private docs
+docs/handoff*.md
+*handoff*.md
+
+# Intermediate pipeline outputs & caches
 outputs/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# IDE & OS files
 .vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Dataset & Benchmark exclusions
 data/test_image_hashes.json
 data/indexes/excluded.json
 spec/

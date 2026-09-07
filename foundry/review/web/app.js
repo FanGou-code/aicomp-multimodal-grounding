@@ -305,9 +305,9 @@
     renderCurrentItem();
   }
 
-  // --- Corpus filter (all / train / val) ---
+  // --- Item Visibility (all items visible in review session) ---
   function itemVisible(it) {
-    return state.corpusFilter === 'all' || it.corpus === state.corpusFilter;
+    return true;
   }
 
   function visibleIndices() {
@@ -331,16 +331,6 @@
     let best = vis[0];
     for (const i of vis) if (Math.abs(i - fromIndex) < Math.abs(best - fromIndex)) best = i;
     return best;
-  }
-
-  function setCorpusFilter(corpus) {
-    state.corpusFilter = corpus;
-    localStorage.setItem(STORAGE_KEY_CORPUS, corpus);
-    dom.corpusSwitch.querySelectorAll('button').forEach(b =>
-      b.classList.toggle('active', b.dataset.corpus === corpus));
-    state.currentIndex = nearestVisibleIndex(state.currentIndex);
-    updateOverallProgress();
-    renderCurrentItem();
   }
 
   function nextItem() {
@@ -489,7 +479,7 @@
         dom.annotationStatusBadge.className = 'badge badge-absent';
       } else if (isAiPendingItem(item)) {
         // AI badges removed — manifest mode
-        dom.annotationStatusBadge.textContent = badgeText;
+        dom.annotationStatusBadge.textContent = "待审AI预标";
         dom.annotationStatusBadge.className = 'badge badge-ai';
       } else {
         dom.annotationStatusBadge.textContent = item.annotator ? `已核验 (${item.annotator})` : '已标注';
@@ -1537,10 +1527,6 @@
 
     // Jump Input
     dom.jumpBtn.addEventListener('click', () => jumpToImage(dom.jumpInput.value));
-
-    // Corpus Switch
-    dom.corpusSwitch.querySelectorAll('button').forEach(b =>
-      b.addEventListener('click', () => setCorpusFilter(b.dataset.corpus)));
 
     // Seek Slider: floating preview while dragging (zero layout shift), jump on release
     dom.seekSlider.addEventListener('input', () => {

@@ -14,7 +14,7 @@ echo '{"img_001": {"image": "photos/a.jpg", "query": "the red car"}}' > my_queri
 python scripts/make_manifest.py --source my_queries.json --images-root /path/to/images
 
 # 3. 启动审查服务
-python scripts/review_server.py --manifest my_queries.json --images-root /path/to/images --port 8788
+python scripts/review_server.py --manifest my_queries.json --data-root /path/to/images --port 8788
 
 # 4. 浏览器打开 http://localhost:8788/，开始标注
 ```
@@ -51,7 +51,7 @@ python scripts/make_manifest.py --assembly outputs/assembly/asm-train-r5/assembl
 ### 启动审查服务
 
 ```bash
-python scripts/review_server.py --manifest my_queries.json --images-root /path/to/images --port 8788
+python scripts/review_server.py --manifest my_queries.json --data-root /path/to/images --port 8788
 ```
 
 浏览器打开 `http://localhost:8788/`。
@@ -92,7 +92,7 @@ python scripts/review_server.py --manifest my_queries.json --images-root /path/t
 
 2. 拿到分片文件（如 `part2.json`），启动审查：
    ```bash
-   python scripts/review_server.py --manifest part2.json --images-root /path/to/images --port 8789
+   python scripts/review_server.py --manifest part2.json --data-root /path/to/images --port 8789
    ```
 
 3. 标完后交回 `outputs/review/<run_tag>/annotations.predictions.json` 和 `annotations.queries.json`
