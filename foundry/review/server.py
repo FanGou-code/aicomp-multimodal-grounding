@@ -59,7 +59,8 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
         }
         meta = existing_meta.get(item_id)
         if meta is None or meta.get("annotator") == "glm-4.6v":
-            pending_seeds.append((item_id, list(entry["bbox"]), "glm-4.6v"))
+            if entry.get("bbox") and isinstance(entry["bbox"], list) and len(entry["bbox"]) == 4:
+                pending_seeds.append((item_id, list(entry["bbox"]), "glm-4.6v"))
         items.append(item)
 
     store.seed_many(pending_seeds)
@@ -178,6 +179,9 @@ class AnnotatorState:
         except OSError:
             return None
         if not resolved.is_file():
+            return None
+        # Boundary check: resolved path must stay within images_root
+        if not resolved.is_relative_to(self.images_root):
             return None
         return resolved
 

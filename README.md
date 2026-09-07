@@ -42,9 +42,9 @@ python -m unittest discover -s tests
 ## 结构
 
 ```
-foundry/       生产线核心模块
+foundry/       工具层（review/）+ 管线层（pipeline/）
 scripts/       CLI 入口
-spec/          协议与 QC 裁决表
+configs/       风格配置（prompts + rules）
 tests/         离线单测
 data/indexes/  数据集划分索引
 outputs/       产物（census / assembly / review）
@@ -84,7 +84,7 @@ python scripts/apply_review.py --assembly outputs/assembly/asm-train-r5/assembly
 ### Key 测活
 
 ```bash
-python scripts/check_keys.py
+python scripts/check_keys.py --data-root /path/to/dataset
 ```
 
 ## 许可

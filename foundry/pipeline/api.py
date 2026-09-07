@@ -323,7 +323,7 @@ from typing import Callable
 
 ENV_KEY_FILE = "ANNOTATION_API_KEY_FILE"
 ENV_KEYS = "ANNOTATION_API_KEYS"
-DEFAULT_KEY_FILE = Path(__file__).resolve().parents[1] / "keys" / "api_keys.txt"
+DEFAULT_KEY_FILE = Path(__file__).resolve().parents[2] / "keys" / "api_keys.txt"
 
 RATE_LIMIT_STRIKES_BEFORE_RETIRE = 30
 TRANSPORT_FAILURES_BEFORE_SUSPEND = 2

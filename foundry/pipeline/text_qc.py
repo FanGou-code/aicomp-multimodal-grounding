@@ -27,7 +27,7 @@ ECHO_TABLE_PATH = Path(__file__).resolve().parents[2] / "configs" / "default" / 
 
 TAIL_RE = re.compile(r"\b(with|wearing|holding|carrying) (?!(?:a |an |the ))(.+)$")
 
-KEEP = {
+_DEFAULT_KEEP = {
     "large antlers", "dense foliage", "wooden planks", "bushes", "tall trees", "leafy trees", "spots",
     "long tail feathers", "white tail feathers", "blue tail feathers", "green wings",
     "shorter tail feathers", "wheels", "platform with wheels", "cart with wheels", "dark clothing",
@@ -45,7 +45,7 @@ KEEP = {
     "dark pants on person",
 }
 VOWEL = "aeiou"
-PLURAL_MASS_LASTWORDS = {
+_DEFAULT_PLURAL = {
     "pants", "socks", "shorts", "jeans", "antlers", "feathers", "wheels", "branches", "leaves", "trees",
     "bushes", "windows", "buds", "handlebars", "devices", "bars", "segments", "spots", "limbs", "feet",
     "clothing", "foliage", "fur", "water", "grass", "text", "shrubbery", "equipment", "bark", "hair",
@@ -54,7 +54,7 @@ PLURAL_MASS_LASTWORDS = {
 }
 
 # (new_prep or "" for drop, new_tail)
-EXCEPTIONS = {
+_DEFAULT_EXCEPTIONS = {
     "in light clothing": ("", "in light clothing"),
     "in jacket": ("", "in a jacket"),
     "in water": ("", "in the water"),
@@ -159,6 +159,26 @@ EXCEPTIONS = {
     "anemometer with three cups": ("with", "an anemometer with three cups"),
     "wheeled platform": ("with", "a wheeled platform"),
 }
+
+
+# --- Load from config (fallback to hardcoded defaults) ---
+def _load_qc_config():
+    try:
+        import json
+        config_path = Path(__file__).resolve().parents[2] / "configs" / "default" / "rules" / "qc.json"
+        if config_path.is_file():
+            cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            return (
+                set(cfg.get("keep", [])),
+                set(cfg.get("plural_mass_lastwords", [])),
+                {k: tuple(v) for k, v in cfg.get("exceptions", {}).items()},
+            )
+    except Exception:
+        pass
+    return _DEFAULT_KEEP, _DEFAULT_PLURAL, _DEFAULT_EXCEPTIONS
+
+
+KEEP, PLURAL_MASS_LASTWORDS, EXCEPTIONS = _load_qc_config()
 
 
 def article(tail: str) -> str:

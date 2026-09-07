@@ -148,10 +148,6 @@ class ReviewServerTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 400)
 
 
-if __name__ == "__main__":
-
-    unittest.main()
-
 
 class ReviewReportTest(unittest.TestCase):
     def test_report_counts_adjustments_and_iou(self):
@@ -359,3 +355,7 @@ class MultiCorpusSessionTest(unittest.TestCase):
                     host="127.0.0.1",
                     port=0,
                 )
+
+
+if __name__ == "__main__":
+    unittest.main()

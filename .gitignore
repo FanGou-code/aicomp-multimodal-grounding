@@ -4,7 +4,6 @@ __pycache__/
 keys/api_keys.txt
 outputs/
 .vscode/
-docs/
 data/test_image_hashes.json
 data/indexes/excluded.json
 spec/

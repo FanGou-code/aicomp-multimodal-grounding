@@ -110,12 +110,11 @@ def main() -> None:
     print(f"assembled {audit['count']} records "
           f"(real {audit['sources']['real']} / teacher {audit['sources']['teacher']}) "
           f"from {len(result.sequences)} sequences")
-    print(f"verbatim repeat {audit['verbatim_repeat_rate']} (test {audit['test_reference']['verbatim_repeat_rate']}), "
-          f"mean words {audit['mean_words']} (test {audit['test_reference']['mean_words']})")
-    print("bucket per-mille (assembled vs test):")
+    print(f"verbatim repeat {audit['verbatim_repeat_rate']}, "
+          f"mean words {audit['mean_words']}")
+    print("bucket per-mille (assembled):")
     for bucket, per_mille in audit["bucket_per_mille"].items():
-        print(f"  {bucket:<18} {per_mille:>4} vs "
-              f"{audit['test_reference']['bucket_per_mille'][bucket]:>4}")
+        print(f"  {bucket:<18} {per_mille:>4}")
     print(f"shortfall: {len(result.shortfall)} target(s)")
     print(f"wrote {out_dir / 'assembly.json'}")
     print(f"wrote {out_dir / 'audit.json'}")

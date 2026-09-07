@@ -412,5 +412,6 @@
  "index_sample_counts": {
   "train": 2875,
   "val": 719
- }
+ },
+ "preparation_protocol_version": 2
 }

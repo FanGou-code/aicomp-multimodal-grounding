@@ -38,18 +38,32 @@ from PIL import Image, ImageDraw
 
 from foundry.bbox import compute_iou
 
-FINDALL_PROMPT = """The red rectangle marks one object in the scene.
+def _load_prompt(name: str, default: str) -> str:
+    """Load a prompt from configs/default/prompts/<name>.md, falling back to default."""
+    try:
+        from pathlib import Path
+        config_path = Path(__file__).resolve().parents[2] / "configs" / "default" / "prompts" / f"{name}.md"
+        if config_path.is_file():
+            return config_path.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    return default
+
+_FINDALL_DEFAULT = """The red rectangle marks one object in the scene.
 Task: list up to 12 objects you are MOST CONFIDENT about — clear outline, nameable at a glance — regardless of category, ordered from left to right. If multiple instances of the red-boxed category exist, include them all first, then fill the remaining slots with other confident objects. Skip tiny clutter, blurry ground debris, and anything you cannot identify precisely.
 You must include the object inside the red rectangle. Number them 1..N (N is the total count).
 For each object give a short common category name and its bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
 Output JSON only:
 {"objects": [{"i": 1, "category": "<category name>", "bbox": [x1, y1, x2, y2]}, ...]}"""
 
-ATTR_PROMPT = """The image shows numbered boxes around objects in the scene.
+_ATTR_DEFAULT = """The image shows numbered boxes around objects in the scene.
 For each numbered object report only what is directly visible: its color and one notable visible feature.
 Do not guess occluded or unclear properties.
 Output JSON only:
 {"1": {"color": "...", "features": "..."}, ...}"""
+
+FINDALL_PROMPT = _load_prompt("findall", _FINDALL_DEFAULT)
+ATTR_PROMPT = _load_prompt("attr", _ATTR_DEFAULT)
 
 FINDALL_PROMPT_HASH = hashlib.sha256(FINDALL_PROMPT.encode("utf-8")).hexdigest()
 ATTR_PROMPT_HASH = hashlib.sha256(ATTR_PROMPT.encode("utf-8")).hexdigest()

@@ -111,6 +111,23 @@ def _normalize_bbox(x: int, y: int, w: int, h: int, img_w: int, img_h: int) -> l
     return [x / img_w, y / img_h, x2 / img_w, y2 / img_h]
 
 
+import struct
+
+def _png_size(p: Path) -> tuple[int, int]:
+    with p.open("rb") as fh:
+        sig = fh.read(8)
+        if sig[0] != 0x89 or sig[1:4] != b"PNG":
+            raise ValueError("not a PNG")
+        fh.read(4)
+        tag = fh.read(4)
+        if tag != b"IHDR":
+            raise ValueError("IHDR not first")
+        w = struct.unpack(">I", fh.read(4))[0]
+        h = struct.unpack(">I", fh.read(4))[0]
+        return w, h
+
+
+
 def build_indexes(
     raw_root: Path,
     *,
@@ -140,8 +157,9 @@ def build_indexes(
     all_sequences = sorted(
         p.name for p in raw_train.iterdir() if p.is_dir() and p.name.isdigit()
     )
-    train_set = set(_DEFAULT_TRAIN)
-    val_set = set(_DEFAULT_VAL)
+    train_seqs, val_seqs = _build_split(all_sequences, seed, train_ratio)
+    train_set = set(train_seqs)
+    val_set = set(val_seqs)
 
     outputs: dict[str, dict] = {"train": {}, "val": {}}
     stats = {"sequences": len(all_sequences), "samples": 0, "excluded_hash": 0,
@@ -226,6 +244,7 @@ def build_indexes(
 
         manifest = {
             "status": "complete",
+            "preparation_protocol_version": 2,
             "split_method": "frozen-sequence-assignment",
             "train_sequences": sorted(train_set),
             "val_sequences": sorted(val_set),

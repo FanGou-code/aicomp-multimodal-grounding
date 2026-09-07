@@ -13,7 +13,10 @@ import sys
 from pathlib import Path
 
 
-from foundry.pipeline.census import trusted_objects  # noqa: E402
+# Lazy import to keep tool layer zero-dependency for --manifest mode
+def __trusted_objects(frame):
+    from foundry.pipeline.census import trusted_objects
+    return trusted_objects(frame)
 from foundry.utils import load_json  # noqa: E402
 from foundry.review.store import AnnotationStore  # noqa: E402
 
@@ -49,7 +52,7 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
             # Presentation order: left to right within the frame. The
             # cross-pass intersection's greedy order is not positionally
             # stable under IoU ties, so sort explicitly here.
-            objects = sorted(trusted_objects(frame), key=lambda o: o["bbox"][0])
+            objects = sorted(__trusted_objects(frame), key=lambda o: o["bbox"][0])
             stats["frames"] += 1
             for obj in objects:
                 item_id = f"{sample_id}#{obj['i']:02d}"
