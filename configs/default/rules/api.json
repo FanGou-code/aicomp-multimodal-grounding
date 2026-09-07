@@ -1,0 +1,7 @@
+{
+  "model_name": "glm-4.6v",
+  "api_base_url": "https://open.bigmodel.cn/api/paas/v4",
+  "model_weights_url": "https://huggingface.co/zai-org/GLM-4.6V",
+  "model_license": "MIT",
+  "description": "API provider configuration for the census pipeline. Change model_name and api_base_url to use a different provider."
+}

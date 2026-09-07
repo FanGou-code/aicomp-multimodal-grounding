@@ -56,6 +56,16 @@ python scripts/review_server.py --manifest my_queries.json --images-root /path/t
 
 浏览器打开 `http://localhost:8788/`。
 
+## 配置
+
+管线层（census / assembly）的 API 供应商和模型参数通过  配置：
+
+
+
+修改  和  即可切换到其他 OpenAI 兼容的 API 供应商。
+
+提示词、桶分类规则、QC 规则分别在  和  下，修改后管线运行时自动加载。
+
 ## 审查器快捷键
 
 | 键 | 功能 |
@@ -80,7 +90,7 @@ python scripts/review_server.py --manifest my_queries.json --images-root /path/t
        --split 3 --part 1
    ```
 
-2. 队友 clone 仓库，拿到分片文件（如 `part2.json`），启动审查：
+2. 拿到分片文件（如 `part2.json`），启动审查：
    ```bash
    python scripts/review_server.py --manifest part2.json --images-root /path/to/images --port 8789
    ```
