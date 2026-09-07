@@ -3,59 +3,67 @@
 > 本仓 = 主仓 v5 query 生产线。边界与红线见根 README。
 > 上游定案见主仓 `docs/handoff.md` 与 `/tmp/handoff-2026-09-05-query-foundry.md`（2026-09-05 会话交接）。
 
-## 当前状态（2026-09-07，规范化轮完成，全量人审进行中，echo 重放缺口待管理员定夺）
+## 当前状态（2026-09-07 大轮收官：AI 预审层全量落地，人审过半，待续审后烘焙 r6）
 
-- **生产线全链已通**：主普查（v3，train 320/320 + val 80/80）→ 补数 pass（v3.1，
-  train 549 + val 134 顶满帧双遍无上限重枚举，双遍计数一致率 82.8%/82.3%）→
-  重排（幻影框淘汰/场景真值序数/不一致帧禁序数）→ 颜色仲裁（同头 ≥2 同色剥除）
-  → 组装（教师目标不限量全收，`--max-teacher-per-frame -1`）→ 文本 QC（已折进
-  组装器：`foundry/text_qc.py` 引擎 + `spec/text_qc_echo_table.json` 冻结表）→
-  全量人审（审查器，query 可编辑）。
-- **当前语料（定版 r5，2026-09-07 管理员拍板）**：train 2,730 条 / 913 帧
-  （`asm-train-r5`）+ val 736 条 / 233 帧（`asm-val-r5`）= 3,466 条（设计量
-  3,600 的 94.9%）。r5 = 放量重组装 + 文本 QC 完整重放（echo 裁决 48 条落
-  地，item id 与 r4 一致）；r4 保留为存档（echo 缺口的历史证据，110 条人工
-  裁决的原始上下文）。
-- **人审进度**（outputs/review/，已随迁至 asm-*-r5 目录）：train 110 条人工
-  记录（bbox 117 次 + query 编辑 24 次）已核验 65 + 待办 5，整帧核验 30；
-  val 未开始。store 重放修复后，历史 query 编辑按 journal 正确重放。
-- **审查器当前能力**：`--assembly` 可传多个清单合并 train+val 同时审（store
-  按语料分目录、写按 corpus 路由，进度目录 asm-*-r5 直接沿用）；前端顶栏
-  [全部|train|val] 范围切换，进度/跳转/搜索按范围计算；`E` 进 query 编辑框，
-  编辑框内 `Ctrl+F/B/A/E/K` linux 光标键，`Enter` 存退、`Esc` 放弃。
-- **规范化轮（2026-09-07，本轮）**：审查器两处实质 bug 修复——① store 日志
-  重放把「只改 query」记录当删除处理，人工框在重启/热重载后被抹掉并被教师
-  种子覆盖（journal 是追加账本，修复重放即追溯治愈，无需迁移）；② 启动播种
-  逐条全量重放 journal（O(n²)，3,466 条 = 2 分 17 秒 CPU / 4.9GB 读、端口
-  绑定前前端不可达——管理员遇到的「前端打不开 + 风扇狂转」），改 `seed_many`
-  批量播种后启动 0.6 秒。模块边界：`trusted_objects`（帧级可信对象集）三处
-  重复实现合一进 `census.py`；`extract_frame_facts` 及几何阈值迁入
-  `foundry/facts.py`（review 不再依赖整个组装器）；死代码清除（死
-  `reconcile_sequence`、重复 `parse_spec_shares`、review 的 absent/判空 UI 与
-  写入路径、query_zh 翻译层——journal 重放仍容忍历史 absent 记录）。协议双源：
-  `spec/census_protocol.md` 提示词改与代码逐字一致 + SHA-256 指纹，由
-  `tests/test_census.py` 机器校验（此前文档与代码已漂移）。组装输出目录默认
-  拒绝覆写（`--force` 放行）。测试 96 → 111 项全绿（+store 回归 4、text_qc 10、
-  协议同步 1）。
-- **两个既有 census run 的用途**：`census_da571f4a3c91eb22`（train，含
-  enumeration.json）与 `census_c85c9d9b1c74bf85`（val，含 enumeration.json）——
-  merged.json + enumeration.json 是组装器的事实源，**不许删**。
-- **审查器启动**（管理员自管进程，train+val 合并会话）：
+- **语料（定版 r5）**：train 2,730 条 / 913 帧（`asm-train-r5`）+ val 736 条 /
+  233 帧（`asm-val-r5`）= 3,466 条（设计量 96%）。r5 = 放量重组装 + 文本 QC
+  完整重放（echo 裁决 48 条落地，item id 与 r4 一致）；r4 保留存档。
+  四桶 368/100/248/284 与 344/140/253/264（test 335/151/258/256）；
+  逐字重复 0.18%/0%；128 项测试全绿。
+- **AI 预审层（本轮新增，已全量跑完）**：`scripts/run_ai_review.py`——每条
+  query 渲染全景+目标红框（内存渲染零落仓）让教师审计，修正词表锁死
+  序数/方向/颜色三件、改后自查消歧，三裁决 pass/fixed/human。全量结果：
+  train 2,445 = pass 1,461 / fixed 960 / human 24；val 736 = pass 466 /
+  fixed 263 / human 7（合计 pass 60.6% / fixed 38.4% / human 1.0%，
+  ~3,193 次调用零失败）。产物 = 下游名单 `outputs/ai_review/asm-*-r5/`
+  （ai_review.json + 分片 checkpoint），上游 r5 不动，可整批回滚。
+- **人审进度**（outputs/review/asm-train-r5）：train 人工终态 1,041 条
+  （1,038 署名 fang0 + 3 待办 reviewer:todo）、整帧核验 329/913；
+  **val 未开始**。历史 reviewer 署名已追加式改名 fang0（journal 历史行
+  原样保留）。注意：审查器署名输入框若为空，新核验落默认 reviewer，
+  收工可再跑一次改名。
+- **审查器**：`--assembly` 多清单合并 train+val 单端口会话（store 按语料
+  分目录，人工进度零迁移）；AI overlay（fixed 显示修正句 + ai_verdict/
+  ai_reason 徽章；人工条目绕过；同帧重复句 84 条标 ⚠ 置顶关注）；画布
+  两色（灰=未人工过 / 亮绿=已过）；打字流 `E` 进编辑框 + Ctrl+F/B/A/E/K/U
+  readline 键（页面级拦截浏览器默认，文本框内 Ctrl+A 保留全选）+ Enter
+  存退 / Esc 放弃；下一张图预取；页面异常红条可见化（带行号去重）。
+  启动：
   `python scripts/review_server.py --assembly outputs/assembly/asm-train-r5/assembly.json outputs/assembly/asm-val-r5/assembly.json --port 8788`
-  （也可只传一个清单；val 单开用 asm-val-r5 + 8789）。声明行 = 方向箭头 ◀▶ ·
-  序数词 · 主体（从 query 逐字摘取）。Enter 核验 / E 进编辑框 / P 进待办 /
-  顶栏 [全部|train|val] 切范围。判空（X）/清除（Esc/DELETE）与翻译层已移除。
-- **下一步**：① 管理员定夺 echo 重放缺口（切 r5-verify 或维持 r4 现状续审）
-  → 处理 :todo 清单（补数计数上下文消歧或废弃）→ 人工 query 修改合并 → 快照
-  → approved 产物包 → 主仓合同校验 → α32 重训（主仓 SOP）。
-- **已知债务**：① scripts 入口幂等性部分统一（组装入口有 --force 保护，
-  audit/compare 类脚本仍直接落盘）；② 拥挤帧序数可信域问题（教师自一致性
-  ~83%）——test 侧模型数数能力仍是最大变量；③ 旧 handoff 所记「shell 无 127
-  豁免」已闭环：实测为 WSL 镜像网络 autoProxy 同步 Windows 系统代理所致，
-  no_proxy 含 127.* 与 localhost，测试内置覆盖保留为防御。
+- **下一步**：① 人审收尾（train 余量 + val 736，AI 徽章分流：🤖快扫 /
+  ✏️多看 / ⚠重点）；② 3 条 :todo 消歧定夺；③ **apply 烘焙 r6**（本轮未
+  实现）：fixed 句逐条重过唯一性门 + 桶分类器 + 文本 QC，human/门拦/碰撞
+  条目按人审终态合并，产 asm-*-r6 为打包基线；④ R6 打包 → 主仓合同校验
+  → α32 重训（主仓 SOP，模型换代为主杠杆）。
+- **已知债务**：① 拥挤帧序数可信域（教师自一致 ~83%，AI 审计存在跨条目
+  计数漂移——40 组碰撞已标记，终裁靠人）；② audit/compare 类脚本仍直接
+  落盘（组装入口已有 --force 保护）。
 
 ## 交接日志
 
+### 2026-09-07（大轮收官：AI 预审全量执行 + overlay 上线 + 署名归一 + 事故修复）
+
+- **AI 预审全量**（管理员放行，监督跑完，train+val ~15 分钟）：pass 1,927 /
+  fixed 1,223 / human 31，零失败零限流。冒烟监督发现两类边界（同帧跨条目
+  计数漂移、AI 引用普查未登记对象），均由 apply 侧唯一性门兜住的设计
+  预先覆盖；续跑语义修正为「仅 completed 为终态，failed 自动重试」。
+- **overlay 上线**（管理员拍板：AI 看整句+全貌，fix 默认采纳+出入标记；
+  下游名单独立，上游不动）：会话构建器自动叠加 ai_review，fixed 显示
+  修正句，人工条目完全绕过；同帧重复句（84 条）标记置顶。画布两色收敛
+  （灰/亮绿），AI 裁决走文字徽章。
+- **事故与修复**：① 颜色收敛时误删 `isAi` 定义致画布 HUD 每帧抛
+  ReferenceError——图/框冻结在旧帧（管理员报障「跨帧不切换」），修复并
+  加静态测试钉死退役标识符（8 个名字），测试 128 项；② 静默异常历史性
+  不可见——加红条 toast（去重+行号）；③ 跨帧旧图残留——加下一张图预取。
+- **署名归一**：train journal 追加式改名 reviewer → fang0（808 条目，
+  1,414 条历史记录；历史行保留，重放终态 fang0=1,038 / 待办 3）。
+- **tmux 审查服务已关停**（管理员指令），进度全在 journal，同命令重启即续。
+- **验证**：128 项测试全绿；活会话字段/分布/署名实测正确；node --check
+  通过。两仓 handoff 同步提交。
+- **下一步**：见当前状态「下一步」——人审收尾 → apply 烘焙 r6 → R6 打包
+  → 主仓 α32 重训。
+
+### 2026-09-07（AI 预审 pass 落地:run_ai_review.py + 审计合同定稿;真跑待管理员放行）
 ### 2026-09-07(AI 预审全量收官 + 审查器 overlay:下游名单叠加、颜色收敛、碰撞标记)
 
 - **全量结果**(管理员放行,train+val 串行 ~15 分钟,~3,193 次调用零失败):
