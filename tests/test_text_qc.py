@@ -2,8 +2,8 @@
 
 import unittest
 
-from foundry.assembly import AssemblyRecord
-from foundry.text_qc import adjudicate, apply_text_qc, qc_query
+from foundry.pipeline.assembly import AssemblyRecord
+from foundry.pipeline.text_qc import adjudicate, apply_text_qc, qc_query
 
 
 def record(sample_id: str, object_index: int, query: str) -> AssemblyRecord:

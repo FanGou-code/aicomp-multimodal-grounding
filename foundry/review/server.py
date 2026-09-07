@@ -1,4 +1,4 @@
-"""Review server backend: gt-annotator adapted to query-foundry sessions.
+"""Review server backend: adapted to query-foundry sessions.
 
 Same stdlib-only HTTP core and crash-safe store as gt-annotator; the session
 source is a census run (teacher boxes pre-seeded for human verification)
@@ -28,6 +28,48 @@ from foundry.review.census_session import (  # noqa: E402
     build_census_session,
 )
 from foundry.review.store import ABSENT_SUFFIX, AnnotationStore  # noqa: E402
+
+
+def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
+    """Build a review session from a simple manifest file.
+
+    The manifest is a JSON file with {name, items: [{id, image, query, bbox, ...}]}.
+    Each item is seeded with its assembly bbox as an AI pre-annotation.
+    """
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    run_tag = manifest.get("run_tag", manifest_path.stem)
+    store = AnnotationStore(Path(review_root) / run_tag)
+    existing_meta = store.all_meta()
+    pending_seeds: list[tuple[str, list[float], str]] = []
+
+    items: list[dict] = []
+    for entry in manifest.get("items", []):
+        item_id = entry["id"]
+        item = {
+            "id": item_id,
+            "image": entry["image"],
+            "query": entry["query"],
+            "ordinal": entry.get("object_index", 0),
+            "frame_id": entry.get("frame_id", ""),
+            "gt_bbox": entry["bbox"] if entry.get("source") == "real" else None,
+            "category": entry.get("category", ""),
+            "bucket": "",
+            "family": "",
+            "corpus": entry.get("corpus", "train"),
+        }
+        meta = existing_meta.get(item_id)
+        if meta is None or meta.get("annotator") == "glm-4.6v":
+            pending_seeds.append((item_id, list(entry["bbox"]), "glm-4.6v"))
+        items.append(item)
+
+    store.seed_many(pending_seeds)
+    return {
+        "name": manifest.get("name", manifest_path.stem),
+        "items": items,
+        "stats": {"seeded": len(pending_seeds), "frames": 0, "already_seeded": 0},
+        "store": store,
+        "split": manifest.get("split", "train"),
+    }
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 MAX_BODY_BYTES = 1_000_000
@@ -278,9 +320,10 @@ class AnnotationHandler(BaseHTTPRequestHandler):
 def create_server(
     *,
     census_run_dir: str | Path | None = None,
-    data_root: str | Path,
-    review_root: str | Path,
+    data_root: str | Path = "",
+    review_root: str | Path = "",
     assembly_path: str | Path | list[str | Path] | None = None,
+    manifest_path: str | Path | None = None,
     host: str = "127.0.0.1",
     port: int = 0,
 ) -> tuple[ThreadingHTTPServer, AnnotatorState]:
@@ -291,7 +334,9 @@ def create_server(
     crash-safe store directory, so existing review progress carries over
     untouched; writes route by the item's corpus.
     """
-    if assembly_path is not None:
+    if manifest_path is not None:
+        sessions = [build_manifest_session(Path(manifest_path), Path(review_root))]
+    elif assembly_path is not None:
         paths = [assembly_path] if isinstance(assembly_path, (str, Path)) else list(assembly_path)
         sessions = [build_assembly_session(Path(p), Path(data_root), Path(review_root)) for p in paths]
     else:
@@ -322,7 +367,7 @@ def create_server(
         session["store"] = sessions[0]["store"]  # single-corpus back-compat
         session["census_run_id"] = sessions[0].get("census_run_id")
 
-    images_root = Path(data_root).resolve()
+    images_root = Path(data_root).resolve() if data_root else Path(".").resolve()
     server = ThreadingHTTPServer((host, port), AnnotationHandler)
     server.daemon_threads = True
     server.annotator_state = AnnotatorState(
@@ -332,23 +377,25 @@ def create_server(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="census review server (gt-annotator adapted)")
+    parser = argparse.ArgumentParser(description="census review server (adapted)")
     parser.add_argument("--census-run", help="census run dir with merged.json (box review mode)")
     parser.add_argument("--assembly", nargs="+", help="assembly.json path(s); several = combined session")
-    parser.add_argument("--data-root", default=PROJECT_ROOT / "data")
+    parser.add_argument("--manifest", help="path to a review manifest JSON (from make_manifest.py)")
+    parser.add_argument("--data-root", type=Path, required=False)
     parser.add_argument("--review-root", default=PROJECT_ROOT / "outputs" / "review")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8788)
     args = parser.parse_args(argv)
 
-    if not args.census_run and not args.assembly:
-        parser.error("either --census-run or --assembly is required")
+    if not args.census_run and not args.assembly and not args.manifest:
+        parser.error("one of --census-run, --assembly, or --manifest is required")
     try:
         server, state = create_server(
             census_run_dir=args.census_run,
             data_root=args.data_root,
             review_root=args.review_root,
             assembly_path=args.assembly,
+            manifest_path=args.manifest,
             host=args.host,
             port=args.port,
         )

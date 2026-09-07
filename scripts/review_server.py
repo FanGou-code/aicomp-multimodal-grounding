@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Census review server — gt-annotator adapted for query-foundry (local, zero API).
+"""Census review server — adapted for query-foundry (local, zero API).
 
 Serves the selected frames of a census run with teacher boxes pre-seeded as
 AI pre-annotations. Drag/resize adjusts a box and writes it back to the

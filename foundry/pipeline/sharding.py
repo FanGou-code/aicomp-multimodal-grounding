@@ -91,3 +91,20 @@ def shard_scene_ids(
         sorted(set(extract_scene_id(key) for key in shard))
         for shard in key_shards
     ]
+
+
+
+
+from foundry.utils import stable_json_hash
+
+
+def source_fingerprint(dataset: dict) -> str:
+    
+    identity = {}
+    for key in sorted(dataset):
+        item = dataset[key]
+        identity[key] = {
+            field: item.get(field)
+            for field in ("visible", "infrared", "depth", "bbox", "width", "height")
+        }
+    return stable_json_hash(identity)

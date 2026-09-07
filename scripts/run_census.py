@@ -27,10 +27,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from PIL import Image, ImageDraw
 
-from foundry.annotation_views import build_marked_annotation_view, jpeg_data_url
-from foundry.api_client import APIError, OpenAIProtocolClient, SlidingWindowRateLimiter
-from foundry.artifacts import stable_json_hash
-from foundry.census import (
+from foundry.pipeline.views import build_marked_annotation_view, jpeg_data_url
+from foundry.pipeline.api import APIError, OpenAIProtocolClient, SlidingWindowRateLimiter
+from foundry.utils import stable_json_hash
+from foundry.pipeline.census import (
     ATTR_PROMPT_HASH,
     FINDALL_PROMPT_HASH,
     attr_messages,
@@ -40,8 +40,8 @@ from foundry.census import (
     parse_findall_response,
     select_frames,
 )
-from foundry.depth import frame_depth_facts, load_depth_millimeters, raw_depth_path
-from foundry.config import (
+from foundry.pipeline.depth import frame_depth_facts, load_depth_millimeters, raw_depth_path
+from foundry.utils import (
     ANNOTATION_API_BASE_URL,
     ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST,
     ANNOTATION_MODEL_LICENSE,
@@ -54,22 +54,22 @@ from foundry.config import (
     ANNOTATION_TOKENS_PER_MINUTE,
     PREPARATION_PROTOCOL_VERSION,
 )
-from foundry.images import (
+from foundry.pipeline.views import (
     is_trusted_image_fingerprint,
     trusted_dataset_image_fingerprint,
     verify_dataset_images,
 )
-from foundry.io import atomic_write_json, load_json
-from foundry.keys import (
+from foundry.utils import atomic_write_json, load_json
+from foundry.pipeline.api import (
     APIKeyPool,
     APIKeyPoolExhausted,
     DEFAULT_KEY_FILE,
     comment_out_key,
     load_api_keys,
 )
-from foundry.sequence import source_fingerprint
-from foundry.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
-from foundry.source import image_fingerprint, load_annotation_source, preparation_fingerprint
+from foundry.pipeline.sharding import source_fingerprint
+from foundry.pipeline.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
+from foundry.pipeline.source import image_fingerprint, load_annotation_source, preparation_fingerprint
 
 CENSUS_PROTOCOL_VERSION = 3
 FINDALL_MAX_TOKENS = 2048
@@ -578,7 +578,6 @@ def run_census(
     estimated_tokens_per_request: int = ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST,
 ) -> dict:
     split = _validate_options(split, limit_sequences, concurrency)
-    data_root = Path(data_root).resolve() if data_root is not None else Path(__file__).resolve().parents[1] / "data"
     output_root = output_root.resolve()
     plan = census_preflight(
         data_root=data_root, output_root=output_root, split=split,
@@ -652,7 +651,7 @@ def run_census(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the v5 census protocol over source frames.")
     parser.add_argument("--split", choices=["train", "val"], default="train")
-    parser.add_argument("--data-root", type=Path, default=None)
+    parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, default=Path("outputs/census"))
     parser.add_argument("--limit-sequences", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)

@@ -1,0 +1,13 @@
+[project]
+name = "query-foundry"
+version = "0.1.0"
+description = "Visual grounding annotation pipeline: census, assembly, and review tools"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+readme = "README.md"
+
+[project.optional-dependencies]
+pipeline = ["Pillow", "numpy"]
+
+[tool.setuptools.packages.find]
+include = ["foundry*", "scripts*"]

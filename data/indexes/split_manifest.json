@@ -1,1512 +1,416 @@
 {
-  "status": "complete",
-  "preparation_protocol_version": 2,
-  "seed": 42,
-  "train_ratio": 0.8,
-  "depth_scaling": "fixed",
-  "min_depth_mm": 300,
-  "max_depth_mm": 20000,
-  "train_sequences": [
-    "001",
-    "002",
-    "003",
-    "005",
-    "006",
-    "007",
-    "008",
-    "009",
-    "010",
-    "011",
-    "012",
-    "015",
-    "018",
-    "019",
-    "020",
-    "021",
-    "022",
-    "025",
-    "026",
-    "027",
-    "028",
-    "029",
-    "030",
-    "031",
-    "032",
-    "033",
-    "034",
-    "035",
-    "037",
-    "038",
-    "039",
-    "040",
-    "042",
-    "043",
-    "044",
-    "046",
-    "047",
-    "049",
-    "051",
-    "054",
-    "055",
-    "056",
-    "057",
-    "059",
-    "060",
-    "061",
-    "062",
-    "063",
-    "065",
-    "066",
-    "067",
-    "068",
-    "069",
-    "070",
-    "071",
-    "073",
-    "074",
-    "075",
-    "076",
-    "077",
-    "078",
-    "079",
-    "081",
-    "083",
-    "085",
-    "086",
-    "087",
-    "088",
-    "089",
-    "090",
-    "091",
-    "092",
-    "093",
-    "094",
-    "095",
-    "096",
-    "097",
-    "098",
-    "100",
-    "101",
-    "103",
-    "104",
-    "105",
-    "106",
-    "107",
-    "109",
-    "110",
-    "114",
-    "116",
-    "118",
-    "119",
-    "121",
-    "122",
-    "123",
-    "124",
-    "125",
-    "127",
-    "128",
-    "129",
-    "130",
-    "131",
-    "132",
-    "133",
-    "134",
-    "135",
-    "137",
-    "138",
-    "139",
-    "140",
-    "142",
-    "144",
-    "145",
-    "146",
-    "147",
-    "148",
-    "150",
-    "152",
-    "153",
-    "154",
-    "155",
-    "156",
-    "157",
-    "158",
-    "159",
-    "160",
-    "161",
-    "162",
-    "163",
-    "164",
-    "165",
-    "166",
-    "167",
-    "168",
-    "169",
-    "170",
-    "171",
-    "172",
-    "174",
-    "176",
-    "178",
-    "179",
-    "180",
-    "181",
-    "183",
-    "185",
-    "188",
-    "189",
-    "191",
-    "192",
-    "193",
-    "196",
-    "197",
-    "198",
-    "199",
-    "200",
-    "201",
-    "202",
-    "203",
-    "204",
-    "205",
-    "206",
-    "207",
-    "208",
-    "209",
-    "210",
-    "211",
-    "212",
-    "213",
-    "214",
-    "216",
-    "218",
-    "219",
-    "220",
-    "221",
-    "222",
-    "223",
-    "224",
-    "225",
-    "226",
-    "227",
-    "228",
-    "229",
-    "231",
-    "232",
-    "234",
-    "235",
-    "237",
-    "238",
-    "239",
-    "240",
-    "241",
-    "242",
-    "243",
-    "244",
-    "245",
-    "246",
-    "247",
-    "248",
-    "249",
-    "250",
-    "251",
-    "252",
-    "253",
-    "254",
-    "255",
-    "256",
-    "257",
-    "258",
-    "260",
-    "261",
-    "262",
-    "263",
-    "264",
-    "265",
-    "266",
-    "267",
-    "268",
-    "269",
-    "270",
-    "271",
-    "272",
-    "273",
-    "274",
-    "276",
-    "277",
-    "278",
-    "279",
-    "281",
-    "282",
-    "284",
-    "285",
-    "286",
-    "287",
-    "289",
-    "290",
-    "291",
-    "292",
-    "293",
-    "294",
-    "295",
-    "297",
-    "298",
-    "299",
-    "300",
-    "301",
-    "304",
-    "305",
-    "306",
-    "307",
-    "308",
-    "311",
-    "312",
-    "313",
-    "314",
-    "315",
-    "316",
-    "318",
-    "319",
-    "320",
-    "321",
-    "323",
-    "324",
-    "325",
-    "326",
-    "327",
-    "329",
-    "330",
-    "331",
-    "332",
-    "334",
-    "335",
-    "336",
-    "337",
-    "338",
-    "339",
-    "340",
-    "341",
-    "342",
-    "344",
-    "345",
-    "346",
-    "348",
-    "349",
-    "350",
-    "351",
-    "352",
-    "353",
-    "355",
-    "356",
-    "357",
-    "359",
-    "361",
-    "362",
-    "363",
-    "364",
-    "365",
-    "368",
-    "369",
-    "370",
-    "371",
-    "373",
-    "374",
-    "375",
-    "376",
-    "377",
-    "379",
-    "381",
-    "383",
-    "384",
-    "386",
-    "387",
-    "390",
-    "392",
-    "393",
-    "394",
-    "395",
-    "396",
-    "398",
-    "399",
-    "400"
-  ],
-  "val_sequences": [
-    "004",
-    "013",
-    "014",
-    "016",
-    "017",
-    "023",
-    "024",
-    "036",
-    "041",
-    "045",
-    "048",
-    "050",
-    "052",
-    "053",
-    "058",
-    "064",
-    "072",
-    "080",
-    "082",
-    "084",
-    "099",
-    "102",
-    "108",
-    "111",
-    "112",
-    "113",
-    "115",
-    "117",
-    "120",
-    "126",
-    "136",
-    "141",
-    "143",
-    "149",
-    "151",
-    "173",
-    "175",
-    "177",
-    "182",
-    "184",
-    "186",
-    "187",
-    "190",
-    "194",
-    "195",
-    "215",
-    "217",
-    "230",
-    "233",
-    "236",
-    "259",
-    "275",
-    "280",
-    "283",
-    "288",
-    "296",
-    "302",
-    "303",
-    "309",
-    "310",
-    "317",
-    "322",
-    "328",
-    "333",
-    "343",
-    "347",
-    "354",
-    "358",
-    "360",
-    "366",
-    "367",
-    "372",
-    "378",
-    "380",
-    "382",
-    "385",
-    "388",
-    "389",
-    "391",
-    "397"
-  ],
-  "stats": {
-    "sequences": 400,
-    "groundtruth_rows": 4000,
-    "valid_samples": 3594,
-    "excluded_invalid_bbox": 97,
-    "depth_written": 0,
-    "depth_would_write": 0,
-    "depth_reused": 3903,
-    "test_depth_written": 0,
-    "test_depth_would_write": 0,
-    "test_depth_reused": 2000
-  },
-  "test_contract": {
-    "protocol_version": 1,
-    "official_query_count": 9555,
-    "official_template_sha256": "8fae701890bbbf05099e11ac8b2a3ead18990a496449355c9f09825d88ccfbbf",
-    "processed_index_fingerprint": "676e2a2ed115c0cb19067d83ff33b37e9475614f1e3c9c135fc9a18ac1b2b4af",
-    "raw_depth_file_count": 2000,
-    "raw_depth_fingerprint": "4bd843a1f327613b1beb89c6410a290acc96ded0a20427c58bdf668e12a579d1",
-    "processed_depth_file_count": 2000,
-    "processed_depth_fingerprint": "d01bbf10f15a9c4164267e1f1f9cf1965ba68191d29ab0ced01ba0b92b5f2550"
-  },
-  "exclusions": [
-    {
-      "sequence": "002",
-      "filename": "00000266.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "002",
-      "filename": "00000301.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "013",
-      "filename": "00000063.png",
-      "bbox_xywh": [
-        1138.0,
-        853.0,
-        203.0,
-        -244.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "029",
-      "filename": "00000205.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "029",
-      "filename": "00000227.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "029",
-      "filename": "00000257.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "029",
-      "filename": "00000301.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "029",
-      "filename": "00000334.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "043",
-      "filename": "00000334.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "058",
-      "filename": "00000028.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "058",
-      "filename": "00000036.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "059",
-      "filename": "00000175.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "059",
-      "filename": "00000205.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "059",
-      "filename": "00000227.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "059",
-      "filename": "00000257.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "059",
-      "filename": "00000301.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "065",
-      "filename": "00000142.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "065",
-      "filename": "00000213.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "074",
-      "filename": "00000231.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "074",
-      "filename": "00000248.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "074",
-      "filename": "00000316.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "102",
-      "filename": "00000229.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "104",
-      "filename": "00000121.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "104",
-      "filename": "00000308.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "106",
-      "filename": "00000269.png",
-      "bbox_xywh": [
-        958.0,
-        531.0,
-        -39.0,
-        179.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "106",
-      "filename": "00000317.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "116",
-      "filename": "00000074.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "116",
-      "filename": "00000082.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "145",
-      "filename": "00000020.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "145",
-      "filename": "00000160.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "151",
-      "filename": "00000059.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "151",
-      "filename": "00000106.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "151",
-      "filename": "00000234.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "158",
-      "filename": "00000405.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "192",
-      "filename": "00000435.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "208",
-      "filename": "00000181.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "214",
-      "filename": "00000223.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "243",
-      "filename": "00000051.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "250",
-      "filename": "00000076.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "250",
-      "filename": "00000258.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "263",
-      "filename": "00000074.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "263",
-      "filename": "00000089.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "263",
-      "filename": "00000103.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "263",
-      "filename": "00000120.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "277",
-      "filename": "00000046.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "277",
-      "filename": "00000126.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "277",
-      "filename": "00000202.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "277",
-      "filename": "00000242.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "280",
-      "filename": "00000135.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "280",
-      "filename": "00000140.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "281",
-      "filename": "00000378.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "282",
-      "filename": "00000222.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "282",
-      "filename": "00000470.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "283",
-      "filename": "00000086.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "285",
-      "filename": "00000040.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "285",
-      "filename": "00000197.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "288",
-      "filename": "00000224.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "288",
-      "filename": "00000240.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "290",
-      "filename": "00000351.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "291",
-      "filename": "00000125.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "291",
-      "filename": "00000152.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "291",
-      "filename": "00000189.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "291",
-      "filename": "00000206.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "300",
-      "filename": "00000056.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "301",
-      "filename": "00000064.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "301",
-      "filename": "00000499.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "306",
-      "filename": "00000168.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "310",
-      "filename": "00000099.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "311",
-      "filename": "00000329.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "312",
-      "filename": "00000330.png",
-      "bbox_xywh": [
-        1621.0,
-        367.0,
-        -567.0,
-        -279.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "312",
-      "filename": "00000442.png",
-      "bbox_xywh": [
-        1167.0,
-        274.0,
-        -529.0,
-        -260.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "313",
-      "filename": "00000181.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "325",
-      "filename": "00000042.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "329",
-      "filename": "00000086.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "345",
-      "filename": "00000086.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "346",
-      "filename": "00000292.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "346",
-      "filename": "00000330.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "346",
-      "filename": "00000390.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "354",
-      "filename": "00000042.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "354",
-      "filename": "00000194.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "354",
-      "filename": "00000238.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "356",
-      "filename": "00000019.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "373",
-      "filename": "00000046.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "376",
-      "filename": "00000194.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "381",
-      "filename": "00000106.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "381",
-      "filename": "00000261.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "381",
-      "filename": "00000468.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "381",
-      "filename": "00000482.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "382",
-      "filename": "00000204.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "383",
-      "filename": "00000359.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "391",
-      "filename": "00000085.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "394",
-      "filename": "00000378.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "394",
-      "filename": "00000394.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "396",
-      "filename": "00000490.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "396",
-      "filename": "00000522.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "399",
-      "filename": "00000035.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    },
-    {
-      "sequence": "399",
-      "filename": "00000131.png",
-      "bbox_xywh": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "reason": "invalid_ground_truth_bbox"
-    }
-  ],
-  "index_fingerprints": {
-    "train": "60302bd9b393df7cadf613ac977b4e2e0aa426e6e64d5d31009c7899befa6729",
-    "val": "98510ed602655b02a75c6711bf276ad970b735493ff2ee441016ec85c7410e1f"
-  },
-  "index_sample_counts": {
-    "train": 2875,
-    "val": 719
-  }
+ "status": "complete",
+ "split_method": "frozen-sequence-assignment",
+ "train_sequences": [
+  "001",
+  "002",
+  "003",
+  "005",
+  "006",
+  "007",
+  "008",
+  "009",
+  "010",
+  "011",
+  "012",
+  "015",
+  "018",
+  "019",
+  "020",
+  "021",
+  "022",
+  "025",
+  "026",
+  "027",
+  "028",
+  "029",
+  "030",
+  "031",
+  "032",
+  "033",
+  "034",
+  "035",
+  "037",
+  "038",
+  "039",
+  "040",
+  "042",
+  "043",
+  "044",
+  "046",
+  "047",
+  "049",
+  "051",
+  "054",
+  "055",
+  "056",
+  "057",
+  "059",
+  "060",
+  "061",
+  "062",
+  "063",
+  "065",
+  "066",
+  "067",
+  "068",
+  "069",
+  "070",
+  "071",
+  "073",
+  "074",
+  "075",
+  "076",
+  "077",
+  "078",
+  "079",
+  "081",
+  "083",
+  "085",
+  "086",
+  "087",
+  "088",
+  "089",
+  "090",
+  "091",
+  "092",
+  "093",
+  "094",
+  "095",
+  "096",
+  "097",
+  "098",
+  "100",
+  "101",
+  "103",
+  "104",
+  "105",
+  "106",
+  "107",
+  "109",
+  "110",
+  "114",
+  "116",
+  "118",
+  "119",
+  "121",
+  "122",
+  "123",
+  "124",
+  "125",
+  "127",
+  "128",
+  "129",
+  "130",
+  "131",
+  "132",
+  "133",
+  "134",
+  "135",
+  "137",
+  "138",
+  "139",
+  "140",
+  "142",
+  "144",
+  "145",
+  "146",
+  "147",
+  "148",
+  "150",
+  "152",
+  "153",
+  "154",
+  "155",
+  "156",
+  "157",
+  "158",
+  "159",
+  "160",
+  "161",
+  "162",
+  "163",
+  "164",
+  "165",
+  "166",
+  "167",
+  "168",
+  "169",
+  "170",
+  "171",
+  "172",
+  "174",
+  "176",
+  "178",
+  "179",
+  "180",
+  "181",
+  "183",
+  "185",
+  "188",
+  "189",
+  "191",
+  "192",
+  "193",
+  "196",
+  "197",
+  "198",
+  "199",
+  "200",
+  "201",
+  "202",
+  "203",
+  "204",
+  "205",
+  "206",
+  "207",
+  "208",
+  "209",
+  "210",
+  "211",
+  "212",
+  "213",
+  "214",
+  "216",
+  "218",
+  "219",
+  "220",
+  "221",
+  "222",
+  "223",
+  "224",
+  "225",
+  "226",
+  "227",
+  "228",
+  "229",
+  "231",
+  "232",
+  "234",
+  "235",
+  "237",
+  "238",
+  "239",
+  "240",
+  "241",
+  "242",
+  "243",
+  "244",
+  "245",
+  "246",
+  "247",
+  "248",
+  "249",
+  "250",
+  "251",
+  "252",
+  "253",
+  "254",
+  "255",
+  "256",
+  "257",
+  "258",
+  "260",
+  "261",
+  "262",
+  "263",
+  "264",
+  "265",
+  "266",
+  "267",
+  "268",
+  "269",
+  "270",
+  "271",
+  "272",
+  "273",
+  "274",
+  "276",
+  "277",
+  "278",
+  "279",
+  "281",
+  "282",
+  "284",
+  "285",
+  "286",
+  "287",
+  "289",
+  "290",
+  "291",
+  "292",
+  "293",
+  "294",
+  "295",
+  "297",
+  "298",
+  "299",
+  "300",
+  "301",
+  "304",
+  "305",
+  "306",
+  "307",
+  "308",
+  "311",
+  "312",
+  "313",
+  "314",
+  "315",
+  "316",
+  "318",
+  "319",
+  "320",
+  "321",
+  "323",
+  "324",
+  "325",
+  "326",
+  "327",
+  "329",
+  "330",
+  "331",
+  "332",
+  "334",
+  "335",
+  "336",
+  "337",
+  "338",
+  "339",
+  "340",
+  "341",
+  "342",
+  "344",
+  "345",
+  "346",
+  "348",
+  "349",
+  "350",
+  "351",
+  "352",
+  "353",
+  "355",
+  "356",
+  "357",
+  "359",
+  "361",
+  "362",
+  "363",
+  "364",
+  "365",
+  "368",
+  "369",
+  "370",
+  "371",
+  "373",
+  "374",
+  "375",
+  "376",
+  "377",
+  "379",
+  "381",
+  "383",
+  "384",
+  "386",
+  "387",
+  "390",
+  "392",
+  "393",
+  "394",
+  "395",
+  "396",
+  "398",
+  "399",
+  "400"
+ ],
+ "val_sequences": [
+  "004",
+  "013",
+  "014",
+  "016",
+  "017",
+  "023",
+  "024",
+  "036",
+  "041",
+  "045",
+  "048",
+  "050",
+  "052",
+  "053",
+  "058",
+  "064",
+  "072",
+  "080",
+  "082",
+  "084",
+  "099",
+  "102",
+  "108",
+  "111",
+  "112",
+  "113",
+  "115",
+  "117",
+  "120",
+  "126",
+  "136",
+  "141",
+  "143",
+  "149",
+  "151",
+  "173",
+  "175",
+  "177",
+  "182",
+  "184",
+  "186",
+  "187",
+  "190",
+  "194",
+  "195",
+  "215",
+  "217",
+  "230",
+  "233",
+  "236",
+  "259",
+  "275",
+  "280",
+  "283",
+  "288",
+  "296",
+  "302",
+  "303",
+  "309",
+  "310",
+  "317",
+  "322",
+  "328",
+  "333",
+  "343",
+  "347",
+  "354",
+  "358",
+  "360",
+  "366",
+  "367",
+  "372",
+  "378",
+  "380",
+  "382",
+  "385",
+  "388",
+  "389",
+  "391",
+  "397"
+ ],
+ "index_fingerprints": {
+  "train": "c0e13061fd500a48a0ae05b884af85723f66a81b5eebfcb2524a608e0084ec4d",
+  "val": "be97bc7d2ac37f16ec1af6e390fab3945753cd8e77c62ad31cdc52c9e58b7518"
+ },
+ "index_sample_counts": {
+  "train": 2875,
+  "val": 719
+ }
 }

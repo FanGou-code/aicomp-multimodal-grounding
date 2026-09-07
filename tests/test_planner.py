@@ -2,9 +2,9 @@
 
 import unittest
 
-from foundry.assembly import extract_frame_facts, realizations_for
-from foundry.facts import ObjectFacts
-from foundry.planner import Allocation, TargetSupply, plan
+from foundry.pipeline.assembly import extract_frame_facts, realizations_for
+from foundry.pipeline.facts import ObjectFacts
+from foundry.pipeline.planner import Allocation, TargetSupply, plan
 
 
 SPEC = {
@@ -36,7 +36,7 @@ def make_target(sample_id, realizations, count_in_head=1, depth=False):
 
 
 def realization(text, family="plain_attribute", facts=("color",)):
-    from foundry.assembly import Realization as R
+    from foundry.pipeline.assembly import Realization as R
 
     return R(text, family, facts, len(text.split()))
 
@@ -149,7 +149,7 @@ class AreaComparativeTest(unittest.TestCase):
         self.assertIn("The larger rock", texts)
 
     def test_comparative_unique_by_construction(self):
-        from foundry.assembly import realization_is_unique
+        from foundry.pipeline.assembly import realization_is_unique
 
         facts = extract_frame_facts(
             self.make_objects([0.0, 0.0, 0.4, 0.4], [0.5, 0.0, 0.6, 0.1]),

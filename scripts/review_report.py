@@ -20,8 +20,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from foundry.bbox import compute_iou  # noqa: E402
-from foundry.census import trusted_objects  # noqa: E402
-from foundry.io import load_json  # noqa: E402
+from foundry.pipeline.census import trusted_objects  # noqa: E402
+from foundry.utils import load_json  # noqa: E402
 from foundry.review.census_session import TEACHER_ANNOTATOR  # noqa: E402
 from foundry.review.store import AnnotationStore  # noqa: E402
 

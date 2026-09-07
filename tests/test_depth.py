@@ -7,12 +7,12 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from foundry.assembly import (
+from foundry.pipeline.assembly import (
     extract_frame_facts,
     realizations_for,
     realization_is_unique,
 )
-from foundry.depth import (
+from foundry.pipeline.depth import (
     depth_ranks,
     frame_depth_facts,
     is_farthest,

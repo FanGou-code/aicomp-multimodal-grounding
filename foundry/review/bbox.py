@@ -4,7 +4,7 @@ The on-disk annotation format matches the main project's prediction files:
 ``{"<item_id>": [x1, y1, x2, y2]}`` with all values in [0, 1].
 
 
-Vendored from gt-annotator (github.com/FanGou-code/gt-annotator,
+Adapted from gt-annotator (upstream gt-annotator project,
 MIT License, (c) 2026 FanGou-code) - adapted for query-foundry review."""
 
 from __future__ import annotations

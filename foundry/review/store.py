@@ -18,7 +18,7 @@ Query edits are journaled as bbox-less records and replay as text + annotator
 updates without touching box state.
 
 
-Vendored from gt-annotator (github.com/FanGou-code/gt-annotator,
+Adapted from gt-annotator (upstream gt-annotator project,
 MIT License, (c) 2026 FanGou-code) - adapted for query-foundry review."""
 
 from __future__ import annotations

@@ -32,9 +32,8 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 
 from foundry.bbox import compute_iou
-from foundry.census import trusted_objects
-from foundry.rerank import verdict_for
-from foundry.facts import (
+from foundry.pipeline.census import trusted_objects
+from foundry.pipeline.facts import (
     ANCHOR_GAP,
     ObjectFacts,
     Realization,
@@ -42,9 +41,9 @@ from foundry.facts import (
     category_head,
     extract_frame_facts,
 )
-from foundry.planner import TargetSupply, plan as planner_plan
-from foundry.depth import DEPTH_SOURCE
-from foundry.buckets import FROZEN_BUCKETS
+from foundry.pipeline.planner import TargetSupply, plan as planner_plan
+from foundry.pipeline.depth import DEPTH_SOURCE
+from foundry.pipeline.buckets import FROZEN_BUCKETS
 
 ORDINAL_WORDS = [
     "first", "second", "third", "fourth", "fifth", "sixth",
@@ -318,12 +317,13 @@ class _SupplyItem:
         self.ordinal_allowed = ordinal_allowed
 
 
+
 def assemble_run(
     merged: dict,
     index: dict,
     spec: dict | None = None,
     *,
-    enumeration: dict | None = None,
+
     max_teacher_per_frame: int = 2,
     min_words: int = 3,
     max_words: int = 18,
@@ -364,20 +364,6 @@ def assemble_run(
             # Enumeration-pass re-ranking: capped frames get scene-true
             # object sets (up) or phantom-pruned sets (down); inconsistent
             # frames keep the original set but lose ordinal privileges.
-            frame_verdict = None
-            if enumeration:
-                frame_verdict = verdict_for(sample_id, frame, enumeration)
-                if frame_verdict.verdict == "up" and frame_verdict.real_objects:
-                    objects = frame_verdict.real_objects
-                elif frame_verdict.verdict == "down" and frame_verdict.real_objects:
-                    # Phantom-pruned: the agreed subset surviving in the full
-                    # re-enumeration. Match originals against it by IoU.
-                    kept = [
-                        o for o in objects
-                        if any(compute_iou(o["bbox"], ro["bbox"]) >= 0.5 for ro in frame_verdict.real_objects)
-                    ]
-                    if kept:
-                        objects = kept
             facts = extract_frame_facts(objects, entry["bbox"], frame.get("attr"), frame.get("depth"))
 
             # Color arbitration (admin 2026-09-06): a color claimed by 2+
@@ -400,13 +386,12 @@ def assemble_run(
             result.sequences.append(sequence_id)
             depth_available = (frame.get("depth") or {}).get("source") == DEPTH_SOURCE
             # Cap-truncation gate (admin 2026-09-06): a frame at the census
-            # cap likely truncated its enumeration, so bare ordinals stop
-            # being scene-consistent. Edge ranks (1st/last) survive; the
+            # Census cap: when a frame hits the max-objects limit, its
+            # enumeration is likely truncated, so bare ordinals stop being
+            # scene-consistent. Edge ranks (1st/last) survive; the
             # red-boxed category is filled first per the prompt and keeps
             # its ordinals too.
-            frame_capped = len(objects) >= 6 or (
-                frame_verdict is not None and frame_verdict.verdict == "inconsistent"
-            )
+            frame_capped = len(objects) >= 12
             canary_head = next(
                 (f.head for f in facts if f.is_canary), None
             )
@@ -504,12 +489,5 @@ def audit_assembly(records: list[AssemblyRecord]) -> dict:
         "median_words": sorted(words)[total // 2],
         "sources": sources,
         "overshoot_records": sum(1 for r in records if r.quota_state == "overshoot"),
-        "test_reference": {
-            "verbatim_repeat_rate": 0.076,
-            "mean_words": 10.33,
-            "bucket_per_mille": {
-                "ordinal": 335, "spatial": 258, "attribute_action": 256, "distance": 151,
-            },
-        },
         "acceptance": {"verbatim_repeat_le_0_10": repeat_rate <= 0.10},
     }

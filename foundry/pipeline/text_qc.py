@@ -23,7 +23,7 @@ import json
 import re
 from pathlib import Path
 
-ECHO_TABLE_PATH = Path(__file__).resolve().parents[1] / "spec" / "text_qc_echo_table.json"
+ECHO_TABLE_PATH = Path(__file__).resolve().parents[2] / "configs" / "default" / "rules" / "qc.json"
 
 TAIL_RE = re.compile(r"\b(with|wearing|holding|carrying) (?!(?:a |an |the ))(.+)$")
 
@@ -202,7 +202,8 @@ def qc_query(query: str) -> tuple[str, str] | None:
 
 def load_echo_table() -> dict[tuple[str, str], str]:
     data = json.loads(ECHO_TABLE_PATH.read_text(encoding="utf-8"))
-    return {(entry["item_id"], entry["before"]): entry["after"] for entry in data}
+    echo_table = data.get("echo_table", data)  # supports both qc.json and legacy format
+    return {(entry["item_id"], entry["before"]): entry["after"] for entry in echo_table}
 
 
 def apply_text_qc(records: list) -> list[dict]:

@@ -658,3 +658,57 @@
 - 改动：README（边界与红线）、docs/handoff.md、scripts/、spec/ 骨架；git init（main，无 remote）。
 - 验证：git init 成功；尚无代码，无测试。
 - 下一步：Phase 0 挖掘 → style_spec.json 草案 → 管理员审阅冻结 → Phase 1 普查协议草案。
+
+### 2026-09-08（仓库工具化大轮：去掉 AI 预审、数据层重构、开源合规、多用户支持）
+
+- **动因**：管理员定案去掉 AI 预审层（零收益），仓库从生产线转型为独立标注工具仓库。
+- **去掉 AI 预审层**：删除 `scripts/run_ai_review.py`、`tests/test_ai_review.py`、
+  `outputs/ai_review/`；审查器前端去掉 AI overlay 徽章（ai_verdict/ai_reason/
+  ai_collision）；apply 脚本精简为纯人审合并。
+- **数据层重构**：删除 `data/Train` `data/Processed` 符号链接；新建
+  `scripts/prepare_split.py`（哈希查重→划分，产出对齐当前 indexes）；
+  `data/indexes/` 重新生成（去掉 `query:""` 空字段）；`--data-root` 全部改为必传；
+  旧 `data/audits/` 移至主仓。
+- **管线修复**：普查上限 6→12（提示词 + 代码）；枚举 pass 替换加 IoU 重叠校验
+  （≥80% 才采信）；`pass_agreement` 排序不改（下游重排了）。
+- **开源合规**：删除 `phase0_mine_test_style.py` `audit_corpus.py`
+  `compare_distributions.py`；删除 `style_spec.json` `vocab_freq.json`；
+  `buckets.py` 分类正则内联为常量；`assembly.py` 去掉硬编码 test 参照值；
+  全局去掉主仓绝对路径引用；README 重写为中立工具说明。
+- **审查器工具化**：新增 `scripts/make_manifest.py`（从 assembly.json 生成审查清单）；
+  审查服务新增 `--manifest` 模式（直接读清单，不依赖 census_session）；
+  前端去掉 train/val/全部 切换按钮。
+- **多用户分片**：产出 part1（fang0 已审 1,038）/ part2（846）/ part3（846+val 736）
+  三个清单文件（`outputs/asm-train-r5-part*.json`）。
+- **清理实验残留**：删除 `outputs/assembly/asm-*-r4`、`outputs/review/asm-*-r4`、
+  `outputs/assembly/asm-train-r6`（临时）、`.vscode/settings.json`。
+- **验证**：123 项测试 0 失败（7 个 socket 错误为 sandbox 限制）；node --check 通过；
+  compileall 通过；apply 脚本对 train 实测正确（344 human / 2386 original / 2 collision）。
+- **下一步**：管理员完成人审 → 队友续审 part2/part3 → apply 合并 → R6 打包。
+
+### 2026-09-08（仓库工具化大轮收官：架构重组、配置外置、开源就绪）
+
+- **动因**：管理员定案仓库定位为「数据预处理单元」，兼具通用标注工具和内部生产线。
+- **架构重组**：`foundry/` 分层 —— `foundry/review/`（工具层，零依赖）、`foundry/pipeline/`
+  （管线层，PIL/numpy）；小模块合并：`io+artifacts+config → utils.py`、
+  `keys+api_client → pipeline/api.py`、`images+annotation_views → pipeline/views.py`、
+  `sharding+sequence → pipeline/sharding.py`。20 模块 → 18 模块，职责清晰。
+- **删除枚举 pass**：`run_enumeration.py`、`rerank.py`、`enumeration.json` 全部删除；
+  assembly 中 frame_verdict 逻辑移除；管线缩短为 `census → assembly → review → apply`。
+- **配置外置**：`configs/default/` 下 prompts（findall.md / attr.md）+ rules（buckets.json /
+  qc.json）。提示词、桶分类、QC 规则从代码中提取为可插拔配置文件。
+- **划分参数化**：`prepare_split.py` 加 `--seed` `--train-ratio`，不再依赖冻结序列列表。
+  seed=42 ratio=0.8 验证对齐当前 indexes（diff=0）。
+- **通用接入**：`make_manifest.py` 加 `--source` 模式，支持任意 `{id, image, query}` JSON
+  格式（映射式/列表式），零管线依赖，对标 gt-annotator 的用户体验。
+- **开源合规**：LICENSE（MIT）、pyproject.toml（依赖声明）；删除 `phase0_mine_test_style.py`、
+  `audit_corpus.py`、`compare_distributions.py`、`style_spec.json`、`vocab_freq.json`；
+  gt-annotator 仓库名引用清洗；`docs/`、`spec/` 加入 gitignore；全局去绝对路径。
+- **清理**：AI 预审层全删（`run_ai_review.py`、`ai_review/`、census_session 中 AI overlay
+  死代码）；r4 存档、临时 r6 产物删除；`data/Train` `data/Processed` 符号链接删除；
+  `--data-root` 全部改为必传参数。
+- **普查上限**：6→12（提示词 + MAX_OBJECTS）。
+- **多用户分片**：产出 part1（fang0 已审 1,038）/ part2（846）/ part3（846+val 736）
+  三个清单文件（`outputs/asm-train-r5-part*.json`）。
+- **验证**：123 项测试 0 失败；node --check 通过；compileall 通过。
+- **下一步**：管理员完成人审 → 队友续审 part2/part3 → apply 合并 → R6 打包。

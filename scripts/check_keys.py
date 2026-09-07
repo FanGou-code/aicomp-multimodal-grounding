@@ -43,9 +43,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from PIL import Image  # noqa: E402
 
-from foundry.annotation_views import build_marked_annotation_view, jpeg_data_url  # noqa: E402
-from foundry.census import findall_messages  # noqa: E402
-from foundry.config import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME, ANNOTATION_TEMPERATURE  # noqa: E402
+from foundry.pipeline.views import build_marked_annotation_view, jpeg_data_url  # noqa: E402
+from foundry.pipeline.census import findall_messages  # noqa: E402
+from foundry.utils import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME, ANNOTATION_TEMPERATURE  # noqa: E402
 
 REALISTIC_MAX_TOKENS = 2048
 
@@ -148,7 +148,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", default=str(PROJECT_ROOT / "keys" / "api_keys.txt"))
     parser.add_argument("--probe", choices=("realistic", "minimal"), default="realistic")
-    parser.add_argument("--data-root", default=str(PROJECT_ROOT / "data"))
+    parser.add_argument("--data-root", type=str, required=True)
     parser.add_argument("--pause", type=float, default=20.0, help="seconds before retesting non-OK keys")
     parser.add_argument("--timeout", type=float, default=120.0)
     args = parser.parse_args()

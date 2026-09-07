@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 
 from foundry.bbox import compute_iou
-from foundry.depth import (
+from foundry.pipeline.depth import (
     DEPTH_SOURCE,
     is_background as depth_in_background,
     is_farthest as depth_farthest,

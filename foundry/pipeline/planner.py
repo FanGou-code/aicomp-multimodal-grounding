@@ -24,8 +24,8 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from foundry.facts import ObjectFacts, Realization
-from foundry.buckets import FROZEN_BUCKETS, classify_frozen, parse_spec_shares
+from foundry.pipeline.facts import ObjectFacts, Realization
+from foundry.pipeline.buckets import FROZEN_BUCKETS, classify_frozen, parse_spec_shares
 
 CROWD_SAME_HEAD = 3
 

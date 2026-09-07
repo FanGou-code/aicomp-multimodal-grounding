@@ -11,8 +11,8 @@ from email.message import Message
 from pathlib import Path
 from urllib.error import HTTPError
 
-from foundry.api_client import APIError, OpenAIProtocolClient
-from foundry.keys import (
+from foundry.pipeline.api import APIError, OpenAIProtocolClient
+from foundry.pipeline.api import (
     APIKeyPool,
     APIKeyPoolExhausted,
     RATE_LIMIT_STRIKES_BEFORE_RETIRE,

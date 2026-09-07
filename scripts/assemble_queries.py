@@ -20,10 +20,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from foundry.assembly import assemble_run, audit_assembly  # noqa: E402
-from foundry.buckets import classify_frozen  # noqa: E402
-from foundry.io import atomic_write_json, load_json  # noqa: E402
-from foundry.text_qc import apply_text_qc  # noqa: E402
+from foundry.pipeline.assembly import assemble_run, audit_assembly  # noqa: E402
+from foundry.pipeline.buckets import classify_frozen  # noqa: E402
+from foundry.utils import atomic_write_json, load_json  # noqa: E402
+from foundry.pipeline.text_qc import apply_text_qc  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,10 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=PROJECT_ROOT / "data",
+        required=True,
         help="dataset root holding the annotation-source index",
     )
-    parser.add_argument("--spec", type=Path, default=PROJECT_ROOT / "spec" / "style_spec.json")
     parser.add_argument(
         "--split", choices=("train", "val"), default="train",
         help="which index file to load for GT boxes",
@@ -66,18 +65,11 @@ def main() -> None:
         raise SystemExit(f"merged.json not found under {args.census_run}")
     merged = load_json(merged_path)
     index = load_json(args.data_root / "indexes" / f"{args.split}.json")
-    spec = load_json(args.spec) if args.spec.exists() else None
-    enumeration = None
-    enum_path = args.census_run / "enumeration.json"
-    if enum_path.exists():
-        enumeration = load_json(enum_path).get("results", {})
-        print(f"enumeration pass loaded: {len(enumeration)} frames")
-
+    spec = None  # bucket shares use frozen constants
     result = assemble_run(
         merged,
         index,
         spec,
-        enumeration=enumeration,
         max_teacher_per_frame=args.max_teacher_per_frame,
         min_words=args.min_words,
         max_words=args.max_words,

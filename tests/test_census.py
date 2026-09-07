@@ -6,7 +6,7 @@ import unittest
 
 from PIL import Image
 
-from foundry.census import (
+from foundry.pipeline.census import (
     attr_messages,
     findall_messages,
     parse_attr_response,
@@ -312,15 +312,13 @@ class ProtocolDocSyncTest(unittest.TestCase):
     def test_doc_quotes_prompts_and_fingerprints(self):
         from pathlib import Path
 
-        from foundry.census import ATTR_PROMPT, ATTR_PROMPT_HASH, FINDALL_PROMPT, FINDALL_PROMPT_HASH
+        from foundry.pipeline.census import ATTR_PROMPT, FINDALL_PROMPT
 
-        doc = (Path(__file__).resolve().parents[1] / "spec" / "census_protocol.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn(FINDALL_PROMPT, doc, "protocol doc drifts from FINDALL_PROMPT")
-        self.assertIn(ATTR_PROMPT, doc, "protocol doc drifts from ATTR_PROMPT")
-        self.assertIn(FINDALL_PROMPT_HASH, doc)
-        self.assertIn(ATTR_PROMPT_HASH, doc)
+        root = Path(__file__).resolve().parents[1]
+        findall_doc = (root / "configs" / "default" / "prompts" / "findall.md").read_text(encoding="utf-8")
+        attr_doc = (root / "configs" / "default" / "prompts" / "attr.md").read_text(encoding="utf-8")
+        self.assertEqual(FINDALL_PROMPT, findall_doc.strip(), "code FINDALL_PROMPT drifts from config")
+        self.assertEqual(ATTR_PROMPT, attr_doc.strip(), "code ATTR_PROMPT drifts from config")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
  * Single-page canvas bounding box annotation tool.
  * Zero external dependencies / 100% offline.
  *
- * Vendored from gt-annotator (github.com/FanGou-code/gt-annotator, MIT,
+ * Adapted from gt-annotator (upstream gt-annotator project, MIT,
  * (c) 2026 FanGou-code) - adapted for query-foundry census review.
  */
 
@@ -13,7 +13,6 @@
   // --- Constants & Storage Keys ---
   const STORAGE_KEY_ANNOTATOR = 'gt_annotator_name';
   const STORAGE_KEY_LAST_ITEM_ID = 'gt_last_item_id';
-  const STORAGE_KEY_CORPUS = 'gt_corpus_filter';
   const MIN_BOX_SIZE_PX = 4; // Minimum drag size in natural image pixels to avoid zero-area boxes
   const HANDLE_RADIUS_SCREEN = 7; // Radius of resize handles in canvas screen pixels
   const IMAGE_CACHE_CAPACITY = 50; // Maximum cached images in LRU cache to prevent memory explosion
@@ -66,7 +65,6 @@
     currentIndex: 0,
     annotator: localStorage.getItem(STORAGE_KEY_ANNOTATOR) || '',
     reviewMode: false,
-    corpusFilter: 'all',
     
     // Cached Images with LRU eviction
     imageCache: new ImageLRUCache(IMAGE_CACHE_CAPACITY),
@@ -106,7 +104,6 @@
     progressText: document.getElementById('progress-text'),
     imageProgressText: document.getElementById('image-progress-text'),
     progressBarFill: document.getElementById('progress-bar-fill'),
-    corpusSwitch: document.getElementById('corpus-switch'),
     seekSlider: document.getElementById('seek-slider'),
     seekPreview: document.getElementById('seek-preview'),
     jumpInput: document.getElementById('jump-input'),
@@ -220,15 +217,7 @@
       state.items = data.items || [];
       state.reviewMode = data.mode === 'census-review';
 
-      // Corpus switch labels: 全部 (N) / train (N) / val (N)
-      state.corpusFilter = localStorage.getItem(STORAGE_KEY_CORPUS) || 'all';
-      const counts = {};
-      state.items.forEach(it => { counts[it.corpus] = (counts[it.corpus] || 0) + 1; });
-      dom.corpusSwitch.querySelectorAll('button').forEach(b => {
-        const c = b.dataset.corpus;
-        b.textContent = c === 'all' ? `全部 (${state.items.length})` : `${c} (${counts[c] || 0})`;
-        b.classList.toggle('active', c === state.corpusFilter);
-      });
+      // Corpus filter removed — manifest mode shows all items
 
       dom.manifestBadge.textContent = state.manifest;
 
@@ -499,10 +488,7 @@
         dom.annotationStatusBadge.textContent = `📋 待办-需消歧 (${item.annotator.replace(':todo', '')})`;
         dom.annotationStatusBadge.className = 'badge badge-absent';
       } else if (isAiPendingItem(item)) {
-        const aiTags = { pass: '🤖 AI已过 · 待终审', fixed: '✏️ AI已改 · 待终审',
-                         human: '⚠️ AI转人工' };
-        let badgeText = aiTags[item.ai_verdict] || `🤖 待审AI预标 (${item.annotator})`;
-        if (item.ai_collision) badgeText += ' · ⚠同帧重复';
+        // AI badges removed — manifest mode
         dom.annotationStatusBadge.textContent = badgeText;
         dom.annotationStatusBadge.className = 'badge badge-ai';
       } else {

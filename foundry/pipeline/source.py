@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from foundry.artifacts import stable_json_hash
-from foundry.config import PREPARATION_PROTOCOL_VERSION
-from foundry.images import (
+from foundry.utils import stable_json_hash
+from foundry.utils import PREPARATION_PROTOCOL_VERSION
+from foundry.pipeline.views import (
     trusted_dataset_image_fingerprint,
     verify_dataset_images,
 )
-from foundry.io import load_json
+from foundry.utils import load_json
 
 
 def load_annotation_source(data_root: Path, split: str) -> dict:

@@ -1,7 +1,7 @@
 """Census protocol: the teacher only reports facts, code validates everything.
 
 Passes (v3 design, frozen in ``spec/census_protocol.md``, 2026-09-06):
-- ``findall`` x2 independent passes per frame: enumerate up to 6 objects the
+- ``findall`` x2 independent passes per frame: enumerate up to 12 objects the
   teacher is most confident about (clear outline, nameable at a glance), the
   red-boxed category first when multiple instances exist, ordered left to
   right, each with its own category name and a normalized bbox. The red-boxed
@@ -39,7 +39,7 @@ from PIL import Image, ImageDraw
 from foundry.bbox import compute_iou
 
 FINDALL_PROMPT = """The red rectangle marks one object in the scene.
-Task: list up to 6 objects you are MOST CONFIDENT about — clear outline, nameable at a glance — regardless of category, ordered from left to right. If multiple instances of the red-boxed category exist, include them all first, then fill the remaining slots with other confident objects. Skip tiny clutter, blurry ground debris, and anything you cannot identify precisely.
+Task: list up to 12 objects you are MOST CONFIDENT about — clear outline, nameable at a glance — regardless of category, ordered from left to right. If multiple instances of the red-boxed category exist, include them all first, then fill the remaining slots with other confident objects. Skip tiny clutter, blurry ground debris, and anything you cannot identify precisely.
 You must include the object inside the red rectangle. Number them 1..N (N is the total count).
 For each object give a short common category name and its bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
 Output JSON only:
@@ -58,7 +58,7 @@ CANARY_IOU = 0.5
 MATCH_IOU = 0.5
 SELF_DUP_IOU = 0.95
 BBOX_SLACK = 0.02
-MAX_OBJECTS = 50
+MAX_OBJECTS = 12
 
 
 def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
