@@ -1574,10 +1574,17 @@
     });
 
     // Surface silent failures: any page exception becomes a red toast
+    // (deduped, with file:line so the throwing statement is identifiable).
+    const reportError = (message, where) => {
+      const text = '页面错误: ' + message + ' @ ' + where;
+      if (window.__lastErrText === text) return;
+      window.__lastErrText = text;
+      showToast(text, 'error');
+    };
     window.addEventListener('error', (e) =>
-      showToast('页面错误: ' + e.message, 'error'));
+      reportError(e.message, (e.filename || 'app.js').split('/').pop() + ':' + e.lineno));
     window.addEventListener('unhandledrejection', (e) =>
-      showToast('异步错误: ' + (e.reason && e.reason.message ? e.reason.message : e.reason), 'error'));
+      reportError(e.reason && e.reason.message ? e.reason.message : String(e.reason), 'promise'));
 
     // Annotator Input
     dom.annotatorInput.value = state.annotator;
