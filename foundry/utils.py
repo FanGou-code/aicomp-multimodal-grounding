@@ -162,8 +162,6 @@ def require_exact_metadata(
 
 
 
-import platform
-from importlib import metadata as importlib_metadata
 
 ANNOTATION_PROVIDER = "zhipu"
 ANNOTATION_MODEL_NAME = "glm-4.6v"

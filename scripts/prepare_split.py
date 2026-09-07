@@ -196,19 +196,8 @@ def build_indexes(
             if not visible_path.is_file() or not infrared_path.is_file() or not depth_path.is_file():
                 continue
 
-            # Read image dimensions (minimal — just for bbox normalization)
+            # Read image dimensions
             try:
-                import struct
-                def _png_size(p: Path) -> tuple[int, int]:
-                    with p.open("rb") as fh:
-                        fh.read(8)  # PNG signature
-                        fh.read(4)  # chunk length
-                        tag = fh.read(4)
-                        if tag != b"IHDR":
-                            raise ValueError("IHDR not first")
-                        w = struct.unpack(">I", fh.read(4))[0]
-                        h = struct.unpack(">I", fh.read(4))[0]
-                        return w, h
                 img_w, img_h = _png_size(visible_path)
             except Exception:
                 continue
