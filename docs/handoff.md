@@ -34,8 +34,9 @@
 训练/推理用 `offline/`（魔搭 DSW）或 `cloud/`（Modal，H100）；`modal` 命令由
 用户本人执行。checkpoint/标注/提交包留 `/mnt/workspace`（持久盘）。
 
-## 当前状态（最后更新 2026-09-07，v5 语料 r5 定版 + AI 预审层全量落地，人审过半）
+## 当前状态（最后更新 2026-09-08，副仓查重与划分全链路闭环 + 打包工具落地）
 
+- **数据预处理与打包交付闭环（2026-09-08）**：副仓 `query-foundry` 完成打包发布工具 `scripts/package_approved.py` 与零依赖合同校验模块 `foundry/pipeline/contract.py`（协议版本 12），支持单/双 split 自动计算 4 个 SHA-256 指纹；副仓 `scripts/prepare_split.py` 增强测试集自动探测与哈希查重留痕，实测 4000 帧（400 序列）= 97 异常 BBox + 309 测试集碰撞（246 train / 63 val）+ 3594 帧切分（train 2875 / val 719），产物与 `data/indexes/` 逐字节一致；留痕 `excluded_overlap.json` 固化入副仓 Git 追踪，主仓临时目录 `data/audits_from_foundry` 清理完毕。
 - **v5 数据侧现状（2026-09-07 收官）**：语料定版 `asm-train-r5`（2,730）+
   `asm-val-r5`（736），head-echo 裁决完整重放。**AI 预审层全量落地**：每条
   query 全景+红框审计（修正词表锁死序数/方向/颜色、改后自查消歧），全量
@@ -200,6 +201,20 @@
 端到端冒烟沿袭 2026-09-01 轮基线。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-08（副仓查重与划分全链路闭环 + 打包工具落地）
+
+- **动因**：规范主副仓职责边界（主仓纯训练评估，副仓全权负责数据预处理、查重切分与打包），消除主仓未追踪临时文件，闭环副仓到主仓的交付链。
+- **改动**：
+  1. 副仓新增 `scripts/package_approved.py` 与 `foundry/pipeline/contract.py`，实现双 split 联合打包、跨 split 一致性校验与 4 个 SHA-256 确定性指纹计算（协议版本 12）。
+  2. 副仓升级 `scripts/prepare_split.py`，支持直接探测 `raw_root/Test/Images/visible` 现场计算哈希，标准化生成包含碰撞测试图回溯的 `data/indexes/excluded_overlap.json`。
+  3. 副仓 `.gitignore` 移除排除日志规则，将 309 帧查重留痕正式入库追踪，补齐 `tests/test_prepare_split.py`（单测增至 135 项）。
+  4. 主仓删除未追踪临时目录 `data/audits_from_foundry`。
+- **验证结果**：
+  1. 真实数据重算：400 序列 4000 帧 = 97 异常 BBox + 309 测试集碰撞（246 train / 63 val）+ 3594 帧切分（train 2875 / val 719）。
+  2. 生成产物与既有 `train.json`、`val.json`、`split_manifest.json` 逐字节一致（bit-identical）；碰撞记录与历史审计 100% 逐字吻合。
+  3. 全量单测：`query-foundry` 135 项全绿；`aicomp-multimodal-grounding` 171 项全绿（4 skip）。
+- **下一步**：推进人审收尾 → apply 烘焙 r6 → 使用 `package_approved.py` 导出交付主仓。
 
 ### 2026-09-07（query-foundry 大轮收官：AI 预审全量 + overlay 人审提速）
 
