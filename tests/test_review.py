@@ -356,6 +356,53 @@ class MultiCorpusSessionTest(unittest.TestCase):
                     port=0,
                 )
 
+    def test_manifest_session_with_mixed_corpuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            manifest_path = tmp / "manifest.json"
+            manifest_data = {
+                "name": "mixed-manifest",
+                "run_tag": "test-manifest-run",
+                "split": "train",
+                "items": [
+                    {
+                        "id": "item_train#01",
+                        "image": "Train/070/color/00000001.png",
+                        "query": "train swan",
+                        "bbox": [0.1, 0.1, 0.2, 0.2],
+                        "corpus": "train",
+                    },
+                    {
+                        "id": "item_val#01",
+                        "image": "Train/004/color/00000001.png",
+                        "query": "val swan",
+                        "bbox": [0.3, 0.3, 0.4, 0.4],
+                        "corpus": "val",
+                    },
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+            server, state = create_server(
+                manifest_path=manifest_path,
+                review_root=tmp / "review",
+                host="127.0.0.1",
+                port=0,
+            )
+            try:
+                payload = state.session_payload()
+                self.assertEqual(payload["total_items"], 2)
+                self.assertEqual(payload["manifest"], "mixed-manifest")
+                # Ensure store_for routes items to their respective corpus stores
+                store_train = state.store_for("item_train#01")
+                store_val = state.store_for("item_val#01")
+                self.assertIsNotNone(store_train)
+                self.assertIsNotNone(store_val)
+                self.assertNotEqual(store_train, store_val)
+                self.assertEqual(store_train.data_dir.name, "test-manifest-run")
+                self.assertEqual(store_val.data_dir.name, "test-manifest-run-val")
+            finally:
+                server.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

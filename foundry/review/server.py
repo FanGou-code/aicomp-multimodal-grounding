@@ -35,16 +35,32 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
 
     The manifest is a JSON file with {name, items: [{id, image, query, bbox, ...}]}.
     Each item is seeded with its assembly bbox as an AI pre-annotation.
+    Supports multi-corpus manifests by routing each item to its corpus store.
     """
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     run_tag = manifest.get("run_tag", manifest_path.stem)
-    store = AnnotationStore(Path(review_root) / run_tag)
-    existing_meta = store.all_meta()
-    pending_seeds: list[tuple[str, list[float], str]] = []
+    manifest_split = manifest.get("split", "train")
+
+    raw_items = manifest.get("items", [])
+    corpuses = {entry.get("corpus", manifest_split) for entry in raw_items} or {manifest_split}
+
+    stores: dict[str, AnnotationStore] = {}
+    for corpus in corpuses:
+        if corpus == manifest_split:
+            tag = run_tag
+        elif manifest_split in run_tag:
+            tag = run_tag.replace(manifest_split, corpus)
+        else:
+            tag = f"{run_tag}-{corpus}"
+        stores[corpus] = AnnotationStore(Path(review_root) / tag)
+
+    existing_metas = {c: stores[c].all_meta() for c in corpuses}
+    pending_seeds: dict[str, list[tuple[str, list[float], str]]] = {c: [] for c in corpuses}
 
     items: list[dict] = []
-    for entry in manifest.get("items", []):
+    for entry in raw_items:
         item_id = entry["id"]
+        corpus = entry.get("corpus", manifest_split)
         item = {
             "id": item_id,
             "image": entry["image"],
@@ -55,21 +71,26 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
             "category": entry.get("category", ""),
             "bucket": "",
             "family": "",
-            "corpus": entry.get("corpus", "train"),
+            "corpus": corpus,
         }
-        meta = existing_meta.get(item_id)
+        meta = existing_metas.get(corpus, {}).get(item_id)
         if meta is None or meta.get("annotator") == "glm-4.6v":
             if entry.get("bbox") and isinstance(entry["bbox"], list) and len(entry["bbox"]) == 4:
-                pending_seeds.append((item_id, list(entry["bbox"]), "glm-4.6v"))
+                pending_seeds.setdefault(corpus, []).append((item_id, list(entry["bbox"]), "glm-4.6v"))
         items.append(item)
 
-    store.seed_many(pending_seeds)
+    for corpus, seeds in pending_seeds.items():
+        if corpus in stores:
+            stores[corpus].seed_many(seeds)
+
+    primary_store = stores.get(manifest_split, next(iter(stores.values())))
     return {
         "name": manifest.get("name", manifest_path.stem),
         "items": items,
-        "stats": {"seeded": len(pending_seeds), "frames": 0, "already_seeded": 0},
-        "store": store,
-        "split": manifest.get("split", "train"),
+        "stats": {"seeded": sum(len(s) for s in pending_seeds.values()), "frames": 0, "already_seeded": 0},
+        "stores": stores,
+        "store": primary_store,
+        "split": manifest_split,
     }
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
@@ -109,7 +130,12 @@ class AnnotatorState:
         self.corpus_of = corpus_of
 
     def store_for(self, item_id: str) -> AnnotationStore:
-        return self.stores[self.corpus_of[item_id]]
+        corpus = self.corpus_of.get(item_id, "")
+        if corpus in self.stores:
+            return self.stores[corpus]
+        if "store" in self.session:
+            return self.session["store"]
+        return next(iter(self.stores.values()))
 
     def _is_human(self, annotator: object) -> bool:
         return (
@@ -340,23 +366,26 @@ def create_server(
     """
     if manifest_path is not None:
         sessions = [build_manifest_session(Path(manifest_path), Path(review_root))]
+        stores: dict[str, AnnotationStore] = dict(sessions[0].get("stores", {}))
     elif assembly_path is not None:
         paths = [assembly_path] if isinstance(assembly_path, (str, Path)) else list(assembly_path)
         sessions = [build_assembly_session(Path(p), Path(data_root), Path(review_root)) for p in paths]
+        stores = {}
     else:
         sessions = [build_census_session(Path(census_run_dir), Path(data_root), Path(review_root))]
+        stores = {}
 
     items: list[dict] = []
-    stores: dict[str, AnnotationStore] = {}
     corpus_of: dict[str, str] = {}
     for session in sessions:
         for item in session["items"]:
             items.append(item)
             corpus_of[item["id"]] = item["corpus"]
-        split = session["split"]
-        if split in stores:
-            raise ValueError(f"multiple assemblies declare the same split: {split}")
-        stores[split] = session["store"]
+        if manifest_path is None:
+            split = session["split"]
+            if split in stores:
+                raise ValueError(f"multiple assemblies declare the same split: {split}")
+            stores[split] = session["store"]
 
     session = {
         "name": " + ".join(s["name"] for s in sessions),

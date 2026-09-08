@@ -38,8 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--review-queries",
         type=Path,
+        nargs="+",
         default=None,
-        help="path to annotations.queries.json (auto-detected from assembly run_tag if omitted)",
+        help="path(s) to annotations.queries.json (auto-detected from assembly run_tag if omitted)",
     )
     parser.add_argument(
         "--run-tag",
@@ -58,10 +59,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _load_human_queries(queries_path: Path) -> dict[str, str]:
-    if not queries_path.is_file():
+def _load_human_queries(queries_paths: list[Path] | Path | None) -> dict[str, str]:
+    if queries_paths is None:
         return {}
-    return load_json(queries_path)
+    if isinstance(queries_paths, (str, Path)):
+        queries_paths = [Path(queries_paths)]
+    merged: dict[str, str] = {}
+    for p in queries_paths:
+        p = Path(p)
+        if p.is_file():
+            merged.update(load_json(p))
+    return merged
 
 
 def _detect_collisions(records: list[dict]) -> set[str]:
@@ -80,7 +88,7 @@ def _detect_collisions(records: list[dict]) -> set[str]:
     return collided
 
 
-def apply(assembly_path: Path, queries_path: Path | None,
+def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
           run_tag: str, output_root: Path, force: bool) -> dict:
     manifest = load_json(assembly_path)
     records: list[dict] = list(manifest["records"])
@@ -89,10 +97,14 @@ def apply(assembly_path: Path, queries_path: Path | None,
     tag = run_tag or f"asm-{split}-r6"
 
     assembly_tag = metadata.get("run_tag", assembly_path.parent.name)
-    if queries_path is None:
-        queries_path = PROJECT_ROOT / "outputs" / "review" / assembly_tag / "annotations.queries.json"
+    if not queries_path:
+        queries_paths = [PROJECT_ROOT / "outputs" / "review" / assembly_tag / "annotations.queries.json"]
+    elif isinstance(queries_path, (str, Path)):
+        queries_paths = [Path(queries_path)]
+    else:
+        queries_paths = [Path(p) for p in queries_path]
 
-    human_queries = _load_human_queries(queries_path) if queries_path else {}
+    human_queries = _load_human_queries(queries_paths)
 
     # --- Merge ---
     stats: dict[str, int] = Counter(

@@ -122,8 +122,29 @@ class ApplyReviewTest(unittest.TestCase):
         ]
         self.assertEqual(_detect_collisions(records), set())
 
-    def test_load_human_queries_missing(self):
-        self.assertEqual(_load_human_queries(Path("/nonexistent/queries.json")), {})
+    def test_multiple_review_queries_merge(self):
+        records = [
+            {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
+             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
+             "query": "The first deer from left to right", "family": "ordinal_direction",
+             "bucket": "ordinal", "quota_state": "quota", "facts": ["rank:1"], "words": 7,
+             "edited": False},
+            {"sample_id": "001_00000002", "sequence_id": "001", "source": "real",
+             "category": "deer", "bbox": [0.4, 0.5, 0.6, 0.7], "object_index": 2,
+             "query": "The second deer from left to right", "family": "ordinal_direction",
+             "bucket": "ordinal", "quota_state": "quota", "facts": ["rank:2"], "words": 7,
+             "edited": False},
+        ]
+        asm = self._write_assembly(records)
+        part1 = self.tmp_path / "part1_queries.json"
+        part1.write_text(json.dumps({"001_00000001#01": "The leftmost deer"}))
+        part2 = self.tmp_path / "part2_queries.json"
+        part2.write_text(json.dumps({"001_00000002#02": "The rightmost deer"}))
+
+        result = apply(asm, [part1, part2], "asm-test-r6", self.tmp_path, force=True)
+        self.assertEqual(result["stats"]["human"], 2)
+        self.assertEqual(result["records"][0]["query"], "The leftmost deer")
+        self.assertEqual(result["records"][1]["query"], "The rightmost deer")
 
 
 if __name__ == "__main__":
