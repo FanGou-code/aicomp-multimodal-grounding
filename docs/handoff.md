@@ -212,7 +212,8 @@
 
 ### 验证基线
 
-172 项单测通过（4 skip，2026-09-08 复核）；compileall / ruff 全绿。
+172 项单测通过（2026-09-08；本机 qwen_vg 已装全量依赖 torch 2.14+cu130 /
+transformers 5.14.1，本地 GPU 可用，无 skip）；compileall / ruff 全绿。
 
 ## 交接日志（追加式，新的写最上面）
 
