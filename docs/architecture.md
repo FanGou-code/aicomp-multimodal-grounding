@@ -89,9 +89,10 @@ adapter.predict([ModelInput(visible, infrared, depth, query, key)]) -> [Predicti
 ### 验证状态（诚实标注）
 
 - `qwen3vl`：GPU 路径与历史成绩对应代码同源，identity 由测试钉死。
-- `internvl35` / `groundingdino`：协议契约已单测对齐（InternVL
-  `<IMG_CONTEXT>`，DINO post-process XYXY）；真实 GPU 首跑
-  仍应先跑 val 小切片。两者的 `model_revision` 已 pin 具体 commit。
+- `internvl35`：已微调（0.60）后退役，adapter 保留、不再作融合成员（见
+  `docs/handoff.md` 当前状态）。
+- `groundingdino`：协议契约已单测对齐（post-process XYXY）；真实 GPU 首跑
+  仍应先跑 val 小切片。`model_revision` 已 pin 具体 commit。
 
 ## 指纹与溯源
 

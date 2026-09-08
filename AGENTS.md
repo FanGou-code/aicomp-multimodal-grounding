@@ -14,7 +14,7 @@
 ## 常用命令
 
 - 本地全量测试：`python -m unittest discover -s tests`（约 1s；GPU 相关项自动 skip）
-- 语法检查：`python -m compileall aicomp_grounding scripts offline`
+- 语法检查：`python -m compileall aicomp_grounding scripts offline cloud`
 - GPU 验证：魔搭只跑冒烟，不跑 unittest——训练 smoke 与推理 val 切片命令见 `docs/sop.md`
 - 环境安装：依赖唯一声明源 = 根 `pyproject.toml`（`dependencies` + extras）；
   torch 为范围（`>=2.8,<3`），四件套 `==` 紧 pin；分层见 `envs/README.md`

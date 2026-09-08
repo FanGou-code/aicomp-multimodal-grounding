@@ -8,7 +8,7 @@
 ```text
 Volume "aicomp" 挂载于 /mnt/workspace
   data/                 数据集（推理只需 Test/ + Processed/Test/，训练需 Train/）
-  models/<org>/<name>/  权重（可选：不传则 qwen3vl/internvl 从 HF 快速下载）
+  models/<org>/<name>/  权重（可选：不传则从 HF 快速下载）
   outputs/
     annotations/<run_id>/      approved.json（训练输入）
     output_lora/<run_id>/      训练产物
@@ -49,17 +49,17 @@ modal run cloud/train.py --annotation-run-id annot_dc189f029d962b27 --preflight-
 # 单 batch 冒烟
 modal run cloud/train.py --annotation-run-id annot_dc189f029d962b27 --smoke-test
 
-# 全量训练（3 epochs；断点/抢占自动恢复，每次 checkpoint 提交 Volume）
+# 全量训练（epochs 由 adapter 超参决定；断点/抢占自动恢复，每次 checkpoint 提交 Volume）
 modal run cloud/train.py --annotation-run-id annot_dc189f029d962b27 --run-tag exp-<name>
 ```
 
 ## 费用与护栏
 
-- H100 ≈ $4.5/h + CPU/内存费；全量 Test 推理一趟约 $25-40，**训练 16B 级超出 $30 月额度**——付费训练仅限 8B 级短跑
+- H100 按 Modal 官网当前单价计费；全量 Test 推理一趟约 $25-40，**训练 16B 级超出 Starter 月额度**——付费训练仅限 8B 级短跑
 - 护栏 = 函数 timeout（推理 8h / 训练 24h）+ 断点续跑；费用看 Modal 面板 Usage 页
 
 ## 新模型接入（不动核心文件）
 
 `aicomp_grounding/models/` 加适配器 → `models/__init__.py` 注册一行 →
-`envs/gpu.txt` 补依赖（如需）→ `--model <name>` 在 cloud/infer、cloud/train、
+`pyproject.toml` 加依赖（如需）→ `--model <name>` 在 cloud/infer、cloud/train、
 offline 三端同时可用。

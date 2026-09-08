@@ -184,8 +184,8 @@
   fallback（`tests/test_env_contract.py` 钉死一致性）。L0~L5 分层见
   `envs/README.md`。
 - **仓库（沿袭）**：pyproject + ruff 全库 0 违规 + GitHub Actions CI；索引与
-  剔除审计已迁至 query-foundry/data/（训练不读，`prepare_rgbdt.py` 仍为本仓
-  唯一索引生成器，再生成时输出指向 foundry）；
+  剔除审计生成器已迁 query-foundry（`scripts/prepare_split.py` 为唯一生成器，
+  训练不读；本仓 `scripts/prepare_rgbdt.py` 仅做图像检查与 Depth-JET 伪彩）；
   golden `annot_dc189f029d962b27`（train 2875 / val 719）冻结不动；外部私有
   分析仓（本机路径，管理员掌握）承载 test 侧灰色分析，按其防污染规范运作，
   结论与数字不入本仓。v5 query 生产线在伴生仓 `query-foundry`
@@ -218,6 +218,26 @@
 差值 = 标注管线迁往 query-foundry 迁走 42 项、本轮新增 3 项环境契约测试。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-08（全仓文档核查与 README 精简）
+
+- **动因**：模型阵容未定，README 细节越多越易滞后误导；索引生成器等口径已随
+  09-05/09-08 变迁但文档未对齐。管理员定案：README 只描述实验单元，具体模型与
+  预处理细节以 handoff 为准，教师模型信息避而不谈（本质人工打标）。
+- **改动**：
+  1. `README.md` 精简重写：保留定位 / 环境安装 / 运行入口 / 数据（RGBDT500 +
+     引用）/ 文档导航 / 测试；删模型矩阵、revision、超参、预处理与索引细节、
+     WBF 参数、教师模型（GLM-4.6V）与 Zhipu key。
+  2. `docs/handoff.md` 仓库条目：索引/审计生成器口径改为 query-foundry
+     `scripts/prepare_split.py`（原「prepare_rgbdt.py 唯一生成器」过时）。
+  3. `docs/architecture.md` 验证状态：`internvl35` 已微调（0.60）后退役；
+     `groundingdino` 仍未真机。
+  4. `cloud/README.md`：`envs/gpu.txt` → `pyproject.toml`、去 internvl 下载提示、
+     去硬编码 H100 单价与「3 epochs」。
+  5. `AGENTS.md` compileall 补 `cloud`；`docs/research.md` 注明本仓用 Python 3.12。
+- **验证**：174 项单测全绿（4 skip）+ compileall + ruff 全绿。
+- **下一步**：README 细节待全流程跑通（Qwen3.5-9B 接入等）后按需补充；Modal
+  端到端由管理员执行 `modal` 验证。
 
 ### 2026-09-08（环境声明统一 pyproject 单源 + SOP 去过度设计 + offline README 通用化）
 
