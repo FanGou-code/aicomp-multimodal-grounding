@@ -84,7 +84,7 @@ class TrainableAdapterContractTests(unittest.TestCase):
             adapter = get_adapter(name)
             hyperparameters = adapter.training_hyperparameters()
             self.assertEqual(hyperparameters["lora_rank"], 16)
-            self.assertEqual(hyperparameters["lora_alpha"], 48)
+            self.assertEqual(hyperparameters["lora_alpha"], 32)
             self.assertIn("q_proj", adapter.lora_target_modules())
 
 

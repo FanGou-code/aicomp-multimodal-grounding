@@ -101,8 +101,7 @@
   NewAnn(0.7325)=新标注+α48+cosine。“新标注降分”为捆绑错觉：同 α48 下新旧
   标注官方总分差仅 +0.03pp。α48 定性为分布移位过拟合：两 run val ACC
   92.35%/92.77% vs 官方 73.2%（断层 ~19.5pp），Iter02 的 val 至 epoch 3 仍涨
-  而官方反跌——同分布 val 对此失明。**全线新训练 α32 起步**（=2r LoRA 标准
-  默认、唯一有胜绩的值）；调度与选优保留现行 cosine + acc@0.5；`v4×α32`
+  而官方反跌——同分布 val 对此失明。**全线新训练 α32 起步**（=2r LoRA 标准默认、唯一有胜绩的值，已落码：adapter 默认 `lora_alpha=32`、epochs 保持 3）；调度与选优保留现行 cosine + acc@0.5；`v4×α32`
   重训将产出首个干净 α 读数。
 - **标注定性（v5 工程靶子，生产线已启动见下条）**：官方 test 9555 条 vs
   golden 2875 条 vs 旧标注 `annot_ac72f1d926bb2d23` 2875 条全量对照，四维
@@ -218,6 +217,19 @@
 差值 = 标注管线迁往 query-foundry 迁走 42 项、本轮新增 3 项环境契约测试。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-08（α32 落码 + 清残留 + 口径收敛）
+
+- **动因**：管理员定案「该删就删，ep 保持 3、α 用 32」。
+- **改动**：
+  1. α32 落码：`qwen3vl` / `internvl35` 的 `lora_alpha` 48→32（epochs 维持 3）；
+     `tests/test_models.py` 契约断言同步 48→32。
+  2. 清死路径：删 `config.py` 的 `DATA_ROOT` 常量；`images.py` 错误文案
+     "escapes DATA_ROOT"→"escapes dataset root"（该常量不参与任何路径逻辑）。
+  3. `offline/README.md` 删 Zhipu API Key 句（避而不谈）。
+  4. `AGENTS.md` 本地环境措辞去「仅 CPU」→「开发与单元测试」。
+- **验证**：174 项单测全绿（4 skip）+ compileall + ruff。
+- **下一步**：v4×α32 重训待人审收尾后启动。
 
 ### 2026-09-08（全仓文档核查与 README 精简）
 

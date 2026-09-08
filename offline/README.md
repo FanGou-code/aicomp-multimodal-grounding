@@ -86,8 +86,7 @@ python offline/infer.py \
 | `data/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成 |
 | 基础模型权重 | Qwen-8B 17G / InternVL 17G / DINO 0.7G | 下载到持久目录 |
 
-**不需要**：LoRA 权重（融合只交换各自 predictions.json）、Zhipu API Key
-（标注已随仓库分发，仅重新生成标注时才需要）。
+**不需要**：LoRA 权重（融合只交换各自 predictions.json）。
 
 ## AMD ROCm 环境
 

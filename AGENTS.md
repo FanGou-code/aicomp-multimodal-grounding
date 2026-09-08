@@ -6,7 +6,7 @@
 ## 身份与环境边界
 
 - 竞赛实验单元：RGBDT 三模态视觉定位，唯一指标 ACC@0.5
-- 本地环境 = 仅 CPU 测试与静态检查（qwen_vg conda，Python 3.12）
+- 本地环境 = 开发与单元测试（qwen_vg conda，Python 3.12）；GPU 训练/全量推理以 DSW / Modal 为准
 - GPU 训练/推理在魔搭 DSW（offline/）或 Modal（cloud/，H100 硬编码）执行；
   `modal` 命令由用户本人执行
 - 模型权重与大数据永不入库（data/、*.pt、*.safetensors 已 ignore，不得绕过）

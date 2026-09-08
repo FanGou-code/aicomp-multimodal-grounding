@@ -108,7 +108,7 @@ def verify_dataset_images(
             try:
                 path.relative_to(root)
             except ValueError as exc:
-                raise ValueError(f"Sample {sample_id!r} {field} escapes DATA_ROOT") from exc
+                raise ValueError(f"Sample {sample_id!r} {field} escapes dataset root") from exc
             if path not in verified:
                 if not path.is_file():
                     raise FileNotFoundError(

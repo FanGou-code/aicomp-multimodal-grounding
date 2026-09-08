@@ -119,7 +119,7 @@ class Qwen3VLAdapter:
             "max_grad_norm": 1.0,
             "weight_decay": 0.01,
             "lora_rank": 16,
-            "lora_alpha": 48,
+            "lora_alpha": 32,
             "lora_dropout": 0.05,
             "compute_dtype": "bfloat16",
             "autocast": True,

@@ -15,7 +15,6 @@ from importlib import metadata as importlib_metadata
 # retains only ANNOTATION_PROTOCOL_VERSION — the product contract version the
 # training side enforces when loading approved.json artifacts.
 
-DATA_ROOT = "/data/data"
 INFERENCE_COMPUTE_DTYPE = "bfloat16"
 RUNTIME_PYTHON_VERSION = platform.python_version()
 
