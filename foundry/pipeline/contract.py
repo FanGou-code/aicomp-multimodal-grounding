@@ -368,3 +368,42 @@ def validate_approved_artifact(
     if errors:
         raise ValueError("Approved annotation data failed structural QC: " + "; ".join(errors))
     return artifact
+
+
+def validate_training_artifacts(
+    train_artifact: dict,
+    val_artifact: dict,
+    *,
+    annotation_run_id: str,
+    strict_query_qc: bool = True,
+) -> tuple[dict, dict]:
+    """Validate mutual consistency between train and val approved artifacts."""
+    train = validate_approved_artifact(
+        train_artifact,
+        expected_split="train",
+        expected_run_id=annotation_run_id,
+        strict_query_qc=strict_query_qc,
+    )
+    val = validate_approved_artifact(
+        val_artifact,
+        expected_split="val",
+        expected_run_id=annotation_run_id,
+        strict_query_qc=strict_query_qc,
+    )
+    train_meta = train["metadata"]
+    val_meta = val["metadata"]
+    for field in ("prompt_hash", "provenance"):
+        if train_meta[field] != val_meta[field]:
+            raise ValueError(f"Train/val approved artifacts disagree on {field}")
+
+    train_data = train["data"]
+    val_data = val["data"]
+    overlap = set(train_data) & set(val_data)
+    if overlap:
+        raise ValueError(f"Train/val sample IDs overlap: {sorted(overlap)[:5]}")
+    train_scenes = set(group_keys_by_scene(list(train_data), train_data))
+    val_scenes = set(group_keys_by_scene(list(val_data), val_data))
+    scene_overlap = train_scenes & val_scenes
+    if scene_overlap:
+        raise ValueError(f"Train/val sequence IDs overlap: {sorted(scene_overlap)[:5]}")
+    return train, val

@@ -9,6 +9,9 @@ training. Automatically computes and seals all four SHA-256 fingerprints:
   3. image_fingerprint       (manifest reference binding prefix "manifest_")
   4. preparation_fingerprint (content hash of split_manifest.json)
 
+Supports single-split packaging (train or val) or joint dual-split packaging
+(train + val) with cross-split leakage and prompt consistency verification.
+
 Zero external pip dependencies required.
 """
 
@@ -34,6 +37,7 @@ from foundry.pipeline.contract import (
     trusted_dataset_image_fingerprint,
     validate_annotation_query,
     validate_approved_artifact,
+    validate_training_artifacts,
 )
 from foundry.utils import (
     ANNOTATION_API_BASE_URL,
@@ -55,14 +59,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--assembly",
         type=Path,
+        nargs="+",
         required=True,
-        help="path to assembly.json (e.g. outputs/assembly/asm-train-r5/assembly.json)",
+        help="one or more paths to assembly.json (e.g. asm-train-r6/assembly.json asm-val-r6/assembly.json)",
     )
     parser.add_argument(
         "--index",
         type=Path,
         default=None,
         help="path to split index json (default: data/indexes/<split>.json)",
+    )
+    parser.add_argument(
+        "--index-dir",
+        type=Path,
+        default=None,
+        help="directory containing <split>.json files (default: data/indexes)",
     )
     parser.add_argument(
         "--split-manifest",
@@ -74,12 +85,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--split",
         choices=("train", "val"),
         default=None,
-        help="split name (train or val, auto-detected from assembly if omitted)",
+        help="override split name (only valid when a single assembly file is provided)",
     )
     parser.add_argument(
         "--run-id",
         default=None,
-        help="output run ID (e.g. annot_r6; defaults to annot_<assembly_tag>)",
+        help="output run ID (e.g. annot_r6; defaults to annot_<common_tag>)",
     )
     parser.add_argument(
         "--output-dir",
@@ -91,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=None,
-        help="exact destination file path (overrides --output-dir)",
+        help="exact destination file path (only valid when a single assembly file is provided)",
     )
     parser.add_argument(
         "--export-to-main",
@@ -142,7 +153,6 @@ def _find_prompt_hash(assembly_meta: dict) -> str:
                         return str(meta[h_key])
             except Exception:
                 pass
-    # Fallback to stable hash of census metadata
     fallback_seed = {
         "census_run_id": census_run_id or "default",
         "protocol_version": ANNOTATION_PROTOCOL_VERSION,
@@ -151,9 +161,10 @@ def _find_prompt_hash(assembly_meta: dict) -> str:
     return stable_json_hash(fallback_seed)
 
 
-def package(
+def package_single(
     assembly_path: Path,
     index_path: Path | None = None,
+    index_dir: Path | None = None,
     split_manifest_path: Path | None = None,
     split: str | None = None,
     run_id: str | None = None,
@@ -182,7 +193,8 @@ def package(
 
     # Locate index file
     if index_path is None:
-        index_path = PROJECT_ROOT / "data" / "indexes" / f"{resolved_split}.json"
+        base_index_dir = index_dir or (PROJECT_ROOT / "data" / "indexes")
+        index_path = base_index_dir / f"{resolved_split}.json"
     if not index_path.is_file():
         raise FileNotFoundError(f"Split index not found: {index_path}")
     index = load_json(index_path)
@@ -190,7 +202,8 @@ def package(
     # Locate split manifest
     manifest_data = None
     if split_manifest_path is None:
-        split_manifest_path = PROJECT_ROOT / "data" / "indexes" / "split_manifest.json"
+        base_index_dir = index_dir or (PROJECT_ROOT / "data" / "indexes")
+        split_manifest_path = base_index_dir / "split_manifest.json"
     if split_manifest_path.is_file():
         manifest_data = load_json(split_manifest_path)
 
@@ -255,7 +268,7 @@ def package(
 
     # Handle QC failures
     if qc_failures:
-        print(f"\n[WARNING] Found {len(qc_failures)}/{len(data)} queries failing annotation QC rules:", file=sys.stderr)
+        print(f"\n[WARNING] Found {len(qc_failures)}/{len(data)} queries in {resolved_split} failing annotation QC rules:", file=sys.stderr)
         for ik, q, rsn in qc_failures[:5]:
             print(f"  - {ik}: {rsn} (query: {q!r})", file=sys.stderr)
         if len(qc_failures) > 5:
@@ -264,7 +277,7 @@ def package(
         if not lenient_qc:
             first_fail = qc_failures[0]
             raise ValueError(
-                f"Query QC validation failed for {len(qc_failures)} samples (e.g. {first_fail[0]}: {first_fail[2]}). "
+                f"Query QC validation failed for {len(qc_failures)} samples in {resolved_split} (e.g. {first_fail[0]}: {first_fail[2]}). "
                 f"Fix the queries or pass --lenient-qc to bypass query style gate."
             )
 
@@ -371,14 +384,85 @@ def package(
     }
 
 
+def package(
+    assemblies: list[Path] | Path | None = None,
+    index_path: Path | None = None,
+    index_dir: Path | None = None,
+    split_manifest_path: Path | None = None,
+    split: str | None = None,
+    run_id: str | None = None,
+    output_path: Path | None = None,
+    output_dir: Path | None = None,
+    export_to_main: Path | None = None,
+    prompt_hash: str | None = None,
+    key_format: str = "auto",
+    lenient_qc: bool = False,
+    dry_run: bool = False,
+    force: bool = False,
+    assembly_path: Path | None = None,
+) -> list[dict] | dict:
+    if assemblies is None and assembly_path is not None:
+        assemblies = assembly_path
+    if assemblies is None:
+        raise ValueError("Must provide assemblies or assembly_path")
+
+    return_single = assembly_path is not None or isinstance(assemblies, (str, Path))
+    if isinstance(assemblies, (str, Path)):
+        assemblies = [Path(assemblies)]
+
+    if len(assemblies) > 1 and (output_path is not None or split is not None):
+        raise ValueError("--output and --split can only be used when packaging a single assembly file")
+
+    results: list[dict] = []
+    by_split: dict[str, dict] = {}
+
+    for asm_path in assemblies:
+        res = package_single(
+            assembly_path=asm_path,
+            index_path=index_path,
+            index_dir=index_dir,
+            split_manifest_path=split_manifest_path,
+            split=split,
+            run_id=run_id,
+            output_path=output_path,
+            output_dir=output_dir,
+            export_to_main=export_to_main,
+            prompt_hash=prompt_hash,
+            key_format=key_format,
+            lenient_qc=lenient_qc,
+            dry_run=dry_run,
+            force=force,
+        )
+        s = res["split"]
+        if s in by_split:
+            raise ValueError(f"Multiple assemblies provided for split {s!r}")
+        by_split[s] = res
+        results.append(res)
+
+    # Joint verification if both train and val are packaged together
+    if "train" in by_split and "val" in by_split:
+        target_run_id = results[0]["run_id"]
+        for r in results:
+            r["artifact"]["metadata"]["run_id"] = target_run_id
+        validate_training_artifacts(
+            by_split["train"]["artifact"],
+            by_split["val"]["artifact"],
+            annotation_run_id=target_run_id,
+            strict_query_qc=not lenient_qc,
+        )
+
+    return results[0] if return_single else results
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
     try:
-        result = package(
-            assembly_path=args.assembly,
+        raw_res = package(
+            assemblies=args.assembly,
             index_path=args.index,
+            index_dir=args.index_dir,
             split_manifest_path=args.split_manifest,
             split=args.split,
             run_id=args.run_id,
@@ -391,27 +475,30 @@ def main() -> None:
             dry_run=args.dry_run,
             force=args.force,
         )
+        results = [raw_res] if isinstance(raw_res, dict) else raw_res
     except Exception as exc:
         print(f"[ERROR] Packaging failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    print("=" * 60)
-    print(f" Packaging Successful: {result['run_id']} [{result['split']}]")
-    print("=" * 60)
-    print(f"  Samples:                 {result['sample_count']}")
-    print(f"  Sequences:               {result['sequence_count']}")
-    print(f"  source_fingerprint:      {result['source_fingerprint']}")
-    print(f"  dataset_fingerprint:     {result['dataset_fingerprint']}")
-    print(f"  image_fingerprint:       {result['image_fingerprint']}")
-    print(f"  preparation_fingerprint: {result['preparation_fingerprint']}")
-    print(f"  prompt_hash:             {result['prompt_hash']}")
-    print("-" * 60)
-    if args.dry_run:
-        print("  [DRY RUN] No files written to disk.")
-    else:
-        for p in result["written_paths"]:
-            print(f"  Wrote: {p}")
-    print("=" * 60)
+    print("=" * 64)
+    print(f" Packaging Successful ({len(results)} split{'s' if len(results) > 1 else ''})")
+    print("=" * 64)
+    for result in results:
+        print(f" Split [{result['split'].upper()}]: {result['run_id']}")
+        print(f"  Samples:                 {result['sample_count']}")
+        print(f"  Sequences:               {result['sequence_count']}")
+        print(f"  source_fingerprint:      {result['source_fingerprint']}")
+        print(f"  dataset_fingerprint:     {result['dataset_fingerprint']}")
+        print(f"  image_fingerprint:       {result['image_fingerprint']}")
+        print(f"  preparation_fingerprint: {result['preparation_fingerprint']}")
+        print(f"  prompt_hash:             {result['prompt_hash']}")
+        if args.dry_run:
+            print("  [DRY RUN] No files written to disk.")
+        else:
+            for p in result["written_paths"]:
+                print(f"  Wrote: {p}")
+        print("-" * 64)
+    print("=" * 64)
 
 
 if __name__ == "__main__":

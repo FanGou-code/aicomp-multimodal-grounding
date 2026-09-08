@@ -221,6 +221,70 @@ class PackageApprovedTests(unittest.TestCase):
         self.assertEqual(main_validated["metadata"]["run_id"], "annot_cross_test")
         self.assertEqual(main_validated["metadata"]["dataset_fingerprint"], res["dataset_fingerprint"])
 
+    def test_package_approved_dual_split(self):
+        val_index_data = {
+            "002_00000001": {
+                "visible": "Train/002/color/00000001.png",
+                "infrared": "Train/002/infrared/00000001.png",
+                "depth": "Processed/Train/002/depth_jet/00000001.png",
+                "bbox": [0.1, 0.2, 0.3, 0.4],
+                "width": 1920,
+                "height": 1080,
+            }
+        }
+        val_index_path = self.root / "val.json"
+        val_index_path.write_text(json.dumps(val_index_data), encoding="utf-8")
+
+        val_assembly = {
+            "metadata": {
+                "assembler_version": 1,
+                "run_tag": "asm-val-test",
+                "census_run_id": "census_test123",
+                "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
+                "split": "val",
+            },
+            "records": [
+                {
+                    "sample_id": "002_00000001",
+                    "sequence_id": "002",
+                    "object_index": 1,
+                    "bbox": [0.1, 0.2, 0.3, 0.4],
+                    "query": "The red bicycle parked beside the lamp post",
+                }
+            ],
+        }
+        val_assembly_path = self.root / "val_assembly.json"
+        val_assembly_path.write_text(json.dumps(val_assembly), encoding="utf-8")
+
+        out_dir = self.root / "dual_approved"
+        # Since index_path is None, point PROJECT_ROOT data/indexes or provide index in test directory
+        # package_single looks for index at PROJECT_ROOT/data/indexes/val.json by default.
+        # But we can supply val.json and train.json in our test root and test with explicit index_path or mock!
+        # Wait, for dual split, package_single uses data/indexes/<split>.json if index_path is None.
+        # Let's ensure test_package_approved_dual_split creates data/indexes under temp_dir and tests it!
+        indexes_dir = self.root / "indexes"
+        indexes_dir.mkdir(parents=True, exist_ok=True)
+        (indexes_dir / "train.json").write_text(json.dumps(self.index_data), encoding="utf-8")
+        (indexes_dir / "val.json").write_text(json.dumps(val_index_data), encoding="utf-8")
+        manifest_copy = dict(self.manifest_data)
+        manifest_copy["index_fingerprints"]["val"] = stable_json_hash(val_index_data)
+        (indexes_dir / "split_manifest.json").write_text(json.dumps(manifest_copy), encoding="utf-8")
+
+        results = package(
+            assemblies=[self.assembly_path, val_assembly_path],
+            index_dir=indexes_dir,
+            split_manifest_path=indexes_dir / "split_manifest.json",
+            output_dir=out_dir,
+            run_id="annot_dual",
+        )
+        self.assertEqual(len(results), 2)
+        train_res = next(r for r in results if r["split"] == "train")
+        val_res = next(r for r in results if r["split"] == "val")
+        self.assertEqual(train_res["sample_count"], 2)
+        self.assertEqual(val_res["sample_count"], 1)
+        self.assertTrue((out_dir / "annot_dual" / "train" / "approved.json").is_file())
+        self.assertTrue((out_dir / "annot_dual" / "val" / "approved.json").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
