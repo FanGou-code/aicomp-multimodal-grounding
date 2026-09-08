@@ -510,13 +510,19 @@ def prepare_dataset(
     if not raw_root.is_dir():
         raise FileNotFoundError(f"Missing raw sequence directory: {raw_root}")
 
+    generate_indexes = getattr(args, "generate_indexes", False)
     destinations = [
         args.index_dir / "train.json",
         args.index_dir / "val.json",
         args.index_dir / "split_manifest.json",
     ]
     existing_indexes = [path for path in destinations if path.exists()]
-    if not args.dry_run and existing_indexes and not args.overwrite_indexes:
+    if (
+        generate_indexes
+        and not args.dry_run
+        and existing_indexes
+        and not args.overwrite_indexes
+    ):
         raise FileExistsError(
             f"Index output already exists: {existing_indexes[0]}. Use --overwrite-indexes explicitly."
         )
@@ -693,7 +699,7 @@ def prepare_dataset(
             "val": len(outputs["val"]),
         },
     }
-    if not args.dry_run:
+    if generate_indexes and not args.dry_run:
         args.index_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_json(destinations[0], outputs["train"])
         atomic_write_json(destinations[1], outputs["val"])
@@ -715,6 +721,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-depth-mm", type=int, default=20000)
     parser.add_argument("--depth-scaling", choices=("fixed", "per-frame"), default="fixed")
     parser.add_argument("--overwrite-depth", action="store_true")
+    parser.add_argument(
+        "--generate-indexes",
+        action="store_true",
+        help="Write train.json/val.json/split_manifest.json under --index-dir. "
+        "Off by default: index generation is owned by query-foundry "
+        "(scripts/prepare_split.py) and this script performs no test-set "
+        "overlap filtering.",
+    )
     parser.add_argument("--overwrite-indexes", action="store_true")
     parser.add_argument(
         "--skip-test-validation",
@@ -734,18 +748,21 @@ def main() -> None:
         parser.error("--train-ratio must be between 0 and 1")
     if not 0 <= args.min_depth_mm < args.max_depth_mm <= 65535:
         parser.error("depth limits must satisfy 0 <= min < max <= 65535")
-    print(
-        "Warning: data/indexes/ is now owned by query-foundry "
-        "(scripts/prepare_split.py); this script does no test-set overlap "
-        "filtering and its indexes are not consumed by training.",
-        flush=True,
-    )
+    if args.generate_indexes:
+        print(
+            "Warning: data/indexes/ is owned by query-foundry; this script's "
+            "index output is legacy, does no test-set overlap filtering, and "
+            "is not consumed by training.",
+            flush=True,
+        )
     manifest = prepare_dataset(args)
     print(manifest["stats"])
     if args.dry_run:
         print("Dry run complete; no depth images or indexes were written.")
-    else:
+    elif args.generate_indexes:
         print(f"Indexes written to {args.index_dir}")
+    else:
+        print("Depth processing complete; index generation skipped (use --generate-indexes).")
 
 
 if __name__ == "__main__":

@@ -46,7 +46,10 @@ def select_top_detection(
     for index in sorted(range(len(scores)), key=lambda i: scores[i], reverse=True):
         if scores[index] < BOX_THRESHOLD:
             break
-        xyxy = validate_bbox(boxes_xyxy[index])
+        # Float regression can push boxes a hair outside [0, 1]; clip before
+        # validation so edge-of-frame targets are not wrongly discarded.
+        clipped = [min(1.0, max(0.0, value)) for value in boxes_xyxy[index]]
+        xyxy = validate_bbox(clipped)
         if xyxy is not None:
             return xyxy, float(scores[index])
     return None, None

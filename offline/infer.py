@@ -221,6 +221,7 @@ def _run_inference_loop(
     batch_size: int,
     batch_save: int,
     existing_predictions: dict[str, list[float] | None] | None = None,
+    scores: dict[str, float | None] | None = None,
     device: str = "cuda",
     checkpoint_path: Path | None = None,
     checkpoint_metadata: dict | None = None,
@@ -242,6 +243,8 @@ def _run_inference_loop(
             results = adapter.predict(batch)
             for sample, result in zip(batch, results):
                 predictions[sample.key] = result.bbox
+                if scores is not None and result.score is not None:
+                    scores[sample.key] = result.score
             batch.clear()
 
         start_time = time.time()
@@ -309,6 +312,7 @@ def _run_dataloader_inference_loop(
     batch_save: int,
     num_workers: int,
     existing_predictions: dict[str, list[float] | None] | None = None,
+    scores: dict[str, float | None] | None = None,
     device: str = "cuda",
     checkpoint_path: Path | None = None,
     checkpoint_metadata: dict | None = None,
@@ -386,6 +390,8 @@ def _run_dataloader_inference_loop(
         )
         for key, result in zip(keys, results):
             predictions[key] = result.bbox
+            if scores is not None and result.score is not None:
+                scores[key] = result.score
         processed_count += len(keys)
         since_last_save += len(keys)
 
@@ -446,6 +452,7 @@ def _run_shard_worker(
         if checkpoint_dir is not None
         else None
     )
+    scores: dict[str, float | None] = {}
     if getattr(args, "num_workers", 0) > 0:
         predictions = _run_dataloader_inference_loop(
             items,
@@ -457,6 +464,7 @@ def _run_shard_worker(
             batch_save=args.batch_save,
             num_workers=args.num_workers,
             device=device,
+            scores=scores,
             checkpoint_path=checkpoint_path,
             checkpoint_metadata=shard_metadata,
         )
@@ -470,10 +478,11 @@ def _run_shard_worker(
             batch_size=args.batch_size,
             batch_save=args.batch_save,
             device=device,
+            scores=scores,
             checkpoint_path=checkpoint_path,
             checkpoint_metadata=shard_metadata,
         )
-    return shard_id, predictions
+    return shard_id, predictions, scores
 
 
 def run_cli(args):
@@ -502,8 +511,7 @@ def run_cli(args):
     selected_keys = [item["key"] for item in items]
     adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
     if adapter_dir is not None and not adapter_dir.exists():
-        print(f"Warning: LoRA path {adapter_dir} does not exist; running zero-shot.")
-        adapter_dir = None
+        raise FileNotFoundError(f"LoRA adapter directory not found: {adapter_dir}")
     if adapter_dir is not None and not adapter.supports_lora:
         print(f"Warning: --model {adapter.name} does not use LoRA; ignoring adapter path.")
         adapter_dir = None
@@ -546,6 +554,7 @@ def run_cli(args):
     print(f"Output dir: {run_dir}")
 
     predictions: dict[str, list[float] | None] = {}
+    scores: dict[str, float | None] = {}
     if args.resume:
         if predictions_path.is_file():
             print(f"Resuming from existing predictions file: {predictions_path}")
@@ -554,10 +563,21 @@ def run_cli(args):
             print(f"Resuming from existing checkpoint file: {checkpoint_path}")
             ckpt_data = load_json(checkpoint_path)
             predictions = ckpt_data.get("predictions", {}) if isinstance(ckpt_data, dict) else {}
-    print(f"Total queries in dataset: {len(items)} | Already finished: {len(predictions)} | Pending: {len(items) - len(predictions)}")
     if args.num_shards > 1:
         shard_checkpoint_dir = run_dir / "shard_checkpoints"
         shard_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        if args.resume and not predictions:
+            # The main predictions/checkpoint only land after every shard
+            # returns; an interrupted multi-shard run leaves shard_checkpoints/
+            # behind, so recover those instead of restarting from zero.
+            for shard_file in sorted(shard_checkpoint_dir.glob("shard_*.checkpoint.json")):
+                payload = load_json(shard_file)
+                for key, value in (payload.get("predictions") or {}).items():
+                    predictions[key] = value
+            if predictions:
+                print(f"Resumed {len(predictions)} predictions from shard checkpoints.")
+    print(f"Total queries in dataset: {len(items)} | Already finished: {len(predictions)} | Pending: {len(items) - len(predictions)}")
+    if args.num_shards > 1:
         shards = assign_pending_shards(
             items,
             num_shards=args.num_shards,
@@ -580,13 +600,14 @@ def run_cli(args):
         context = multiprocessing.get_context("spawn")
         with context.Pool(len(shards)) as pool:
             shard_results = pool.map(_run_shard_worker, worker_payloads)
-        for _, shard_predictions in shard_results:
+        for _, shard_predictions, shard_scores in shard_results:
             # Recover shard_id and metadata from the result is not necessary;
             # validation is done below against the same shard assignments.
             for key, value in shard_predictions.items():
                 if key in predictions:
                     raise ValueError(f"Duplicate prediction key across shards: {key!r}")
                 predictions[key] = value
+            scores.update(shard_scores)
         for shard_id, shard in enumerate(shards):
             shard_metadata = build_shard_metadata(
                 metadata,
@@ -619,6 +640,7 @@ def run_cli(args):
                 batch_save=args.batch_save,
                 num_workers=args.num_workers,
                 existing_predictions=predictions,
+                scores=scores,
                 checkpoint_path=checkpoint_path,
                 checkpoint_metadata=metadata,
             )
@@ -632,10 +654,13 @@ def run_cli(args):
                 batch_size=args.batch_size,
                 batch_save=args.batch_save,
                 existing_predictions=predictions,
+                scores=scores,
                 checkpoint_path=checkpoint_path,
                 checkpoint_metadata=metadata,
             )
     atomic_write_json(predictions_path, predictions)
+    if scores:
+        atomic_write_json(run_dir / "scores.json", scores)
     atomic_write_json(
         checkpoint_path,
         {"metadata": metadata, "predictions": predictions},
@@ -684,11 +709,18 @@ def run_cli(args):
         )
         submission_ready = True
     elif not has_ground_truth and args.limit == 0:
-        print(
-            f"Warning: submission template not found at {official_template_path}; "
-            "skipping submission packaging.",
-            flush=True,
-        )
+        if not official_template_path.is_file():
+            print(
+                f"Warning: submission template not found at {official_template_path}; "
+                "skipping submission packaging.",
+                flush=True,
+            )
+        else:
+            print(
+                f"Warning: {len(predictions)}/{len(items)} predictions; "
+                "submission packaging skipped (incomplete run).",
+                flush=True,
+            )
 
     summary = {
         "metadata": metadata,

@@ -95,16 +95,19 @@ def evaluate_predictions(
     total = len(items)
     for item in items:
         gt_bbox = validate_bbox(item.get("bbox"))
+        if gt_bbox is None:
+            raise ValueError(
+                f"Sample {item.get('key')!r} has an invalid ground-truth bbox"
+            )
         valid_pred = validate_bbox(predictions.get(item["key"]))
 
         if valid_pred is None:
             failures += 1
             continue
-        if gt_bbox is not None:
-            iou = compute_iou(valid_pred, gt_bbox)
-            total_iou += iou
-            if iou >= 0.5:
-                hits += 1
+        iou = compute_iou(valid_pred, gt_bbox)
+        total_iou += iou
+        if iou >= 0.5:
+            hits += 1
 
     return {
         "hits": hits,
@@ -113,20 +116,3 @@ def evaluate_predictions(
         "mean_iou": total_iou / total if total > 0 else 0.0,
         "failures": failures,
     }
-
-
-def merge_shard_results(shard_results: list[dict]) -> dict:
-    """Merge parallel shard payloads into a single prediction result.
-
-    Effective runtime of a parallel run is the slowest shard (wall clock),
-    not the sum of shard durations.
-    """
-    merged: dict[str, list[float] | None] = {}
-    for result in shard_results:
-        merged.update(result["predictions"])
-    elapsed = (
-        max(result["elapsed_seconds"] for result in shard_results)
-        if shard_results
-        else 0.0
-    )
-    return {"predictions": merged, "elapsed_seconds": elapsed}

@@ -9,7 +9,6 @@ from pathlib import Path
 from aicomp_grounding.inference_core import (
     evaluate_predictions,
     load_inference_items,
-    merge_shard_results,
 )
 from aicomp_grounding.io import atomic_write_json
 
@@ -105,23 +104,6 @@ class EvaluatePredictionsTests(unittest.TestCase):
 
     def test_empty_items_return_none(self):
         self.assertIsNone(evaluate_predictions([], {}))
-
-
-class MergeShardResultsTests(unittest.TestCase):
-    def test_predictions_merge_and_runtime_is_slowest_shard(self):
-        merged = merge_shard_results(
-            [
-                {"predictions": {"a": [0, 0, 1, 1]}, "elapsed_seconds": 10.0},
-                {"predictions": {"b": None}, "elapsed_seconds": 25.5},
-            ]
-        )
-        self.assertEqual(sorted(merged["predictions"]), ["a", "b"])
-        self.assertEqual(merged["elapsed_seconds"], 25.5)
-
-    def test_no_shards_yield_empty_result(self):
-        merged = merge_shard_results([])
-        self.assertEqual(merged["predictions"], {})
-        self.assertEqual(merged["elapsed_seconds"], 0.0)
 
 
 if __name__ == "__main__":

@@ -225,6 +225,9 @@ def main() -> None:
             test_json_path=args.test_json,
             predictions_path=predictions_path,
             output_dir=run_dir,
+            # Some queries may have no valid fused box (all models failed);
+            # fall back to the whole-image box instead of aborting the package.
+            allow_fallback=True,
         )
         print(f"[wbf] submission ready: {zip_path}")
 

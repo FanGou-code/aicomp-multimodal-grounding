@@ -217,6 +217,28 @@ transformers 5.14.1，本地 GPU 可用，无 skip）；compileall / ruff 全绿
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-09-08（二审 10 项核实与修复）
+
+- **动因**：二审报告 10 项，逐条核实后修复（9 条属实，SEC2-01 根因判错但子问题真）。
+- **改动**：
+  1. SEC2-01 统一 lora 缺失处理：`--lora-path` 不存在时改抛 `FileNotFoundError`，
+     不再静默降级 zero-shot（原先单分片静默、多分片崩溃，两分支不一致）。
+  2. SEC2-02 多分片续跑：resume 时若主产物缺失，扫描合并
+     `shard_checkpoints/shard_*.checkpoint.json` 恢复进度。
+  3. SEC2-03 `wbf.py` 调 `build_submission` 补 `allow_fallback=True`，
+     避免个别 Query 无框时打包直接崩溃。
+  4. SEC2-04 置信度落盘：推理循环同步收集 `Prediction.score`，非空则写
+     `scores.json`（供 `wbf.py --scores` 做乘性加权融合）；多分片合并 scores。
+  5. SEC2-05 `groundingdino` 后处理框先夹到 `[0,1]` 再校验，防边缘目标被误杀。
+  6. SEC2-06 打包告警细分：区分「模板缺失」与「预测数不完整」两种原因。
+  7. SEC2-07 契约测试泛化：新增 `cloud/train.py` ↔ `offline/train.py` 参数覆盖测试。
+  8. SEC2-08 `prepare_rgbdt.py` 索引生成改为 `--generate-indexes` 显式开启，
+     默认只做图像校验与 Depth-JET（索引归 query-foundry）。
+  9. SEC2-09 删 `inference_core.merge_shard_results`（死代码，三套合并实现之一）。
+  10. SEC2-10 `evaluate_predictions` 前置校验 GT，损坏 GT 直接抛错而非稀释分母。
+- **验证**：171 项单测全绿。
+- **下一步**：多分片 / WBF 置信度融合启用前做一次真机冒烟（这些路径仍无执行史）。
+
 ### 2026-09-08（独立审查 12 项核实与修复）
 
 - **动因**：独立 agent 审查报告 12 项，逐条核实后全部修复/收口。
