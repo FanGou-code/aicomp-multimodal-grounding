@@ -74,9 +74,11 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
             "corpus": corpus,
         }
         meta = existing_metas.get(corpus, {}).get(item_id)
-        if meta is None or meta.get("annotator") == "glm-4.6v":
+        if meta is None or meta.get("annotator") == TEACHER_ANNOTATOR:
             if entry.get("bbox") and isinstance(entry["bbox"], list) and len(entry["bbox"]) == 4:
-                pending_seeds.setdefault(corpus, []).append((item_id, list(entry["bbox"]), "glm-4.6v"))
+                pending_seeds.setdefault(corpus, []).append(
+                    (item_id, list(entry["bbox"]), TEACHER_ANNOTATOR)
+                )
         items.append(item)
 
     for corpus, seeds in pending_seeds.items():

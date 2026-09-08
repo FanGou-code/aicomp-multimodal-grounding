@@ -52,7 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-words", type=int, default=18)
     parser.add_argument("--show", type=int, default=15, help="sample records to print")
     parser.add_argument("--all-frames", action="store_true",
-                        help="keep every frame with records (review all, not 1/sequence)")
+                        help="mark this assembly as full-frame (review all frames, "
+                             "not 1 per sequence). Metadata-only: assembly always "
+                             "covers the census-selected frames; the flag drives the "
+                             "downstream review session's sampling mode.")
     parser.add_argument("--force", action="store_true",
                         help="allow writing into an existing output dir (default: refuse)")
     return parser

@@ -604,7 +604,7 @@ def run_census(
         key_pool = APIKeyPool(
             keys,
             notify=print,
-            persist_retire=lambda index, reason: comment_out_key(key_file, index, reason),
+            persist_retire=lambda key, reason: comment_out_key(key_file, key, reason),
         )
         print(f"API keys: {key_pool.size} loaded ({key_pool.describe()})", flush=True)
     limiter = SlidingWindowRateLimiter(

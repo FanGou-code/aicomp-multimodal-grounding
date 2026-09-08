@@ -97,7 +97,7 @@ class CommentOutKeyTests(unittest.TestCase):
             path = Path(tmp) / "api_keys.txt"
             path.write_text("# header note\nkey-one\nkey-two\n# parked\n# key-three\n", encoding="utf-8")
             os.chmod(path, 0o600)
-            self.assertTrue(comment_out_key(path, 1, "HTTP 402"))
+            self.assertTrue(comment_out_key(path, "key-two", "HTTP 402"))
             text = path.read_text(encoding="utf-8")
             self.assertIn("# key-two  # ", text)
             self.assertIn("auto-retired: HTTP 402", text)
@@ -105,11 +105,11 @@ class CommentOutKeyTests(unittest.TestCase):
             self.assertEqual(load_api_keys(path), ["key-one"])
             self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
 
-    def test_unknown_index_returns_false(self):
+    def test_unknown_key_returns_false(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "api_keys.txt"
             path.write_text("key-one\n")
-            self.assertFalse(comment_out_key(path, 5, "HTTP 401"))
+            self.assertFalse(comment_out_key(path, "ghost-key", "HTTP 401"))
 
 
 class _FakeResponse:
@@ -168,7 +168,7 @@ class PooledClientTests(unittest.TestCase):
             raise _http_error(429)
 
         persisted = []
-        pool = APIKeyPool(["k1"], notify=lambda m: None, persist_retire=lambda i, r: persisted.append((i, r)))
+        pool = APIKeyPool(["k1"], notify=lambda m: None, persist_retire=lambda k, r: persisted.append((k, r)))
         client = OpenAIProtocolClient(
             key_pool=pool,
             model="glm-4.6v",
@@ -182,7 +182,7 @@ class PooledClientTests(unittest.TestCase):
                     messages=[{"role": "user", "content": "t"}], max_tokens=8, temperature=0.1
                 )
         self.assertEqual(pool.alive(), 0)
-        self.assertEqual(persisted, [(0, "sustained HTTP 429 x30")])
+        self.assertEqual(persisted, [("k1", "sustained HTTP 429 x30")])
         with self.assertRaises(APIKeyPoolExhausted):
             client.complete(
                 messages=[{"role": "user", "content": "t"}], max_tokens=8, temperature=0.1

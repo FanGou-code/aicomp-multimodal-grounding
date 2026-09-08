@@ -3,8 +3,9 @@
 
 Produces ``asm-*-r6`` as the packaging baseline for the R6 chain.
 
-Merge: human-edited query (from review store) takes priority; un-reviewed
-items keep their original assembled query. Re-validates bucket classifier
+Merge: human-edited query text, human-corrected target boxes and human-confirmed
+absence verdicts (from the review store snapshots) take priority; un-reviewed
+items keep their original assembled values. Re-validates bucket classifier
 and text QC for changed queries. Detects same-frame collisions.
 
 Output: ``outputs/assembly/asm-{train,val}-r6/assembly.json``
@@ -23,7 +24,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from foundry.pipeline.buckets import classify_frozen  # noqa: E402
-from foundry.utils import atomic_write_json, load_json  # noqa: E402
+from foundry.utils import (  # noqa: E402
+    ANNOTATION_MODEL_NAME,
+    atomic_write_json,
+    load_json,
+)
 from foundry.pipeline.text_qc import apply_text_qc  # noqa: E402
 
 
@@ -72,6 +77,33 @@ def _load_human_queries(queries_paths: list[Path] | Path | None) -> dict[str, st
     return merged
 
 
+def _load_json_quiet(path: Path) -> dict:
+    return load_json(path) if path.is_file() else {}
+
+
+def _review_snapshots(queries_paths: list[Path]) -> tuple[dict[str, list[float]], dict[str, str]]:
+    """Discover box / absence snapshots next to each review queries file.
+
+    The review store writes ``annotations.predictions.json`` (final box per
+    annotated item) and ``annotations.absent.json`` (``item_id -> *:absent``)
+    alongside ``annotations.queries.json``. All three must flow into r6:
+    box overrides correct the teacher geometry, and only human-confirmed
+    absences remove records — a ``{model}:absent`` verdict is still pending
+    human review.
+    """
+    boxes: dict[str, list[float]] = {}
+    absent: dict[str, str] = {}
+    for path in queries_paths:
+        boxes.update(_load_json_quiet(path.parent / "annotations.predictions.json"))
+        absent.update(_load_json_quiet(path.parent / "annotations.absent.json"))
+    return boxes, absent
+
+
+def _human_confirmed_absent(absent: dict[str, str]) -> set[str]:
+    pending = f"{ANNOTATION_MODEL_NAME}:absent"
+    return {item_id for item_id, annotator in absent.items() if annotator != pending}
+
+
 def _detect_collisions(records: list[dict]) -> set[str]:
     """Detect same-frame duplicate display queries after overlay."""
     by_frame: dict[str, dict[str, list[str]]] = {}
@@ -105,15 +137,24 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
         queries_paths = [Path(p) for p in queries_path]
 
     human_queries = _load_human_queries(queries_paths)
+    human_boxes, absent = _review_snapshots(queries_paths)
+    removed_absent = _human_confirmed_absent(absent)
 
     # --- Merge ---
     stats: dict[str, int] = Counter(
-        total=len(records), human=0, original=0, collision=0, bucket_changed=0, qc_edited=0,
+        total=len(records), human=0, original=0, collision=0, bucket_changed=0,
+        qc_edited=0, box_seen=0, box_changed=0, absent_removed=0,
     )
     flagged: list[dict] = []
 
+    kept: list[dict] = []
     for rec in records:
         item_id = f"{rec['sample_id']}#{rec['object_index']:02d}"
+        if item_id in removed_absent:
+            # Human-confirmed false positive: do not carry it into r6.
+            stats["absent_removed"] += 1
+            continue
+
         original_query = rec["query"]
         original_bucket = rec.get("bucket", "")
         source = "original"
@@ -138,6 +179,21 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
                 rec["bucket"] = new_bucket
                 rec["original_bucket"] = original_bucket
                 stats["bucket_changed"] += 1
+
+        # Human-corrected target box (the review store snapshot is the final
+        # box per annotated item; untouched seeds equal the assembly bbox, so
+        # applying it is a no-op except where the reviewer adjusted the box).
+        if item_id in human_boxes:
+            original_bbox = rec.get("bbox")
+            reviewed_bbox = human_boxes[item_id]
+            stats["box_seen"] += 1
+            if reviewed_bbox != original_bbox:
+                rec["bbox"] = reviewed_bbox
+                rec["original_bbox"] = original_bbox
+                stats["box_changed"] += 1
+
+        kept.append(rec)
+    records = kept
 
     # --- Detect collisions after overlay ---
     collisions = _detect_collisions(records)
@@ -222,6 +278,8 @@ def main() -> None:
     print(f"  collision:   {stats['collision']:>5}")
     print(f"  bucket_chg:  {stats['bucket_changed']:>5}")
     print(f"  qc_edited:   {stats['qc_edited']:>5}")
+    print(f"  box_seen:    {stats['box_seen']:>5} | box_changed: {stats['box_changed']:>5}")
+    print(f"  absent_rm:   {stats['absent_removed']:>5}")
     if result["flagged"]:
         print(f"\nflagged for human adjudication ({len(result['flagged'])}):")
         for f in result["flagged"][:10]:

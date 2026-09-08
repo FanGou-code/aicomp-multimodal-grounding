@@ -17,10 +17,13 @@ from pathlib import Path
 def __trusted_objects(frame):
     from foundry.pipeline.census import trusted_objects
     return trusted_objects(frame)
-from foundry.utils import load_json  # noqa: E402
+from foundry.utils import ANNOTATION_MODEL_NAME, load_json  # noqa: E402
 from foundry.review.store import AnnotationStore  # noqa: E402
 
-TEACHER_ANNOTATOR = "glm-4.6v"
+#: Single source of truth for the seeding model's annotator label. Must stay
+#: in sync with the census/package pipeline (foundry.utils.ANNOTATION_MODEL_NAME)
+#: so switching the base model never orphans teacher-verdict detection here.
+TEACHER_ANNOTATOR = ANNOTATION_MODEL_NAME
 
 
 def build_census_session(census_run_dir: Path, data_root: Path, review_root: Path) -> dict:
@@ -110,7 +113,10 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
     if full_mode:
         chosen_frames = {sid: frames for sid, frames in by_sequence.items()}
     else:
-        chosen_frames = {sid: {min(frames): frames[min(frames)]} for sid in by_sequence}
+        # Bind each sequence's own frame dict (f) in the comprehension; a bare
+        # ``frames`` here would resolve to the outer loop's leftover variable
+        # and bind every sequence to the last sequence's frames.
+        chosen_frames = {sid: {min(f): f[min(f)]} for sid, f in by_sequence.items()}
 
     items: list[dict] = []
     stats = {"seeded": 0, "frames": 0, "already_seeded": 0}

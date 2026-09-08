@@ -58,13 +58,11 @@ python scripts/review_server.py --manifest my_queries.json --data-root /path/to/
 
 ## 配置
 
-管线层（census / assembly）的 API 供应商和模型参数通过  配置：
+管线层（census / assembly）的 API 供应商和模型参数通过 `configs/default/rules/api.json` 配置：
 
+修改 `api_base_url` 和 `model_name` 即可切换到其他 OpenAI 兼容的 API 供应商。
 
-
-修改  和  即可切换到其他 OpenAI 兼容的 API 供应商。
-
-提示词、桶分类规则、QC 规则分别在  和  下，修改后管线运行时自动加载。
+提示词、桶分类规则、QC 规则分别在 `configs/default/prompts/` 和 `configs/default/rules/` 下，修改后管线运行时自动加载。
 
 ## 审查器快捷键
 

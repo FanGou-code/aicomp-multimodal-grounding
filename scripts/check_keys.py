@@ -148,7 +148,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", default=str(PROJECT_ROOT / "keys" / "api_keys.txt"))
     parser.add_argument("--probe", choices=("realistic", "minimal"), default="realistic")
-    parser.add_argument("--data-root", type=str, required=True)
+    parser.add_argument(
+        "--data-root",
+        type=str,
+        default="",
+        help="dataset root for the realistic probe (unused by --probe minimal)",
+    )
     parser.add_argument("--pause", type=float, default=20.0, help="seconds before retesting non-OK keys")
     parser.add_argument("--timeout", type=float, default=120.0)
     args = parser.parse_args()

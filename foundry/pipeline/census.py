@@ -34,8 +34,6 @@ import hashlib
 import json
 import re
 
-from PIL import Image, ImageDraw
-
 from foundry.bbox import compute_iou
 
 def _load_prompt(name: str, default: str) -> str:

@@ -356,17 +356,18 @@ def load_api_keys(path: str | Path | None = None) -> list[str]:
     return []
 
 
-def comment_out_key(path: Path, index: int, reason: str) -> bool:
-    
+def comment_out_key(path: Path, key: str, reason: str) -> bool:
+    """Comment out the key file line whose active content equals ``key``.
+
+    Matches by exact key text rather than line position: retiring several keys
+    in one run shortens the active list, and a positional index would then
+    drift onto a neighbouring live key (or miss entirely).
+    """
     lines = path.read_text(encoding="utf-8").splitlines()
-    seen = -1
     target: int | None = None
     for line_no, raw in enumerate(lines):
         body = raw.split("#", 1)[0].strip()
-        if not body:
-            continue
-        seen += 1
-        if seen == index:
+        if body == key:
             target = line_no
             break
     if target is None:
@@ -394,7 +395,7 @@ class APIKeyPool:
         keys: list[str],
         *,
         notify=None,
-        persist_retire: Callable[[int, str], None] | None = None,
+        persist_retire: Callable[[str, str], None] | None = None,
     ) -> None:
         cleaned: list[str] = []
         seen: set[str] = set()
@@ -480,7 +481,7 @@ class APIKeyPool:
                 )
             if self._persist_retire is not None:
                 try:
-                    self._persist_retire(index, reason)
+                    self._persist_retire(self._keys[index], reason)
                 except OSError as exc:
                     self._notify(f"[key-pool] persisting key#{index + 1} retirement failed: {exc}")
 
@@ -499,7 +500,7 @@ class APIKeyPool:
             )
             if self._persist_retire is not None:
                 try:
-                    self._persist_retire(index, f"sustained HTTP 429 x{strikes}")
+                    self._persist_retire(self._keys[index], f"sustained HTTP 429 x{strikes}")
                 except OSError as exc:
                     self._notify(f"[key-pool] persisting key#{index + 1} retirement failed: {exc}")
             return True
