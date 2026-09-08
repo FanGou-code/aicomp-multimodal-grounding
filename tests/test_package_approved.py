@@ -144,7 +144,7 @@ class PackageApprovedTests(unittest.TestCase):
                     "sequence_id": "001",
                     "object_index": 1,
                     "bbox": [0.1, 0.2, 0.3, 0.4],
-                    "query": "The person on the left side of the image",  # contains 'image'
+                    "query": "The target on the left side",  # contains banned annotation term 'target'
                 }
             ],
         }
