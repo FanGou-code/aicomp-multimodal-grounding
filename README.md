@@ -14,8 +14,8 @@ IoU ≥ 0.5）。
 - Python 3.12；依赖唯一声明源 = 根 `pyproject.toml`
 
 ```bash
-pip install -e ".[dev]"      # 本地开发 / CI
-pip install -e .             # GPU 平台：torch 用范围，平台已有版本自动跳过
+pip install -e .             # GPU 算力平台：纯净核心模型与计算依赖（torch 用范围，平台已有版本自动跳过）
+pip install -e ".[dev]"      # 本地开发机：完整工具链（代码检查 + Modal 调度 + ModelScope 数据管理）
 pip install -e ".[kernels]"  # 仅混合线性注意力架构模型按需
 ```
 

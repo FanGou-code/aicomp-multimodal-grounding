@@ -13,7 +13,7 @@
 
 ## 常用命令
 
-- 本地全量测试：`python -m unittest discover -s tests`（约 1s；GPU 相关项自动 skip）
+- 本地全量测试：`python -m unittest discover -s tests`（约 1s；纯 CPU 逻辑与契约测试，0 skip）
 - 语法检查：`python -m compileall aicomp_grounding scripts offline cloud`
 - GPU 验证：魔搭只跑冒烟，不跑 unittest——训练 smoke 与推理 val 切片命令见 `docs/sop.md`
 - 环境安装：依赖唯一声明源 = 根 `pyproject.toml`（`dependencies` + extras）；

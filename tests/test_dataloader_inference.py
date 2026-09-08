@@ -7,12 +7,6 @@ from PIL import Image
 from aicomp_grounding.models.base import ModelInput, Prediction
 from offline.infer import _run_dataloader_inference_loop
 
-try:
-    import torch  # noqa: F401
-
-    _HAS_TORCH = True
-except ImportError:
-    _HAS_TORCH = False
 
 
 class _FakePreparedAdapter:
@@ -68,7 +62,6 @@ def _make_items(root: Path, count: int) -> list[dict]:
     ]
 
 
-@unittest.skipIf(not _HAS_TORCH, "torch not installed in this environment")
 class DataLoaderInferenceLoopTests(unittest.TestCase):
     def _run(self, adapter, items, data_dir, **kwargs):
         return _run_dataloader_inference_loop(
