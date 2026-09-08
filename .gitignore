@@ -39,5 +39,4 @@ build/
 .DS_Store
 Thumbs.db
 
-# Local exclusions
-data/indexes/excluded.json
+

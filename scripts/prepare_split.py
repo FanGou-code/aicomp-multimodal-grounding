@@ -113,6 +113,7 @@ def _normalize_bbox(x: int, y: int, w: int, h: int, img_w: int, img_h: int) -> l
 
 import struct
 
+
 def _png_size(p: Path) -> tuple[int, int]:
     with p.open("rb") as fh:
         sig = fh.read(8)
@@ -127,6 +128,50 @@ def _png_size(p: Path) -> tuple[int, int]:
         return w, h
 
 
+def _collect_test_hashes(
+    *,
+    test_hashes_path: Path | None = None,
+    test_images_dir: Path | None = None,
+    raw_root: Path | None = None,
+) -> dict[str, list[str]]:
+    """Return {sha256 -> [test_image_stems]} mapping."""
+    if test_hashes_path and test_hashes_path.is_file():
+        raw_data = json.loads(test_hashes_path.read_text(encoding="utf-8"))
+        if isinstance(raw_data, dict):
+            first_val = next(iter(raw_data.values()), None)
+            if isinstance(first_val, list):
+                return {k: [str(s) for s in v] for k, v in raw_data.items()}
+            elif isinstance(first_val, str) and len(first_val) == 64:
+                mapping: dict[str, list[str]] = {}
+                for stem, h in raw_data.items():
+                    mapping.setdefault(h, []).append(stem)
+                return mapping
+            elif isinstance(next(iter(raw_data.keys()), ""), str) and len(next(iter(raw_data.keys()), "")) == 64:
+                return {k: [str(v)] if not isinstance(v, list) else [str(x) for x in v] for k, v in raw_data.items()}
+        elif isinstance(raw_data, list):
+            return {str(h): [] for h in raw_data}
+
+    # Auto-detect Test images directory
+    candidates: list[Path] = []
+    if test_images_dir:
+        candidates.append(test_images_dir)
+    if raw_root:
+        candidates.extend([
+            raw_root / "Test" / "Images" / "visible",
+            raw_root / "Test" / "visible",
+            raw_root / "Test" / "color",
+        ])
+
+    for cdir in candidates:
+        if cdir.is_dir():
+            mapping = {}
+            for p in sorted(cdir.iterdir()):
+                if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg"}:
+                    mapping.setdefault(_hash_file(p), []).append(p.stem)
+            if mapping:
+                return mapping
+    return {}
+
 
 def build_indexes(
     raw_root: Path,
@@ -134,6 +179,7 @@ def build_indexes(
     out_dir: Path,
     dry_run: bool = False,
     test_hashes_path: Path | None = None,
+    test_images_dir: Path | None = None,
     seed: int = 42,
     train_ratio: float = 0.8,
 ) -> dict:
@@ -148,12 +194,14 @@ def build_indexes(
     if not raw_train.is_dir():
         raise FileNotFoundError(f"Train directory not found under {raw_root}")
 
-    # --- Stage 1: hash dedup against test images (pre-computed hashes) ---
-    test_hashes: set[str] = set()
-    if test_hashes_path and test_hashes_path.is_file():
-        test_hashes = set(json.loads(test_hashes_path.read_text(encoding="utf-8")).values())
+    # --- Stage 1: hash dedup against test images ---
+    test_hashes = _collect_test_hashes(
+        test_hashes_path=test_hashes_path,
+        test_images_dir=test_images_dir,
+        raw_root=raw_root,
+    )
 
-    excluded: list[dict] = []
+    excluded_records: dict[str, list[dict]] = {"train": [], "val": []}
     all_sequences = sorted(
         p.name for p in raw_train.iterdir() if p.is_dir() and p.name.isdigit()
     )
@@ -179,17 +227,6 @@ def build_indexes(
 
             visible_path = seq_root / "color" / filename
 
-            # Hash dedup
-            if test_hashes and visible_path.is_file():
-                if _hash_file(visible_path) in test_hashes:
-                    excluded.append({
-                        "sample_id": sample_id,
-                        "visible": f"Train/{seq}/color/{filename}",
-                        "reason": "hash-collision-with-test",
-                    })
-                    stats["excluded_hash"] += 1
-                    continue
-
             # Validate image existence
             infrared_path = seq_root / "infrared" / filename
             depth_path = seq_root / "depth" / filename
@@ -206,6 +243,19 @@ def build_indexes(
             if bbox is None:
                 stats["excluded_invalid_bbox"] += 1
                 continue
+
+            # Hash dedup against test images
+            if test_hashes and visible_path.is_file():
+                vis_hash = _hash_file(visible_path)
+                if vis_hash in test_hashes:
+                    split_key = "train" if seq in train_set else "val"
+                    excluded_records[split_key].append({
+                        "sample_id": sample_id,
+                        "visible": f"Train/{seq}/color/{filename}",
+                        "test_images": sorted(set(test_hashes[vis_hash])),
+                    })
+                    stats["excluded_hash"] += 1
+                    continue
 
             target[sample_id] = {
                 "visible": f"Train/{seq}/color/{filename}",
@@ -233,7 +283,6 @@ def build_indexes(
 
         manifest = {
             "status": "complete",
-            "preparation_protocol_version": 2,
             "split_method": "frozen-sequence-assignment",
             "train_sequences": sorted(train_set),
             "val_sequences": sorted(val_set),
@@ -246,6 +295,7 @@ def build_indexes(
                 ).hexdigest(),
             },
             "index_sample_counts": {"train": stats["train"], "val": stats["val"]},
+            "preparation_protocol_version": 2,
         }
         manifest_path = out_dir / "split_manifest.json"
         tmp = manifest_path.with_name(manifest_path.name + ".tmp")
@@ -254,15 +304,30 @@ def build_indexes(
         )
         tmp.replace(manifest_path)
 
-        if excluded:
-            excl_path = out_dir / "excluded.json"
-            tmp = excl_path.with_name(excl_path.name + ".tmp")
+        total_excluded = len(excluded_records["train"]) + len(excluded_records["val"])
+        if total_excluded > 0:
+            audit_data = {
+                "description": "Samples excluded because their visible image matches a Test image (SHA-256).",
+                "test_images_hashed": len(test_hashes),
+                "train_excluded": len(excluded_records["train"]),
+                "val_excluded": len(excluded_records["val"]),
+                "records": excluded_records,
+            }
+            overlap_path = out_dir / "excluded_overlap.json"
+            tmp = overlap_path.with_name(overlap_path.name + ".tmp")
             tmp.write_text(
-                json.dumps({"description": "Samples excluded via hash dedup against test images",
-                            "excluded": excluded}, ensure_ascii=False, indent=1),
+                json.dumps(audit_data, ensure_ascii=False, indent=1),
                 encoding="utf-8",
             )
-            tmp.replace(excl_path)
+            tmp.replace(overlap_path)
+
+            excl_path = out_dir / "excluded.json"
+            tmp_excl = excl_path.with_name(excl_path.name + ".tmp")
+            tmp_excl.write_text(
+                json.dumps(audit_data, ensure_ascii=False, indent=1),
+                encoding="utf-8",
+            )
+            tmp_excl.replace(excl_path)
 
     return stats
 
@@ -277,6 +342,8 @@ def main() -> None:
                         help="fraction of sequences for train (default: 0.8)")
     parser.add_argument("--test-hashes", type=Path, default=None,
                         help="path to pre-computed test image hashes JSON")
+    parser.add_argument("--test-images-dir", type=Path, default=None,
+                        help="path to directory of test visible images")
     parser.add_argument("--out-dir", type=Path, required=True,
                         help="output directory for index files")
     parser.add_argument("--dry-run", action="store_true",
@@ -286,6 +353,7 @@ def main() -> None:
     stats = build_indexes(
         raw_root=args.raw_root,
         test_hashes_path=args.test_hashes,
+        test_images_dir=args.test_images_dir,
         out_dir=args.out_dir,
         dry_run=args.dry_run,
         seed=args.seed,
