@@ -13,7 +13,7 @@ data/
 ```
 
 **原则**：Train/Test 是不可变本体；`Processed/` 是确定性构建产物。
-派生索引与审计日志自 2026-09-05 起随标注生产线移居外部私有仓
+派生索引与审计日志自 2026-09-05 起随标注生产线移居伴生仓
 `query-foundry/data/`（见下），本仓不再存放。
 
 ## 派生产物清单（存放于 query-foundry/data/）
@@ -22,16 +22,16 @@ data/
 | --- | --- | --- |
 | `indexes/train.json` / `indexes/val.json` | `query-foundry/scripts/prepare_split.py` | 标注生产线（标注源索引；训练不读） |
 | `indexes/split_manifest.json` | `query-foundry/scripts/prepare_split.py` | 标注生产线（预检校验锚） |
-| `indexes/excluded_overlap.json` | `query-foundry/scripts/prepare_split.py` | 查重留痕（防泄漏审计凭据） |
+| `indexes/excluded_overlap.json` | `query-foundry/scripts/prepare_split.py` | 查重留痕（防测试集泄漏） |
 
-`query-foundry/scripts/prepare_split.py` 整合了 BBox 异常清洗与测试集 SHA-256 查重，是索引与留痕的唯一生成器。产物由 `query-foundry/data/indexes/` 进行 Git 追踪。
+`query-foundry/scripts/prepare_split.py` 整合了 BBox 异常清洗与测试集 SHA-256 查重，是索引与留痕的唯一生成器。产物位于 `query-foundry/data/indexes/`，纳入 Git 追踪。
 
 ## 迁移说明（2026-09-05 至 2026-09-08）
 
 - 标注生产线分离后，`indexes/` 与 `excluded_overlap.json` 完整收口在 query-foundry
   （训练只消费 `approved.json`，其数据与指纹自包含）；
   图像不搬运，foundry 经 `data/Train`、`data/Processed` 读本仓。
-- 2026-09-08 闭环：副仓升级 `prepare_split.py` 支持 Test 图像自动探测并生成
+- 2026-09-08：副仓升级 `prepare_split.py` 支持 Test 图像自动探测并生成
   `data/indexes/excluded_overlap.json`，清理主仓未追踪临时目录 `data/audits_from_foundry`。
 - golden `approved.json` 的 `source_fingerprint` / `preparation_fingerprint`
   是内容哈希，文件迁移不影响校验（preflight 复算 run-id 逐字节一致）。

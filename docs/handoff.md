@@ -34,17 +34,28 @@
 训练/推理用 `offline/`（魔搭 DSW）或 `cloud/`（Modal，H100）；`modal` 命令由
 用户本人执行。checkpoint/标注/提交包留 `/mnt/workspace`（持久盘）。
 
-## 当前状态（最后更新 2026-09-08，副仓查重与划分全链路闭环 + 打包工具落地）
+## 当前状态（最后更新 2026-09-08，查重留痕入库 + 打包工具落地 + 副仓废除 AI 预审层）
 
-- **数据预处理与打包交付闭环（2026-09-08）**：副仓 `query-foundry` 完成打包发布工具 `scripts/package_approved.py` 与零依赖合同校验模块 `foundry/pipeline/contract.py`（协议版本 12），支持单/双 split 自动计算 4 个 SHA-256 指纹；副仓 `scripts/prepare_split.py` 增强测试集自动探测与哈希查重留痕，实测 4000 帧（400 序列）= 97 异常 BBox + 309 测试集碰撞（246 train / 63 val）+ 3594 帧切分（train 2875 / val 719），产物与 `data/indexes/` 逐字节一致；留痕 `excluded_overlap.json` 固化入副仓 Git 追踪，主仓临时目录 `data/audits_from_foundry` 清理完毕。
-- **v5 数据侧现状（2026-09-07 收官）**：语料定版 `asm-train-r5`（2,730）+
-  `asm-val-r5`（736），head-echo 裁决完整重放。**AI 预审层全量落地**：每条
-  query 全景+红框审计（修正词表锁死序数/方向/颜色、改后自查消歧），全量
-  pass 1,927 / fixed 1,223 / human 31（60.6%/38.4%/1.0%，零失败）；fixed 句
-  在审查器以 overlay 显示（下游名单 `outputs/ai_review/`，上游 r5 不动）。
-  人审进度：train 1,041/2,730（署名 fang0，整帧核验 329），val 未开始。
-  待办：人审收尾 → apply 烘焙 r6（fixed 重过唯一性门+桶分类器+文本QC）→
-  R6 打包回接本仓合同校验 → α32 重训。模型侧执行序不变：底座换代为主杠杆
+- **数据预处理与打包交付（2026-09-08）**：副仓 `query-foundry` 新增打包工具
+  `scripts/package_approved.py` 与零依赖合同校验模块 `foundry/pipeline/contract.py`
+  （协议版本 12），支持单/双 split 自动计算 4 个 SHA-256 指纹；副仓
+  `scripts/prepare_split.py` 增强测试集自动探测与哈希查重留痕，实测 4000 帧
+  （400 序列）= 97 异常 BBox + 309 测试集碰撞（246 train / 63 val）+ 3594 帧切分
+  （train 2875 / val 719），产物与 `data/indexes/` 逐字节一致；留痕
+  `excluded_overlap.json` 在副仓入库（Git 追踪），主仓临时目录
+  `data/audits_from_foundry` 已删除。
+- **副仓工具化定案（2026-09-08）**：AI 预审层废除（管理员定案零收益；
+  `run_ai_review.py`、`outputs/ai_review/` 与审查器 AI overlay 全删，apply 回归
+  纯人审合并）；foundry 分层 `review/`（工具层）+ `pipeline/`（管线层），配置
+  外置 `configs/default/`，管线 census → assembly → review → apply；MIT LICENSE
+  + pyproject 开源合规；审查清单分片 part1（fang0 已审 1,038）/ part2（846）/
+  part3（846 + val 736）；符号链接已删，数据根显式传参。
+- **v5 数据侧现状（2026-09-08 更新）**：语料定版 `asm-train-r5`（2,730）+
+  `asm-val-r5`（736），head-echo 裁决完整重放。AI 预审层已废除（见上条），
+  人审为唯一裁决层。人审进度：part1（fang0）已审 1,038 条，part2（846）/
+  part3（846 + val 736）待队友续审。待办：人审收尾 → apply 烘焙 r6
+  （纯人审合并，重过唯一性门+桶分类器+文本QC）→ `package_approved.py` 导出
+  回接本仓合同校验 → α32 重训。模型侧执行序不变：底座换代为主杠杆
   （曝光≠能力，+0.03pp 教训），v5 为配套。详见 query-foundry handoff。
 
 - **v5 红线更新（2026-09-06 管理员定案，取代下方 09-05 条目中的旧红线）**：
@@ -172,9 +183,10 @@
   唯一索引生成器，再生成时输出指向 foundry）；
   golden `annot_dc189f029d962b27`（train 2875 / val 719）冻结不动；外部私有
   分析仓（本机路径，管理员掌握）承载 test 侧灰色分析，按其防污染规范运作，
-  结论与数字不入本仓。v5 query 生产线在本机伴生仓 `query-foundry`
-  （私有无 remote；标注生成管线所在仓，读本仓 `data/` 公开件取图，
-  永不读外部分析仓；产物手动放回本仓）。
+  结论与数字不入本仓。v5 query 生产线在伴生仓 `query-foundry`
+  （GitHub `FanGou-code/query-foundry`，定位数据预处理单元 + 通用标注工具；
+  读本仓 `data/` 取图，永不读外部分析仓；产物经 `package_approved.py`
+  `--export-to-main` 导出回本仓）。
 - **cloud/**：Modal 双壳就绪（H100 / 8 核 / 32GiB，Volume `aicomp` 挂
   `/mnt/workspace`）；`modal volume put` 上传 Test 子集仍为首跑前置（管理员
   操作）；第五席 Youtu-VL-4B 走专属 Image。
@@ -197,22 +209,23 @@
 
 ### 验证基线
 
-213 项单测通过（4 skip，本轮复核，零代码改动）；compileall / ruff / mock
-端到端冒烟沿袭 2026-09-01 轮基线。
+171 项单测通过（4 skip，2026-09-08 复核；213→171 差值 = 标注管线迁往
+query-foundry 迁走的 42 项）；compileall / ruff / mock 端到端冒烟沿袭
+2026-09-01 轮基线。
 
 ## 交接日志（追加式，新的写最上面）
 
-### 2026-09-08（副仓查重与划分全链路闭环 + 打包工具落地）
+### 2026-09-08（查重留痕入库 + 打包工具落地）
 
-- **动因**：规范主副仓职责边界（主仓纯训练评估，副仓全权负责数据预处理、查重切分与打包），消除主仓未追踪临时文件，闭环副仓到主仓的交付链。
+- **动因**：规范主副仓职责边界（主仓纯训练评估，副仓负责数据预处理、查重切分与打包），删除主仓未追踪临时目录，打通副仓到主仓的交付链。
 - **改动**：
   1. 副仓新增 `scripts/package_approved.py` 与 `foundry/pipeline/contract.py`，实现双 split 联合打包、跨 split 一致性校验与 4 个 SHA-256 确定性指纹计算（协议版本 12）。
-  2. 副仓升级 `scripts/prepare_split.py`，支持直接探测 `raw_root/Test/Images/visible` 现场计算哈希，标准化生成包含碰撞测试图回溯的 `data/indexes/excluded_overlap.json`。
-  3. 副仓 `.gitignore` 移除排除日志规则，将 309 帧查重留痕正式入库追踪，补齐 `tests/test_prepare_split.py`（单测增至 135 项）。
+  2. 副仓升级 `scripts/prepare_split.py`，支持直接探测 `raw_root/Test/Images/visible` 现场计算哈希，生成包含碰撞测试图回溯的 `data/indexes/excluded_overlap.json`。
+  3. 副仓 `.gitignore` 移除排除日志规则，将 309 帧查重留痕入库追踪，补齐 `tests/test_prepare_split.py`（单测增至 135 项）。
   4. 主仓删除未追踪临时目录 `data/audits_from_foundry`。
 - **验证结果**：
   1. 真实数据重算：400 序列 4000 帧 = 97 异常 BBox + 309 测试集碰撞（246 train / 63 val）+ 3594 帧切分（train 2875 / val 719）。
-  2. 生成产物与既有 `train.json`、`val.json`、`split_manifest.json` 逐字节一致（bit-identical）；碰撞记录与历史审计 100% 逐字吻合。
+  2. 生成产物与既有 `train.json`、`val.json`、`split_manifest.json` 逐字节一致；碰撞记录与历史审计逐字吻合。
   3. 全量单测：`query-foundry` 135 项全绿；`aicomp-multimodal-grounding` 171 项全绿（4 skip）。
 - **下一步**：推进人审收尾 → apply 烘焙 r6 → 使用 `package_approved.py` 导出交付主仓。
 
@@ -227,7 +240,6 @@
 - 下一步：人审收尾（train 余量 + val 736）→ apply 烘焙 r6 → R6 打包 →
   本仓合同校验 → α32 重训（执行序沿袭：Qwen3.5-9B 主力 + WBF 4+1）。
 
-### 2026-09-07（query-foundry 新增 AI 预审 pass：人审前的审计与受限纠正层）
 ### 2026-09-07（query-foundry 新增 AI 预审 pass：人审前的审计与受限纠正层）
 
 - 本仓零代码改动，仅本文件同步状态。
