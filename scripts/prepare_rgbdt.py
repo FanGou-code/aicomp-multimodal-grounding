@@ -1,4 +1,11 @@
-"""Prepare an RGBDT dataset for visual grounding."""
+"""Prepare an RGBDT dataset for visual grounding.
+
+Image validation and Depth-JET generation. Train/Val/Test index generation
+(``data/indexes/``) has moved to the companion repository ``query-foundry``
+(``scripts/prepare_split.py``); this script's index output is legacy and does
+no test-set overlap filtering, and training never reads it (it consumes
+``approved.json`` only).
+"""
 
 from __future__ import annotations
 
@@ -727,6 +734,12 @@ def main() -> None:
         parser.error("--train-ratio must be between 0 and 1")
     if not 0 <= args.min_depth_mm < args.max_depth_mm <= 65535:
         parser.error("depth limits must satisfy 0 <= min < max <= 65535")
+    print(
+        "Warning: data/indexes/ is now owned by query-foundry "
+        "(scripts/prepare_split.py); this script does no test-set overlap "
+        "filtering and its indexes are not consumed by training.",
+        flush=True,
+    )
     manifest = prepare_dataset(args)
     print(manifest["stats"])
     if args.dry_run:

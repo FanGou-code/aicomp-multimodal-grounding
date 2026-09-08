@@ -49,7 +49,9 @@ separate processed index file is generated or required.
 两条铁律：
 
 1. **业务逻辑只存在于核心库**。cloud/ 与 offline/ 是平台壳，只做平台相关的事
-   （Modal 装饰器/卷挂载、本地 CLI），互相不 import。
+   （Modal 装饰器/卷挂载、本地 CLI）。二者不做双向依赖：cloud 壳复用
+   offline 抽出的 `run_cli(args)` 编排入口（`docs/handoff.md` 2026-09-01
+   「CLI 解耦」），offline 不引用 cloud。
 2. **平台的差异 = 环境安装的差异**。推理/训练本体平台无关；各平台的装法
    （镜像源、锁版本）见 `offline/README.md` 的平台矩阵，不新增目录或脚本。
 

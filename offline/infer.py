@@ -436,7 +436,11 @@ def _run_shard_worker(
         num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     except ImportError:
         num_gpus = 0
-    device = f"cuda:{shard_id % num_gpus}" if num_gpus > 1 else "cuda"
+    device = (
+        "cpu"
+        if num_gpus == 0
+        else (f"cuda:{shard_id % num_gpus}" if num_gpus > 1 else "cuda")
+    )
     checkpoint_path = (
         Path(checkpoint_dir) / f"shard_{shard_id}.checkpoint.json"
         if checkpoint_dir is not None
@@ -653,28 +657,18 @@ def run_cli(args):
         print(f"Failed Bbox Predictions : {metrics['failures']}")
         print("="*50 + "\n")
 
-    # Persist Modal-compatible artifacts: metadata.json + checkpoint.json + summary.json
-    summary = {
-        "metadata": metadata,
-        "metrics": metrics,
-        "total_predictions": len(predictions),
-        "valid_predictions": sum(
-            validate_bbox(value) is not None for value in predictions.values()
-        ),
-        "submission_ready": False,
-    }
     atomic_write_json(metadata_path, metadata)
     atomic_write_json(
         checkpoint_path,
         {"metadata": metadata, "predictions": predictions},
     )
-    atomic_write_json(run_dir / "summary.json", summary)
-    print(f"Metadata saved to: {metadata_path}")
-    print(f"Checkpoint saved to: {checkpoint_path}")
-    print(f"Summary saved to: {run_dir / 'summary.json'}")
 
-    # If this is a full test run without ground truth, package submission.zip
-    official_template_path = paths.submission_template
+    # Package submission.zip before the summary is serialized so that
+    # "submission_ready" reflects the real outcome instead of a constant False.
+    official_template_path = (
+        args.test_json if args.test_json.is_file() else paths.submission_template
+    )
+    submission_ready = False
     if (
         not has_ground_truth
         and args.limit == 0
@@ -688,6 +682,28 @@ def run_cli(args):
             output_dir=run_dir,
             allow_fallback=True,
         )
+        submission_ready = True
+    elif not has_ground_truth and args.limit == 0:
+        print(
+            f"Warning: submission template not found at {official_template_path}; "
+            "skipping submission packaging.",
+            flush=True,
+        )
+
+    summary = {
+        "metadata": metadata,
+        "metrics": metrics,
+        "total_predictions": len(predictions),
+        "valid_predictions": sum(
+            validate_bbox(value) is not None for value in predictions.values()
+        ),
+        "submission_ready": submission_ready,
+    }
+    atomic_write_json(run_dir / "summary.json", summary)
+    print(f"Metadata saved to: {metadata_path}")
+    print(f"Checkpoint saved to: {checkpoint_path}")
+    print(f"Summary saved to: {run_dir / 'summary.json'}")
+
     return summary
 
 

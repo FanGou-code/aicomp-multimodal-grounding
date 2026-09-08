@@ -17,7 +17,8 @@ def _object_without_duplicate_keys(pairs):
     return result
 
 
-def load_json(path: Path) -> dict:
+def load_json(path: Path | str) -> dict:
+    path = Path(path)
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle, object_pairs_hook=_object_without_duplicate_keys)
     if not isinstance(data, dict):

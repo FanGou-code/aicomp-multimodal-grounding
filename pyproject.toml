@@ -16,6 +16,10 @@ dependencies = [
     # 框架层：范围不 pin —— 平台已有版本（DSW A 卡 2.11 / N 卡 2.10）
     # 落在范围内即被 pip 判定已满足而跳过，不覆盖镜像自带的 torch
     "torch>=2.8,<3",
+    # torchvision 不锁版本：由 pip 按已安装的 torch 解析配对版本（硬 pin 会与
+    # torch 范围冲突）。transformers 图像预处理链路（含 GroundingDINO）需要它；
+    # DSW 镜像自带，Modal 容器必须显式装。
+    "torchvision",
     # 模型框架层：== 紧 pin，跨平台行为一致
     "transformers==5.14.1",
     "peft==0.19.1",

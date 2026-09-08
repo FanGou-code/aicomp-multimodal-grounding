@@ -32,8 +32,13 @@ _ANNOTATION_SCAFFOLD = (
     "depth image",
     "depth map",
 )
+# NOTE: "image" is deliberately absent here. The official test dialect uses
+# "of the image" as a frame anchor (303 occurrences) and v5 targets that
+# dialect, so a blanket ban would reject legitimate queries. Real scaffolding
+# ("this image", "in the image", "annotated image", ...) is still caught by
+# _ANNOTATION_SCAFFOLD above.
 _ANNOTATION_TERM = re.compile(
-    r"\b(?:target|image|crop|annotation|annotated|bbox|coordinate|"
+    r"\b(?:target|crop|annotation|annotated|bbox|coordinate|"
     r"infrared|thermal|depth|rgb)\b",
     flags=re.IGNORECASE,
 )

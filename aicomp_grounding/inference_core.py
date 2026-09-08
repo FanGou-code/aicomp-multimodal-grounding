@@ -81,22 +81,21 @@ def evaluate_predictions(
 ) -> dict | None:
     """Compute ACC@0.5 / mean-IoU metrics, or None when items carry no GT.
 
-    Mirrors the historical offline evaluation semantics: every prediction key
-    counts toward the denominator; unparsable (None/invalid) predictions count
-    as failures; mean IoU only accumulates for items with a valid GT bbox.
+    Driven by the dataset: every evaluated item counts toward the denominator,
+    so a partial prediction set is scored as failures instead of silently
+    shrinking the denominator. Unparsable (None/invalid) predictions count as
+    failures; mean IoU only accumulates for items with a valid GT bbox.
     """
     if not items or "bbox" not in items[0]:
         return None
-    item_map = {item["key"]: item for item in items}
 
     hits = 0
     total_iou = 0.0
     failures = 0
-    total = len(predictions)
-    for key, pred_bbox in predictions.items():
-        gt_item = item_map.get(key, {})
-        gt_bbox = validate_bbox(gt_item.get("bbox"))
-        valid_pred = validate_bbox(pred_bbox)
+    total = len(items)
+    for item in items:
+        gt_bbox = validate_bbox(item.get("bbox"))
+        valid_pred = validate_bbox(predictions.get(item["key"]))
 
         if valid_pred is None:
             failures += 1

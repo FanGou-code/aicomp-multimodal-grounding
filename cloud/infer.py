@@ -61,6 +61,9 @@ INFERENCE_DEFAULTS: dict = {
     "batch_save": 50,
     "num_workers": 2,
     "batch_size": 4,
+    "num_shards": 1,
+    # Must equal the qwen3vl adapter default; changing it changes run identity.
+    "max_pixels": 3072 * 28 * 28,
 }
 
 
@@ -99,6 +102,8 @@ def infer(
     num_workers: int = 2,
     batch_size: int = 4,
     batch_save: int = 50,
+    num_shards: int = 1,
+    max_pixels: int = 3072 * 28 * 28,
 ):
     """modal run cloud/infer.py --model qwen3vl --lora-path /mnt/workspace/outputs/..."""
     infer_job.remote(dict(locals()))

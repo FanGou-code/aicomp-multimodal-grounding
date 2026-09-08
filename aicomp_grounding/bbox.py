@@ -90,6 +90,10 @@ def format_qwen_bbox(box: Sequence[float], *, special_tokens: bool = True) -> st
         raise ValueError(f"Invalid normalized bbox: {box!r}")
 
     x1, y1, x2, y2 = (round(value * 1000) for value in values)
+    # Keep degenerate (sub-milli) boxes at least one integer unit wide so a
+    # parsed box never collapses into an invalid empty/reversed box.
+    x2 = max(x2, x1 + 1)
+    y2 = max(y2, y1 + 1)
     body = f"({x1},{y1}),({x2},{y2})"
     if special_tokens:
         return f"<|box_start|>{body}<|box_end|>"

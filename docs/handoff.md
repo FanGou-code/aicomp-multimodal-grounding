@@ -212,10 +212,35 @@
 
 ### 验证基线
 
-174 项单测通过（4 skip，2026-09-08 复核）；compileall / ruff 全绿。213→174
-差值 = 标注管线迁往 query-foundry 迁走 42 项、本轮新增 3 项环境契约测试。
+172 项单测通过（4 skip，2026-09-08 复核）；compileall / ruff 全绿。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-08（独立审查 12 项核实与修复）
+
+- **动因**：独立 agent 审查报告 12 项，逐条核实后全部修复/收口。
+- **改动**：
+  1. SEC-01 云端推理：`cloud/infer.py` 补 `num_shards`/`max_pixels` 默认值
+     （`max_pixels=3072*28*28` 与 adapter 默认一致，不漂 run id）。
+  2. SEC-02 依赖：`pyproject.toml` 补 `torchvision`（不锁版本，随 torch 解析；
+     transformers 图像链路含 GroundingDINO 需要它，Modal 容器必须显式装）。
+  3. SEC-03 评估：`inference_core.evaluate_predictions` 改 items 驱动分母。
+  4. SEC-04 健壮性：`io.load_json` 收 `str` 路径。
+  5. SEC-05 留痕：`offline/infer.py` 打包提前到 summary 序列化前，
+     `submission_ready` 反映真实结果、模板复用 `args.test_json`、缺模板显式告警。
+  6. SEC-06 文档：`architecture.md` 铁律措辞改为 cloud 单向复用 offline `run_cli`。
+  7. SEC-07 数据遗留：删 `scripts/filter_overlap.py` + `tests/test_overlap_filter.py`；
+     `prepare_rgbdt.py` 加弃用告警（索引归 query-foundry，本脚本不做查重）。
+  8. SEC-08 边界：`format_qwen_bbox` 取整后夹逼 +1 防退化空框。
+  9. SEC-09 契约：`_ANNOTATION_TERM` 移除 `image`（官方画幅锚点 "of the image"，
+     实测 r5 语料含 289 条；脚手架仍由 `_ANNOTATION_SCAFFOLD` 拦截）。
+  10. SEC-11 CPU：多分片 `num_gpus==0` 回退 `cpu`。
+  11. SEC-12 测试：新增 `tests/test_run_cli_contract.py`（AST 静态契约，防缺参复发）。
+  12. SEC-10：保留 `inference_state` 四个函数（有测试覆盖的状态机 API，暂不接入
+      主流程；删除会砍测试覆盖）。
+- **验证**：172 项单测全绿（4 skip）+ compileall + ruff。
+- **下一步**：Modal 端到端首跑验证（cloud 已补参）；r6 回接按 SEC-09 放宽后口径走
+  （无需改 `ANNOTATION_PROTOCOL_VERSION`）。
 
 ### 2026-09-08（本轮收官：环境单源 + 文档收敛 + α32 落码 + 目录清理）
 
