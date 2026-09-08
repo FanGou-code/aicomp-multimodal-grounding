@@ -16,7 +16,8 @@
 - 本地全量测试：`python -m unittest discover -s tests`（约 1s；GPU 相关项自动 skip）
 - 语法检查：`python -m compileall aicomp_grounding scripts offline`
 - GPU 验证：魔搭只跑冒烟，不跑 unittest——训练 smoke 与推理 val 切片命令见 `docs/sop.md`
-- 环境安装：pin 单一来源 `envs/gpu.txt`（transformers==5.14.1，与 DSW 镜像一致）
+- 环境安装：依赖唯一声明源 = 根 `pyproject.toml`（`dependencies` + extras）；
+  torch 为范围（`>=2.8,<3`），四件套 `==` 紧 pin；分层见 `envs/README.md`
 - 混合线性注意力架构模型的 A 卡加速内核（FLA / causal-conv1d）：见 `envs/README.md`
 
 ## 铁律（违反 = 破坏历史 run 的可复现性）

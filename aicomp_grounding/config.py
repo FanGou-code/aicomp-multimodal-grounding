@@ -24,9 +24,11 @@ RUNTIME_PYTHON_VERSION = platform.python_version()
 INFERENCE_DEFAULT_MIN_PIXELS = 256 * 28 * 28
 INFERENCE_DEFAULT_MAX_PIXELS = 3072 * 28 * 28
 
-# Local development/validation dependencies are pinned in requirements-lock.txt.
-# MODAL_GPU_PACKAGES is the separate Modal GPU runtime package set; pins are
-# fallbacks only — current_runtime_packages() records actually-installed versions.
+# Dependency declarations live in pyproject.toml (single source). This tuple is
+# only the fallback name/version set recorded into run metadata; the four model
+# libraries are kept identical to pyproject by tests/test_env_contract.py.
+# current_runtime_packages() overwrites each entry with the actually-installed
+# version, so the pinned values below matter only when a package is absent.
 MODAL_GPU_PACKAGES = (
     "transformers==5.14.1",
     "accelerate==1.14.0",

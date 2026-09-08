@@ -13,6 +13,7 @@ import argparse
 import os
 from pathlib import Path
 import sys
+import tomllib
 
 import modal
 
@@ -20,20 +21,19 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VOLUME_ROOT = "/mnt/workspace"
 REPO_MOUNT = "/root/aicomp"
 
-# Library pins mirror envs/gpu.txt (5.14.1 matches the DSW image). torch is
-# the only platform-specific wheel (CUDA here vs ROCm on DSW) and therefore
-# intentionally floats on the latest stable major.
+
+def _project_dependencies() -> list[str]:
+    """Read the single dependency source (pyproject.toml) for the image build."""
+    with open(PROJECT_ROOT / "pyproject.toml", "rb") as file:
+        return tomllib.load(file)["project"]["dependencies"]
+
+
+# Dependencies come from pyproject.toml (single source). torch is declared as
+# a range there, so Modal installs the latest stable CUDA build from PyPI while
+# DSW keeps its ROCm build — the same file, platform-flavoured at install time.
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install(
-        "torch>=2.8,<3",
-        "torchvision",
-        "transformers==5.14.1",
-        "peft==0.19.1",
-        "accelerate==1.14.0",
-        "qwen-vl-utils==0.0.14",
-        "pillow==12.1.0",
-    )
+    .pip_install(*_project_dependencies())
     # Runtime-uploaded on every `modal run` (not baked into the image), so
     # code edits propagate without a rebuild. data/weights/outputs live on
     # the volume, never inside this upload.

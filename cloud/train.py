@@ -13,6 +13,7 @@ import argparse
 import os
 from pathlib import Path
 import sys
+import tomllib
 
 import modal
 
@@ -20,17 +21,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VOLUME_ROOT = "/mnt/workspace"
 REPO_MOUNT = "/root/aicomp"
 
+
+def _project_dependencies() -> list[str]:
+    """Read the single dependency source (pyproject.toml) for the image build."""
+    with open(PROJECT_ROOT / "pyproject.toml", "rb") as file:
+        return tomllib.load(file)["project"]["dependencies"]
+
+
+# Dependencies come from pyproject.toml (single source); torch is a range there.
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install(
-        "torch>=2.8,<3",
-        "torchvision",
-        "transformers==5.14.1",
-        "peft==0.19.1",
-        "accelerate==1.14.0",
-        "qwen-vl-utils==0.0.14",
-        "pillow==12.1.0",
-    )
+    .pip_install(*_project_dependencies())
     .add_local_dir(
         PROJECT_ROOT / "aicomp_grounding", remote_path=f"{REPO_MOUNT}/aicomp_grounding"
     )

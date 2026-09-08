@@ -1,50 +1,55 @@
-# 环境声明（单一事实源）
+# 环境声明（依赖分层与安装说明）
 
-三层分工：**镜像层**（torch + CUDA/ROCm + 驱动）归平台，永不进 pip 声明；
-**venv 层**（本目录的 pin）归仓库；**代码层**随仓库自带。
+依赖的**唯一声明源是根 `pyproject.toml`**（`dependencies` + `optional-dependencies`）。
+本目录只解释"为什么这么分层"与"按需装什么"，不再维护任何 pin 文件。
 
-- `gpu.txt` — GPU 环境（魔搭 DSW / Modal / 实验室 N 卡通用）。
-  魔搭 venv 与 Modal Image 均从此文件安装；transformers==5.14.1 与
-  DSW 镜像自带版本一致，声明与现实对齐。
-- `local.txt` — 本地 CPU 测试环境（由根 requirements-lock.txt 承担，暂不重复维护）。
+## L0~L5 分层归属
 
-安装（GPU 实例）：优先直接唤起持久盘上的 venv 并验证（10 秒）；验证失败
-（`bad interpreter` 或版本不符）才重建——完整流程见 `docs/sop.md` 第 3 节。
-包下载与 Triton JIT 编译均有持久缓存，重建成本为分钟内。
+GPU 软件栈从上到下分六层，只有 L4/L5 是仓库的；L0~L3 归平台，仓库**不装、不重装、不 pin 死版本**：
 
-验证（10 秒）：
+| 层 | 内容（AMD 侧为例） | 谁拥有 | 仓库处理 |
+|---|---|---|---|
+| L0 | 内核驱动 `amdgpu`（6.10.5） | 平台 | 碰不到；与 L1 不对齐时只能反馈平台换镜像 |
+| L1 | 用户态 ROCm runtime（7.2.3） | 平台 | 同上 |
+| L2 | 计算库 rocBLAS/hipBLAS/hipBLASLt | 平台随镜像 | 不装 |
+| L3 | torch（ROCm 版 2.11 / CUDA 版 2.10） | 平台预装 | `--system-site-packages` 透传复用，**范围声明**（`>=2.8,<3`）让 pip 判定已满足而跳过 |
+| L4 | transformers / peft / accelerate / qwen-vl-utils | **仓库** | `==` 紧 pin，跨平台一致 |
+| L5 | 代码 / 适配器 | **仓库** | 随仓库自带 |
+
+结论：`python -m venv --system-site-packages` 是唯一正确姿势——让 venv 看见并复用平台 L0~L3，仓库只声明 L4。**不要**建独立完整 venv，否则会迫使 pip 自己装 torch，拉到与平台 L1/L2 不匹配的 wheel。
+
+## 安装（三平台同一条命令）
+
+```bash
+pip install -e .            # 通用：含 torch（范围）+ 四件套 + numpy/pillow/opencv
+pip install -e ".[dev]"     # 开发/CI 再加 ruff
+pip install -e ".[kernels]" # 仅 Qwen3.5-9B(GDN) 接入时按需
+```
+
+torch 是**范围**（`>=2.8,<3`），平台已有版本落在范围内即被 pip 判定已满足、自动跳过：
+DSW A 卡 torch 2.11、DSW N 卡 2.10、Modal（空容器装最新 CUDA 版）、实验室 N 卡（装最新 CUDA 版）——同一份声明，平台口味在安装时决定。
+
+验证（10 秒，激活 venv 后）：
 
 ```bash
 python -c "import transformers, peft; print(transformers.__version__, transformers.__file__)"
-# 版本应为 5.14.1，路径落在 venv 内（未被 --ignore-installed 跳过时）
+# 应输出 5.14.1，路径落在 venv 内
 ```
 
-若编译 C++ 扩展类加速库（如 causal-conv1d），先设置：
+## 加速内核（仅混合线性注意力架构，按需）
+
+FLA + causal-conv1d 只为 **GDN 混合线性注意力**（计划接入的 Qwen3.5-9B）服务；
+现有标准注意力模型（qwen3vl / internvl35 / groundingdino / glm46v）用不上，装了也不生效。
+
+- **N 卡/CUDA 机**：`pip install -e ".[kernels]"` 一键（两者均有预编译轮）。
+- **A 卡（DSW）**：FLA 有预编译，causal-conv1d 无 HIP 预编译轮，必须源码编译：
 
 ```bash
-export PYTORCH_ROCM_ARCH=gfx942   # 只编 MI300X，砍掉多架构编译量
-export MAX_JOBS=8
-export TRITON_CACHE_DIR=/mnt/workspace/.triton_cache   # Triton JIT 缓存持久化
-```
-
-A 卡加速内核（按需，为混合线性注意力架构的模型准备；对现有
-标准注意力模型完全惰性，装上不生效也不破坏）：
-
-```bash
-pip install flash-linear-attention \
-  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-```
-
-causal-conv1d（可选）：官方只发布 CUDA 预编译轮子，HIP 版必须强制本地
-源码编译（setup.py 会先猜一个不存在的 HIP 轮子 URL 并报 404，属正常）：
-
-```bash
-export CAUSAL_CONV1D_FORCE_BUILD=TRUE PYTORCH_ROCM_ARCH=gfx942 MAX_JOBS=8
+export PYTORCH_ROCM_ARCH=gfx942 MAX_JOBS=8
+export CAUSAL_CONV1D_FORCE_BUILD=TRUE
 pip install causal-conv1d --no-build-isolation \
   -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 # 编不过可直接跳过；FLA 是主要收益来源
-python -c "import causal_conv1d; print('conv OK')"
 ```
 
-注意：每个新实例重建 venv 后需重装本节内容（包缓存持久，重装为秒级；
-causal-conv1d 例外——源码编译产物不进 pip 缓存，需重新编译）。
+注意：causal-conv1d 源码编译产物不进 pip 缓存，重建 venv 后需重编。

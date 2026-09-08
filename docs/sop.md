@@ -39,53 +39,48 @@ test -d data/Train
 test -d data/Processed/Train
 ```
 
-## 3. 激活环境（先唤起，验证失败才重建）
+## 3. 创建并激活环境
 
-依赖 pin 的单一来源是仓库 `envs/gpu.txt`（transformers==5.14.1 与 DSW
-镜像自带版本一致；torch/ROCm 归镜像管，不进 pip）。
+依赖唯一声明源是根 `pyproject.toml`（`dependencies` + extras）。torch 为范围
+（`>=2.8,<3`），平台镜像自带版本落在范围内即被 pip 判定已满足、自动跳过；
+其余四件套 `==` 紧 pin，跨平台一致。分层说明见 `envs/README.md`。
 
-**首选：直接唤起持久盘上的 venv**（同一镜像代际的实例间可直接复用）：
+**首次执行（建一次）**：
+
+```bash
+python3 -m venv --system-site-packages /mnt/workspace/aicomp_env
+source /mnt/workspace/aicomp_env/bin/activate
+cd /mnt/workspace/aicomp-multimodal-grounding
+
+pip install -e . \
+  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
+source offline/rocm_env.sh
+echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' \
+  >> /mnt/workspace/aicomp_env/bin/activate
+```
+
+之后每次执行：
 
 ```bash
 source /mnt/workspace/aicomp_env/bin/activate
 cd /mnt/workspace/aicomp-multimodal-grounding
 ```
 
-**唤起后必做验证（10 秒，这一步是判定器）**：
+验证（10 秒，激活后必做）：
 
 ```bash
-python -c "import transformers, peft; print(transformers.__version__)"
-# 应输出 5.14.1
+python -c "import transformers, peft; print(transformers.__version__, transformers.__file__)"
+# 应输出 5.14.1，路径落在 venv 内
 ```
 
-若目标模型为**混合线性注意力架构**（`qwen3_5` 类），需额外安装 A 卡加速内核
-FLA 与 causal-conv1d——完整命令见 `envs/README.md` 的「A 卡加速内核（按需）」
-一节（标准注意力模型不需要）。
+目标模型为混合线性注意力架构（`qwen3_5` 类）时，额外安装加速内核
+`pip install -e ".[kernels]"`（A 卡上 causal-conv1d 需源码编译，见
+`envs/README.md`）。
 
-**仅当验证失败时重建**。两种触发：报 `bad interpreter`（镜像更新导致底座
-python 路径变化，venv 的解释器符号链接悬空）；或版本号不是 5.14.1
-（`envs/gpu.txt` 升级后）。重建有持久缓存（`PIP_CACHE_DIR` / `TRITON_CACHE_DIR`），
-包不重新下载、Triton 内核不重新编译：
-
-```bash
-deactivate 2>/dev/null
-rm -rf /mnt/workspace/aicomp_env
-python3 -m venv --system-site-packages /mnt/workspace/aicomp_env
-source /mnt/workspace/aicomp_env/bin/activate
-
-pip install -r envs/gpu.txt \
-  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-
-echo 'source /mnt/workspace/aicomp-multimodal-grounding/offline/rocm_env.sh' \
-  >> /mnt/workspace/aicomp_env/bin/activate
-
-python -c "import transformers, peft; print(transformers.__version__)"
-# 重建后必须再次通过验证，然后才能进入后续步骤
-```
-
-venv 原理备注：`bin/python3` 是指向镜像底座解释器的符号链接，镜像更新可能
-使其悬空；已安装的库文件在持久盘上不会丢失，重建只是重新链接并从本地
-缓存解包。
+**venv 在持久盘 `/mnt/workspace` 上，同镜像代际的实例间直接复用，无需重建。**
+仅当持久盘被清空、或镜像大版本更换导致底座 python 路径变化时，按「首次执行」
+重走一遍即可（pip 与 Triton 缓存持久，重装为秒级）。
 
 ## 4. 下载模型（首次执行）
 

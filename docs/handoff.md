@@ -34,7 +34,7 @@
 训练/推理用 `offline/`（魔搭 DSW）或 `cloud/`（Modal，H100）；`modal` 命令由
 用户本人执行。checkpoint/标注/提交包留 `/mnt/workspace`（持久盘）。
 
-## 当前状态（最后更新 2026-09-08，查重留痕入库 + 打包工具落地 + 副仓废除 AI 预审层）
+## 当前状态（最后更新 2026-09-08，环境声明统一 pyproject 单源 + 打包工具落地 + 副仓废除 AI 预审层）
 
 - **数据预处理与打包交付（2026-09-08）**：副仓 `query-foundry` 新增打包工具
   `scripts/package_approved.py` 与零依赖合同校验模块 `foundry/pipeline/contract.py`
@@ -174,10 +174,15 @@
 - **A 卡性能定案（沿袭）**：80 CU 削减版 MI300X（满血 304），GEMM 实测
   200 TFLOPS = 硅片理论峰 90%，适配打满、优化层关闭；与 H100 诚实差距约
   1.5-1.7 倍。
-- **环境（沿袭）**：`envs/gpu.txt` 唯一 pin 源（transformers==5.14.1 /
-  peft==0.19.1 / accelerate==1.14.0 / qwen-vl-utils==0.0.14），DSW venv、
-  Modal Image、config.py、SOP 四方一致；新成员在 Modal 的专属 Image 属
-  `cloud/` 壳层事务，不改本仓环境合同。
+- **环境（2026-09-08 统一）**：依赖唯一声明源 = 根 `pyproject.toml`
+  （`dependencies` = numpy/pillow/opencv + torch 范围 `>=2.8,<3` +
+  transformers==5.14.1 / peft==0.19.1 / accelerate==1.14.0 /
+  qwen-vl-utils==0.0.14；extras = kernels/hub/dev）。torch 范围让 DSW 双卡
+  （A 卡 2.11 / N 卡 2.10）与 Modal/实验室 N 卡同一条 `pip install -e .`，
+  平台已有版本自动跳过。`envs/gpu.txt` 与孤儿 `requirements-lock.txt` 已删；
+  cloud 壳读 pyproject 生成依赖；`config.py MODAL_GPU_PACKAGES` 降级为 metadata
+  fallback（`tests/test_env_contract.py` 钉死一致性）。L0~L5 分层见
+  `envs/README.md`。
 - **仓库（沿袭）**：pyproject + ruff 全库 0 违规 + GitHub Actions CI；索引与
   剔除审计已迁至 query-foundry/data/（训练不读，`prepare_rgbdt.py` 仍为本仓
   唯一索引生成器，再生成时输出指向 foundry）；
@@ -209,11 +214,34 @@
 
 ### 验证基线
 
-171 项单测通过（4 skip，2026-09-08 复核；213→171 差值 = 标注管线迁往
-query-foundry 迁走的 42 项）；compileall / ruff / mock 端到端冒烟沿袭
-2026-09-01 轮基线。
+174 项单测通过（4 skip，2026-09-08 复核）；compileall / ruff 全绿。213→174
+差值 = 标注管线迁往 query-foundry 迁走 42 项、本轮新增 3 项环境契约测试。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-08（环境声明统一 pyproject 单源 + SOP 去过度设计 + offline README 通用化）
+
+- **动因**：三平台（DSW 主力 AMD / Modal / 实验室 N 卡）与"可移植实验单元"目标下，
+  agent 历史把依赖声明改散（pyproject / 孤儿 requirements-lock / envs/gpu.txt /
+  cloud 硬编码 / config.py 五处并存、pillow/torch 漂移），SOP 环境节还残留
+  bad-interpreter 幻影叙述。
+- **改动**：
+  1. `pyproject.toml` 定为唯一声明源：dependencies = numpy/pillow/opencv +
+     torch 范围 `>=2.8,<3` + 四件套 `==`；extras = kernels/hub/dev；
+     torchvision 全仓库无 import，剔除。
+  2. 删 `envs/gpu.txt`、孤儿 `requirements-lock.txt`。
+  3. `cloud/{infer,train}.py` 用 tomllib 读 pyproject 生成 pip_install，消除硬编码。
+  4. `config.py` 注释改指向 pyproject；新增 `tests/test_env_contract.py` 钉死
+     四件套 pin 一致 + torch 为范围 + 旧文件已删。
+  5. `docs/sop.md` 第 3 节回退「建一次即用」：删 bad-interpreter/每实例重建/
+     符号链接悬空叙述，补回 `source offline/rocm_env.sh`，装法改 `pip install -e .`。
+  6. `offline/README.md` 通用化：去 DSW 特化平台矩阵、去过时 data json 引用
+     （train.json/val.json 等已迁 foundry）、去 requirements-lock 装法。
+  7. `envs/README.md` 补 L0~L5 分层归属表 + 三平台同一条 `pip install -e .` +
+     kernels 按需装法；README/AGENTS 同步。
+- **验证**：174 项单测全绿（4 skip，+3 = test_env_contract）；compileall / ruff 全绿。
+- **下一步**：本地提交；Modal 端到端（Image 读 pyproject）由管理员执行 `modal`
+  验证；后续 Qwen3.5-9B 接入时按需 `pip install -e ".[kernels]"`。
 
 ### 2026-09-08（查重留痕入库 + 打包工具落地）
 

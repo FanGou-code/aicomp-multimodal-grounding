@@ -123,34 +123,26 @@ tests/                  离线单元测试与工作流契约测试
 
 - Linux bash/zsh（或兼容 Shell）
 - Python 3.12
-- NVIDIA CUDA 或 AMD ROCm GPU（训练与推理需要）
+- 依赖声明唯一源：根 `pyproject.toml`（分层说明见 `envs/README.md`）
+- NVIDIA CUDA 或 AMD ROCm GPU（训练与推理需要；本地 CPU 只跑单测）
 - Zhipu AI API Key，仅用于训练 Query 生成
 - [RGBDT500](https://github.com/xuefeng-zhu5/RGBDT500) 数据集
 
-本地开发依赖由 `requirements-lock.txt` 固定：
+本地开发 / CI：
 
 ```bash
-conda create -n qwen_vg python=3.12 -y
-conda activate qwen_vg
-python -m pip install -r requirements-lock.txt
+pip install -e ".[dev]"
 ```
 
-### GPU 训练与推理环境
-
-训练与推理可在预装 PyTorch 的 NVIDIA CUDA 或 AMD ROCm GPU 环境中执行。若平台镜像已提供
-torch / torchvision / pillow，应优先沿用平台版本，避免覆盖镜像自带依赖；再按需补齐
-VLM 适配层依赖：
+GPU 平台（DSW / Modal / 实验室 N 卡）：
 
 ```bash
-pip install -r envs/gpu.txt \
-    -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+pip install -e .            # torch 用范围，平台已有版本自动跳过
+pip install -e ".[kernels]" # 仅 GDN 架构模型（Qwen3.5-9B）接入时按需
 ```
 
-AMD MI300X 实例额外执行：
-
-```bash
-source offline/rocm_env.sh
-```
+平台配方见 `envs/README.md`；DSW 完整实操见 `docs/sop.md`。AMD 实例激活 venv
+后会自动 `source offline/rocm_env.sh`（钩子已写入 venv）。
 
 ## 训练数据来源
 
