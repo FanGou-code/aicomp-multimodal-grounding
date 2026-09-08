@@ -25,7 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # 仅混合线性注意力架构（Qwen3.5-9B 的 GDN）接入时按需装；
-# A 卡上 causal-conv1d 无 HIP 预编译轮，需按 envs/README.md 源码编译
+# A 卡上 causal-conv1d 无 HIP 预编译轮，源码编译步骤见 docs/sop.md 第 3 节
 kernels = ["flash-linear-attention", "causal-conv1d"]
 # 云端/数据集工具，仅用 Modal 或魔搭的人需要
 hub = ["modal>=0.62", "modelscope>=1.15"]

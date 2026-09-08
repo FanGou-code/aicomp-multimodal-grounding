@@ -11,7 +11,7 @@ IoU ≥ 0.5）。
 
 ## 环境安装
 
-- Python 3.12；依赖唯一声明源 = 根 `pyproject.toml`（分层见 `envs/README.md`）
+- Python 3.12；依赖唯一声明源 = 根 `pyproject.toml`
 
 ```bash
 pip install -e ".[dev]"      # 本地开发 / CI
@@ -61,7 +61,6 @@ python -m aicomp_grounding.submission --test-json ... --predictions ... --output
 | `docs/sop.md` | GPU 实操 |
 | `docs/data-contract.md` | data/ 布局与派生产物 |
 | `docs/research.md` | 赛题规则 |
-| `envs/README.md` | 依赖分层（L0~L5）与按需内核 |
 
 ## 测试
 

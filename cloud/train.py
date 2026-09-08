@@ -36,7 +36,6 @@ image = (
         PROJECT_ROOT / "aicomp_grounding", remote_path=f"{REPO_MOUNT}/aicomp_grounding"
     )
     .add_local_dir(PROJECT_ROOT / "offline", remote_path=f"{REPO_MOUNT}/offline")
-    .add_local_dir(PROJECT_ROOT / "envs", remote_path=f"{REPO_MOUNT}/envs")
     .add_local_file(PROJECT_ROOT / "pyproject.toml", remote_path=f"{REPO_MOUNT}/pyproject.toml")
 )
 

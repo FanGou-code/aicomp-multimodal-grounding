@@ -83,7 +83,7 @@
   多模态（Qwen3.5 世代起不再发独立“-VL”版，`config.json` 含 `vision_config`），
   Apache-2.0，transformers 5.14.1 原生 `qwen3_5` 模块，CountBench 97.2 /
   ERQA 55.5 / RefCOCO avg 89.7 三项超 Qwen3-VL-30B-A3B；GDN 混合线性注意力，
-  A 卡内核 FLA + causal-conv1d 已装（`envs/README.md`）。WBF 4+1：主力 +
+  A 卡内核 FLA + causal-conv1d 已装（步骤见 `docs/sop.md` 第 3 节）。WBF 4+1：主力 +
   `GLM-4.6V-Flash`（MIT，`glm46v` 原生，标准注意力）+ `Qwen3-VL-8B`
   （`v4 标注 × α32` 重训）+ `GroundingDINO`（新适配器，门禁制：冒烟 → val 719
   逐样本 → 合格才入融合且低权重）+ 第五席 `Youtu-VL-4B`（管理员于 Modal 亲跑，
@@ -180,8 +180,7 @@
   （A 卡 2.11 / N 卡 2.10）与 Modal/实验室 N 卡同一条 `pip install -e .`，
   平台已有版本自动跳过。`envs/gpu.txt` 与孤儿 `requirements-lock.txt` 已删；
   cloud 壳读 pyproject 生成依赖；`config.py MODAL_GPU_PACKAGES` 降级为 metadata
-  fallback（`tests/test_env_contract.py` 钉死一致性）。L0~L5 分层见
-  `envs/README.md`。
+  fallback（`tests/test_env_contract.py` 钉死一致性）。
 - **仓库（沿袭）**：pyproject + ruff 全库 0 违规 + GitHub Actions CI；索引与
   剔除审计生成器已迁 query-foundry（`scripts/prepare_split.py` 为唯一生成器，
   训练不读；本仓 `scripts/prepare_rgbdt.py` 仅做图像检查与 Depth-JET 伪彩）；
@@ -217,6 +216,21 @@
 差值 = 标注管线迁往 query-foundry 迁走 42 项、本轮新增 3 项环境契约测试。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-08（删 envs/ 目录：kernels 编译步骤迁入 SOP，引用全部对齐）
+
+- **动因**：`envs/gpu.txt` 删除后目录只剩一份说明文；管理员判定 L0~L5 等背景
+  信息非必要，kernels 编译步骤确定要执行、应归 SOP。
+- **改动**：
+  1. 删 `envs/` 目录（README.md）。
+  2. kernels 源码编译步骤内联进 `docs/sop.md` 第 3 节（N 卡一键 / A 卡
+     `CAUSAL_CONV1D_FORCE_BUILD` 编译 + 重建需重编说明）。
+  3. 清引用：`README.md`（环境段 + 文档导航行）、`AGENTS.md`（环境/内核行）、
+     `docs/sop.md`、`offline/README.md`、`docs/handoff.md`（模型阵容/环境 bullet）、
+     `pyproject.toml`（kernels extra 注释）改指 `docs/sop.md` 或删除。
+  4. `cloud/{infer,train}.py` 去掉 `add_local_dir(envs)` 残留。
+- **验证**：174 项单测全绿（4 skip）+ compileall + ruff。
+- **下一步**：README 顶层目录收敛为 pyproject + README + docs/ + cloud|offline|scripts。
 
 ### 2026-09-08（α32 落码 + 清残留 + 口径收敛）
 

@@ -43,7 +43,7 @@ test -d data/Processed/Train
 
 依赖唯一声明源是根 `pyproject.toml`（`dependencies` + extras）。torch 为范围
 （`>=2.8,<3`），平台镜像自带版本落在范围内即被 pip 判定已满足、自动跳过；
-其余四件套 `==` 紧 pin，跨平台一致。分层说明见 `envs/README.md`。
+其余四件套 `==` 紧 pin，跨平台一致。
 
 **首次执行（建一次）**：
 
@@ -75,8 +75,21 @@ python -c "import transformers, peft; print(transformers.__version__, transforme
 ```
 
 目标模型为混合线性注意力架构（`qwen3_5` 类）时，额外安装加速内核
-`pip install -e ".[kernels]"`（A 卡上 causal-conv1d 需源码编译，见
-`envs/README.md`）。
+`pip install -e ".[kernels]"`：
+
+- **N 卡 / CUDA 机**：一键即可（FLA 与 causal-conv1d 均有预编译轮）。
+- **A 卡（DSW）**：FLA 有预编译；causal-conv1d 无 HIP 预编译轮，需源码编译：
+
+```bash
+export PYTORCH_ROCM_ARCH=gfx942 MAX_JOBS=8
+export CAUSAL_CONV1D_FORCE_BUILD=TRUE
+pip install causal-conv1d --no-build-isolation \
+  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+# 编不过可直接跳过；FLA 是主要收益来源
+python -c "import causal_conv1d; print('conv OK')"
+```
+
+注意：causal-conv1d 源码编译产物不进 pip 缓存，重建 venv 后需重编。
 
 **venv 在持久盘 `/mnt/workspace` 上，同镜像代际的实例间直接复用，无需重建。**
 仅当持久盘被清空、或镜像大版本更换导致底座 python 路径变化时，按「首次执行」

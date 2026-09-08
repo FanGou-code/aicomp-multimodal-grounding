@@ -16,7 +16,8 @@ pip install -e .            # 通用依赖（torch 范围 + 四件套 + numpy/pi
 pip install -e ".[kernels]" # 仅 GDN 架构模型（Qwen3.5-9B）接入时按需
 ```
 
-torch 声明为范围，平台已有版本自动跳过；分层与按需内核见 `envs/README.md`。
+torch 声明为范围，平台已有版本自动跳过；A 卡加速内核（causal-conv1d 源码
+编译）步骤见 `docs/sop.md` 第 3 节。
 
 ## 通用用法（仓库根目录执行）
 
@@ -98,4 +99,4 @@ source offline/rocm_env.sh
 
 TunableOp 默认关闭：当前 torch/ROCm 栈直接开启曾有 MI300X 显存泄漏/OOM 风险。
 DSW 上宿主机 amdgpu 驱动 6.10.5 与用户态 ROCm 7.2.3 不匹配时，优先反馈平台
-提供匹配镜像（L0/L1 层属平台，仓库无法修复，见 `envs/README.md`）。
+提供匹配镜像（L0/L1 层属平台，仓库无法修复）。
