@@ -29,6 +29,7 @@ from foundry.utils import (  # noqa: E402
     atomic_write_json,
     load_json,
 )
+from foundry.review.store import AnnotationStore  # noqa: E402
 from foundry.pipeline.text_qc import apply_text_qc  # noqa: E402
 
 
@@ -104,6 +105,26 @@ def _human_confirmed_absent(absent: dict[str, str]) -> set[str]:
     return {item_id for item_id, annotator in absent.items() if annotator != pending}
 
 
+def _load_todo_items(queries_paths: list[Path]) -> set[str]:
+    """Item ids whose final journal annotator carries a ``:todo`` suffix.
+
+    Reviewers mark problematic / ambiguous items as todo — they stay on the
+    pending disambiguation list and must not ship as clean ground truth, so
+    apply_review excludes and flags them instead of carrying them into r6.
+    """
+    todo: set[str] = set()
+    seen_dirs: set[Path] = set()
+    for path in queries_paths:
+        data_dir = path.parent
+        if data_dir in seen_dirs or not (data_dir / "annotations.jsonl").is_file():
+            continue
+        seen_dirs.add(data_dir)
+        for item_id, meta in AnnotationStore(data_dir).all_meta().items():
+            if (meta.get("annotator") or "").endswith(":todo"):
+                todo.add(item_id)
+    return todo
+
+
 def _detect_collisions(records: list[dict]) -> set[str]:
     """Detect same-frame duplicate display queries after overlay."""
     by_frame: dict[str, dict[str, list[str]]] = {}
@@ -139,11 +160,12 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
     human_queries = _load_human_queries(queries_paths)
     human_boxes, absent = _review_snapshots(queries_paths)
     removed_absent = _human_confirmed_absent(absent)
+    todo_items = _load_todo_items(queries_paths)
 
     # --- Merge ---
     stats: dict[str, int] = Counter(
         total=len(records), human=0, original=0, collision=0, bucket_changed=0,
-        qc_edited=0, box_seen=0, box_changed=0, absent_removed=0,
+        qc_edited=0, box_seen=0, box_changed=0, absent_removed=0, todo_excluded=0,
     )
     flagged: list[dict] = []
 
@@ -153,6 +175,15 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
         if item_id in removed_absent:
             # Human-confirmed false positive: do not carry it into r6.
             stats["absent_removed"] += 1
+            flagged.append({"item_id": item_id, "reason": "absent",
+                            "query": rec.get("query", "")})
+            continue
+        if item_id in todo_items:
+            # Reviewer marked the item for disambiguation (ambiguous / poor
+            # wording); do not ship it as clean ground truth in r6.
+            stats["todo_excluded"] += 1
+            flagged.append({"item_id": item_id, "reason": "todo",
+                            "query": rec.get("query", "")})
             continue
 
         original_query = rec["query"]
@@ -202,6 +233,8 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
         rec["collision"] = item_id in collisions
         if rec["collision"]:
             stats["collision"] += 1
+            flagged.append({"item_id": item_id, "reason": "collision",
+                            "query": rec.get("query", "")})
 
     # --- Text QC pass ---
     # Build minimal AssemblyRecord-like objects for apply_text_qc
@@ -279,7 +312,7 @@ def main() -> None:
     print(f"  bucket_chg:  {stats['bucket_changed']:>5}")
     print(f"  qc_edited:   {stats['qc_edited']:>5}")
     print(f"  box_seen:    {stats['box_seen']:>5} | box_changed: {stats['box_changed']:>5}")
-    print(f"  absent_rm:   {stats['absent_removed']:>5}")
+    print(f"  absent_rm:   {stats['absent_removed']:>5} | todo_excluded: {stats['todo_excluded']:>5}")
     if result["flagged"]:
         print(f"\nflagged for human adjudication ({len(result['flagged'])}):")
         for f in result["flagged"][:10]:

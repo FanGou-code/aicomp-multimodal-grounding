@@ -358,6 +358,32 @@ def package_single(
         atomic_write_json(output_path, artifact)
         written_paths.append(output_path)
 
+        if qc_failures:
+            # The downstream contract pins qc.invalid_queries to 0 inside the
+            # artifact (exact-schema), so an honest count cannot live in the
+            # metadata. A lenient (knowingly imperfect) delivery records the
+            # real failures in a sidecar so the deviation stays traceable.
+            sidecar = output_path.with_name(output_path.stem + ".qc_report.json")
+            atomic_write_json(
+                sidecar,
+                {
+                    "run_id": resolved_run_id,
+                    "split": resolved_split,
+                    "lenient_qc": True,
+                    "qc_failures_count": len(qc_failures),
+                    "failures": [
+                        {"item_key": item_key, "query": query, "reason": reason}
+                        for item_key, query, reason in qc_failures
+                    ],
+                },
+            )
+            written_paths.append(sidecar)
+            print(
+                f"[WARNING] lenient delivery carries {len(qc_failures)} QC failures; "
+                f"report written to {sidecar}",
+                file=sys.stderr,
+            )
+
         # Optional direct export to main repo
         if export_to_main:
             main_dest = export_to_main / "outputs" / "annotations" / resolved_run_id / resolved_split / "approved.json"

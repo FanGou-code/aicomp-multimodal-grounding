@@ -173,6 +173,13 @@ class PackageApprovedTests(unittest.TestCase):
         )
         self.assertTrue(lenient_out.is_file())
         self.assertEqual(res["qc_failures_count"], 1)
+        # The artifact metadata must stay contract-clean (invalid_queries 0),
+        # so the honest failure count lands in a sidecar report.
+        sidecar = lenient_out.with_name(lenient_out.stem + ".qc_report.json")
+        self.assertTrue(sidecar.is_file())
+        report = json.loads(sidecar.read_text(encoding="utf-8"))
+        self.assertEqual(report["qc_failures_count"], 1)
+        self.assertTrue(report["lenient_qc"])
 
     def test_package_approved_export_to_main(self):
         main_mock = self.root / "main_repo"

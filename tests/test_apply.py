@@ -186,6 +186,28 @@ class ApplyReviewTest(unittest.TestCase):
         self.assertNotIn("001_00000001#03", [r["sample_id"] + "#" + f"{r['object_index']:02d}"
                                               for r in result["records"]])
 
+    def test_todo_items_excluded_into_flagged(self):
+        records = [{
+            "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
+            "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
+            "query": "The ambiguous deer", "family": "plain_attribute",
+            "bucket": "attribute_action", "quota_state": "quota", "facts": [],
+            "words": 3, "edited": False,
+        }]
+        asm = self._write_assembly(records)
+        self._write_queries({})
+        # Journal marks the item as reviewer:todo (pending disambiguation).
+        journal = self.tmp_path / "annotations.jsonl"
+        record = {"id": "001_00000001#01", "bbox": [0.1, 0.2, 0.3, 0.4],
+                  "annotator": "reviewer:todo", "ts": "2026-09-08 00:00:00"}
+        journal.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+        result = apply(asm, self.tmp_path / "annotations.queries.json",
+                       "asm-test-r6", self.tmp_path, force=True)
+        self.assertEqual(result["stats"]["todo_excluded"], 1)
+        self.assertEqual(len(result["records"]), 0)
+        self.assertTrue(any(f["reason"] == "todo" for f in result["flagged"]))
+
 
 if __name__ == "__main__":
     unittest.main()

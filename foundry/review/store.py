@@ -254,12 +254,19 @@ class AnnotationStore:
         # Caller holds the lock. Re-derive from the journal instead of the
         # in-memory state so entries written by other processes survive.
         state: dict[str, list[float]] = {}
+        queries: dict[str, str] = {}
+        meta: dict[str, dict] = {}
         absent: dict[str, str] = {}
         for _ in range(5):
             sig = self._journal_signature()
-            state, _queries, _meta, absent = self._read_journal_state()
+            state, queries, meta, absent = self._read_journal_state()
             if self._journal_signature() == sig:
                 break
-        _atomic_write_json(self.snapshot_path, state)
-        _atomic_write_json(self.queries_path, dict(self._queries))
-        _atomic_write_json(self.absent_path, absent)
+        # Every snapshot AND the in-memory views must agree with the journal.
+        # Writing a stale local queries dict here would let a box-only writer
+        # (set/seed/delete) flush another process's query edits out of
+        # annotations.queries.json even though the journal still holds them.
+        self._state, self._queries, self._meta, self._absent = state, queries, meta, absent
+        _atomic_write_json(self.snapshot_path, self._state)
+        _atomic_write_json(self.queries_path, self._queries)
+        _atomic_write_json(self.absent_path, self._absent)

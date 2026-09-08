@@ -39,6 +39,12 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
     """
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     run_tag = manifest.get("run_tag", manifest_path.stem)
+    manifest_name = manifest.get("name")
+    if manifest_name and manifest_name != run_tag and "-part" in manifest_name:
+        # Partitioned manifest: ``name`` carries the unique "-partNofM" suffix
+        # while ``run_tag`` stays the shared base, so parallel reviewers would
+        # otherwise collide on one store directory.
+        run_tag = manifest_name
     manifest_split = manifest.get("split", "train")
 
     raw_items = manifest.get("items", [])

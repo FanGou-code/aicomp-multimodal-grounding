@@ -216,6 +216,21 @@ class StoreReplayTest(unittest.TestCase):
             self.assertIsNone(replay2.get("f#01"))
             self.assertIsNone(replay2.meta("f#01"))
 
+    def test_stale_process_box_write_keeps_foreign_query_edits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp) / "store"
+            process_a = AnnotationStore(data_dir)
+            process_b = AnnotationStore(data_dir)  # created before A's edit
+            process_a.set_query("x#01", "the corrected description", annotator="fang0")
+            # B never replayed A's edit; a box-only write must not flush B's
+            # stale (query-less) state over annotations.queries.json.
+            process_b.set("y#01", [0.1, 0.2, 0.3, 0.4], annotator="fang0")
+            snapshot = json.loads(
+                (data_dir / "annotations.queries.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(snapshot.get("x#01"), "the corrected description")
+            self.assertEqual(process_b.get_query("x#01"), "the corrected description")
+
 
 def make_assembly_manifest(tmp: Path, split: str = "train") -> tuple[Path, Path]:
     """Minimal assembly manifest + dataset index with one frame, two records."""
