@@ -11,7 +11,7 @@
 ## 数据流
 
 ```
-prepare_split → census → assembly → text_qc → review → apply
+prepare_split → census → assembly → text_qc → review → apply → package_approved
 ```
 
 ## 模块地图
@@ -28,6 +28,7 @@ prepare_split → census → assembly → text_qc → review → apply
 | `foundry/pipeline/planner.py` | 配额分配 + 句族多样性 |
 | `foundry/pipeline/facts.py` | 帧级事实提取（ObjectFacts / Realization） |
 | `foundry/pipeline/text_qc.py` | 文本 QC（冠词引擎 + echo 表） |
+| `foundry/pipeline/contract.py` | 训练合同校验 + 指纹计算（协议版本 12，零 pip 依赖） |
 | `foundry/pipeline/buckets.py` | 冻结四桶分类器 + 配额份额 |
 | `foundry/pipeline/depth.py` | 深度事实提取 |
 | `foundry/pipeline/api.py` | Key 池 + API 客户端 |
@@ -37,6 +38,7 @@ prepare_split → census → assembly → text_qc → review → apply
 | `scripts/review_server.py` | 审查服务入口 |
 | `scripts/make_manifest.py` | 审查清单生成（--assembly / --source 双模式） |
 | `scripts/apply_review.py` | 人审结果合并烘焙 |
+| `scripts/package_approved.py` | 打包发布 approved.json（自动算 4 个 SHA-256 指纹，直通主仓） |
 | `scripts/run_census.py` | 普查入口 |
 | `scripts/assemble_queries.py` | 组装入口 |
 | `scripts/prepare_split.py` | 数据划分（--seed --train-ratio） |

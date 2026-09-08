@@ -111,22 +111,23 @@ python scripts/review_server.py --manifest my_queries.json --data-root /path/to/
 | `outputs/review/<run_tag>/annotations.queries.json` | 人工修订后的 query 文本 |
 | `outputs/review/<run_tag>/annotations.jsonl` | 追加日志（崩溃恢复） |
 | `outputs/assembly/<tag>/assembly.json` | apply 烘焙后的最终语料 |
+| `outputs/approved/<run_id>/<split>/approved.json` | 打包发布产物（自包含 4 个 SHA-256 指纹，主仓训练直接消费） |
 
 ## 环境
 
 - Python 3.12+
-- 工具层（审查器 + make_manifest + apply）：零 pip 依赖，纯标准库
+- 工具层（审查器 + make_manifest + apply + package_approved）：零 pip 依赖，纯标准库
 - 管线层（census / assembly）：可选依赖 `pip install Pillow numpy`
 
 ## 结构
 
 ```
-foundry/          — 工具层 review/ (审查器) + 管线层 pipeline/ (普查/组装/QC)
-scripts/          — CLI 入口 (review_server / make_manifest / apply_review 等)
+foundry/          — 工具层 review/ (审查器) + 管线层 pipeline/ (普查/组装/QC/合同校验)
+scripts/          — CLI 入口 (review_server / make_manifest / apply_review / package_approved 等)
 configs/default/  — 默认风格配置 (提示词 / 桶分类规则 / QC 规则)
-tests/            — 123 项离线单测
+tests/            — 129 项离线单测
 data/indexes/     — 数据集划分索引
-outputs/          — 产物 (census / assembly / review)
+outputs/          — 产物 (census / assembly / review / approved)
 ```
 
 ## 管线用法（内部）
@@ -160,6 +161,14 @@ python scripts/assemble_queries.py --census-run outputs/census/census_<id> \
 ```bash
 python scripts/apply_review.py --assembly outputs/assembly/asm-train-r5/assembly.json \
     --review-queries outputs/review/asm-train-r5/annotations.queries.json
+```
+
+### 打包发布（交付主仓训练）
+
+```bash
+python scripts/package_approved.py --assembly outputs/assembly/asm-train-r6/assembly.json \
+    --run-id annot_r6 \
+    --export-to-main ../aicomp-multimodal-grounding
 ```
 
 ### Key 测活
