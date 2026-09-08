@@ -5,7 +5,6 @@ from pathlib import Path
 
 from foundry.pipeline.contract import (
     ANNOTATION_PROTOCOL_VERSION,
-    source_fingerprint,
     validate_approved_artifact,
 )
 from foundry.utils import load_json, stable_json_hash
@@ -291,6 +290,82 @@ class PackageApprovedTests(unittest.TestCase):
         self.assertEqual(val_res["sample_count"], 1)
         self.assertTrue((out_dir / "annot_dual" / "train" / "approved.json").is_file())
         self.assertTrue((out_dir / "annot_dual" / "val" / "approved.json").is_file())
+
+    def test_package_approved_dual_split_auto_run_id(self):
+        val_index_data = {
+            "002_00000001": {
+                "visible": "Train/002/color/00000001.png",
+                "infrared": "Train/002/infrared/00000001.png",
+                "depth": "Processed/Train/002/depth_jet/00000001.png",
+                "bbox": [0.1, 0.2, 0.3, 0.4],
+                "width": 1920,
+                "height": 1080,
+            }
+        }
+        val_assembly = {
+            "metadata": {
+                "assembler_version": 1,
+                "run_tag": "asm-val-r5",
+                "census_run_id": "census_test123",
+                "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
+                "split": "val",
+            },
+            "records": [
+                {
+                    "sample_id": "002_00000001",
+                    "sequence_id": "002",
+                    "object_index": 1,
+                    "bbox": [0.1, 0.2, 0.3, 0.4],
+                    "query": "The red bicycle parked beside the lamp post",
+                }
+            ],
+        }
+        val_assembly_path = self.root / "val_assembly_auto.json"
+        val_assembly_path.write_text(json.dumps(val_assembly), encoding="utf-8")
+
+        train_assembly = {
+            "metadata": {
+                "assembler_version": 1,
+                "run_tag": "asm-train-r5",
+                "census_run_id": "census_test123",
+                "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
+                "split": "train",
+            },
+            "records": self.valid_assembly["records"],
+        }
+        train_assembly_path = self.root / "train_assembly_auto.json"
+        train_assembly_path.write_text(json.dumps(train_assembly), encoding="utf-8")
+
+        indexes_dir = self.root / "auto_indexes"
+        indexes_dir.mkdir(parents=True, exist_ok=True)
+        (indexes_dir / "train.json").write_text(json.dumps(self.index_data), encoding="utf-8")
+        (indexes_dir / "val.json").write_text(json.dumps(val_index_data), encoding="utf-8")
+        manifest_copy = dict(self.manifest_data)
+        manifest_copy["index_fingerprints"]["val"] = stable_json_hash(val_index_data)
+        (indexes_dir / "split_manifest.json").write_text(json.dumps(manifest_copy), encoding="utf-8")
+
+        out_dir = self.root / "dual_auto_out"
+        # Omitting run_id must derive common run_id "annot_asm-r5" and write both to disk under it
+        results = package(
+            assemblies=[train_assembly_path, val_assembly_path],
+            index_dir=indexes_dir,
+            split_manifest_path=indexes_dir / "split_manifest.json",
+            output_dir=out_dir,
+            run_id=None,
+        )
+        self.assertEqual(len(results), 2)
+        train_res = next(r for r in results if r["split"] == "train")
+        val_res = next(r for r in results if r["split"] == "val")
+        self.assertEqual(train_res["run_id"], "annot_asm-r5")
+        self.assertEqual(val_res["run_id"], "annot_asm-r5")
+        train_file = out_dir / "annot_asm-r5" / "train" / "approved.json"
+        val_file = out_dir / "annot_asm-r5" / "val" / "approved.json"
+        self.assertTrue(train_file.is_file())
+        self.assertTrue(val_file.is_file())
+        loaded_train = load_json(train_file)
+        loaded_val = load_json(val_file)
+        self.assertEqual(loaded_train["metadata"]["run_id"], "annot_asm-r5")
+        self.assertEqual(loaded_val["metadata"]["run_id"], "annot_asm-r5")
 
 
 if __name__ == "__main__":

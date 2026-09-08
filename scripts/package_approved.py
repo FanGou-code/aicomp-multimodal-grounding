@@ -18,6 +18,7 @@ Zero external pip dependencies required.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -410,6 +411,25 @@ def package_single(
     }
 
 
+def _derive_common_run_id(assemblies: list[Path]) -> str:
+    """Derive a single shared run ID for multi-split packaging when omitted."""
+    tags: list[str] = []
+    for p in assemblies:
+        try:
+            meta = load_json(p).get("metadata", {})
+            tag = meta.get("run_tag") or p.parent.name
+        except (OSError, ValueError, KeyError, TypeError):
+            tag = p.parent.name
+        tags.append(str(tag))
+    cleaned: list[str] = []
+    for t in tags:
+        c = re.sub(r"[-_](train|val)([-_]|$)", r"\2", t)
+        cleaned.append(c)
+    if len(set(cleaned)) == 1 and cleaned[0]:
+        return f"annot_{cleaned[0]}"
+    return f"annot_{tags[0]}"
+
+
 def package(
     assemblies: list[Path] | Path | None = None,
     index_path: Path | None = None,
@@ -438,6 +458,9 @@ def package(
 
     if len(assemblies) > 1 and (output_path is not None or split is not None):
         raise ValueError("--output and --split can only be used when packaging a single assembly file")
+
+    if len(assemblies) > 1 and run_id is None:
+        run_id = _derive_common_run_id(assemblies)
 
     results: list[dict] = []
     by_split: dict[str, dict] = {}

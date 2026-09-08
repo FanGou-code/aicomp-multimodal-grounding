@@ -14,7 +14,6 @@ Output: ``outputs/assembly/asm-{train,val}-r6/assembly.json``
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -154,8 +153,14 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
         queries_paths = [PROJECT_ROOT / "outputs" / "review" / assembly_tag / "annotations.queries.json"]
     elif isinstance(queries_path, (str, Path)):
         queries_paths = [Path(queries_path)]
+        for p in queries_paths:
+            if not p.is_file():
+                raise FileNotFoundError(f"Review queries file not found: {p}")
     else:
         queries_paths = [Path(p) for p in queries_path]
+        for p in queries_paths:
+            if not p.is_file():
+                raise FileNotFoundError(f"Review queries file not found: {p}")
 
     human_queries = _load_human_queries(queries_paths)
     human_boxes, absent = _review_snapshots(queries_paths)

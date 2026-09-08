@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.apply_review import apply, _detect_collisions, _load_human_queries
+from scripts.apply_review import apply, _detect_collisions
 
 
 class ApplyReviewTest(unittest.TestCase):
@@ -207,6 +207,19 @@ class ApplyReviewTest(unittest.TestCase):
         self.assertEqual(result["stats"]["todo_excluded"], 1)
         self.assertEqual(len(result["records"]), 0)
         self.assertTrue(any(f["reason"] == "todo" for f in result["flagged"]))
+
+    def test_missing_explicit_queries_path_raises(self):
+        records = [{
+            "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
+            "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
+            "query": "The deer", "family": "plain_attribute",
+            "bucket": "attribute_action", "quota_state": "quota", "facts": [],
+            "words": 2, "edited": False,
+        }]
+        asm = self._write_assembly(records)
+        missing = self.tmp_path / "does_not_exist.json"
+        with self.assertRaises(FileNotFoundError):
+            apply(asm, missing, "asm-test-r6", self.tmp_path, force=True)
 
 
 if __name__ == "__main__":
