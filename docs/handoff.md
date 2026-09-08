@@ -217,6 +217,29 @@ transformers 5.14.1，本地 GPU 可用，无 skip）；compileall / ruff 全绿
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-09-08（三审 7 项核实与修复）
+
+- **动因**：三审报告 7 项，逐条核实（6 属实、1 不属实）。
+- **改动**：
+  1. SEC3-01 分片续跑数据保护：从 `shard_checkpoints/` 恢复后**立即持久化到主
+     `checkpoint.json`**（并触发 commit），避免 worker 覆写同名分片文件导致二次
+     中断丢数据。
+  2. SEC3-02 云端推理提交钩子：`run_cli` 增加 `commit_hook`，推理循环每次检查点
+     落盘后调用；`cloud/infer.py` 传入 `volume.commit`，与 `cloud/train.py` 对齐。
+  3. SEC3-03 检查点含 scores：`_run_inference_loop` / `_run_dataloader_inference_loop`
+     与主检查点均写入 `scores`，resume 时同步还原 predictions + scores，
+     `scores.json` 断点续跑不再丢分。
+  4. SEC3-04 伴生仓正则对齐：`query-foundry/foundry/pipeline/contract.py` 的
+     `_ANNOTATION_TERM` 移除 `image`（与主仓 `sequence.py` 一致），r6 官方方言
+     可走标准打包；对应测试改用 `target` 触发拒绝。
+  5. SEC3-05 run_id 与宿主路径解耦：`lora_path` 保留在 metadata 记录但**移出身份
+     哈希**（`adapter_fingerprint` 已钉内容）——同一 LoRA 跨机器 run_id 一致。
+  6. SEC3-06（事实）：DINO / 多分片 / Modal 仍无执行史，真机冒烟列待办。
+  7. SEC3-07（不属实）：`offline/infer.py` 已是 `type=Path` +
+     `BooleanOptionalAction`，与 train 一致，无需改。
+- **验证**：主仓 171 项全绿 + compileall + ruff 全过；伴生仓 136 项全绿。
+- **下一步**：真机冒烟（DINO 推理 10 样本、`--num-shards 2` 轻量跑、Modal 首跑）。
+
 ### 2026-09-08（二审 10 项核实与修复）
 
 - **动因**：二审报告 10 项，逐条核实后修复（9 条属实，SEC2-01 根因判错但子问题真）。

@@ -78,7 +78,9 @@ def infer_job(args_dict: dict) -> dict:
         **{key: value for key, value in args_dict.items() if value is not None},
     }
     ns = argparse.Namespace(project_root=VOLUME_ROOT, **merged)
-    summary = run_cli(ns)
+    # commit_hook flushes each durable checkpoint to the Modal volume, matching
+    # cloud/train.py: without it a preemption discards all intermediate progress.
+    summary = run_cli(ns, commit_hook=volume.commit)
     volume.commit()
     return {
         "run_id": summary["metadata"]["run_id"],

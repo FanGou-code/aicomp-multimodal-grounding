@@ -198,7 +198,15 @@ def build_run_metadata(
         "base_run_id": base_run_id,
         "base_prediction_fingerprint": base_prediction_fingerprint,
     }
-    identity_hash = stable_json_hash(identity, length=16)
+    # lora_path is recorded for traceability but excluded from the identity
+    # hash: it is a host-specific absolute path, so including it would give the
+    # same adapter a different run_id on every machine (breaking resume and
+    # cross-environment reproducibility). adapter_fingerprint already pins the
+    # adapter's content.
+    identity_hash = stable_json_hash(
+        {key: value for key, value in identity.items() if key != "lora_path"},
+        length=16,
+    )
     if mode == "retry":
         run_id = f"infer_{identity_hash}_retry"
     else:
