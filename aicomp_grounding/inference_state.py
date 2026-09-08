@@ -240,8 +240,12 @@ def validate_checkpoint_payload(
     require_complete: bool,
     label: str = "checkpoint",
 ) -> dict[str, list[float] | None]:
-    if not isinstance(payload, dict) or set(payload) != {"metadata", "predictions"}:
-        raise ValueError(f"{label} must contain exactly metadata and predictions")
+    if not isinstance(payload, dict) or not (
+        {"metadata", "predictions"} <= set(payload) <= {"metadata", "predictions", "scores"}
+    ):
+        raise ValueError(
+            f"{label} must contain metadata and predictions (scores is optional)"
+        )
     require_exact_metadata(payload["metadata"], expected_metadata, label=label)
     predictions = payload["predictions"]
     if not isinstance(predictions, dict):

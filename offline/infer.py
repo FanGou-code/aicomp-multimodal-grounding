@@ -590,10 +590,12 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     if args.num_shards > 1:
         shard_checkpoint_dir = run_dir / "shard_checkpoints"
         shard_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        if args.resume and not predictions:
-            # The main predictions/checkpoint only land after every shard
-            # returns; an interrupted multi-shard run leaves shard_checkpoints/
-            # behind, so recover those instead of restarting from zero.
+        if args.resume:
+            # Always reconcile with shard checkpoints, not only when the main
+            # checkpoint is empty: after a resumed phase persists its state to
+            # checkpoint.json, a second interruption leaves phase-2 progress in
+            # the per-shard files. Scanning and merging them incrementally keeps
+            # that work instead of overwriting it on the next resume.
             for shard_file in sorted(shard_checkpoint_dir.glob("shard_*.checkpoint.json")):
                 payload = load_json(shard_file)
                 for key, value in (payload.get("predictions") or {}).items():
