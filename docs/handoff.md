@@ -34,7 +34,7 @@
 训练/推理用 `offline/`（魔搭 DSW）或 `cloud/`（Modal，H100）；`modal` 命令由
 用户本人执行。checkpoint/标注/提交包留 `/mnt/workspace`（持久盘）。
 
-## 当前状态（最后更新 2026-09-08，环境声明统一 pyproject 单源 + 打包工具落地 + 副仓废除 AI 预审层）
+## 当前状态（最后更新 2026-09-08，四轮独立审查收敛 + 环境/依赖单源落地，待真机冒烟与 v5 人审收尾）
 
 - **数据预处理与打包交付（2026-09-08）**：副仓 `query-foundry` 新增打包工具
   `scripts/package_approved.py` 与零依赖合同校验模块 `foundry/pipeline/contract.py`
@@ -216,6 +216,21 @@
 transformers 5.14.1，本地 GPU 可用，无 skip）；compileall / ruff 全绿。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-08（本轮收官：四轮独立审查收敛，代码与文档冻结）
+
+- 本轮（自 14110bc 起 11 个提交）汇总：依赖统一 `pyproject.toml` 单源（torch 范围 +
+  四件套 ==，本机 qwen_vg 已装全量，171 项单测 0 skip）；README 精简为实验单元门厅；
+  删除 `envs/`、孤儿锁、`filter_overlap.py`、死 `merge_shard_results`；α32 落码；
+  四轮独立审查共 32 项全部核实处置（SEC-01..12 / SEC2-01..10 / SEC3-01..07 /
+  SEC4-01..03），其中 2 项不属实（SEC2-01 根因、SEC3-07）、若干为文档/事实项，
+  其余为真实修复（含云壳缺参、评估分母、分片续跑、scores 落盘、commit_hook、
+  run-id 与宿主路径解耦、跨仓 image 正则对齐等）。
+- 验证基线：主仓 171 项单测全绿 + compileall + ruff；伴生仓 136 项全绿。
+- 待办（下一轮起点）：真机冒烟三件（DINO 10 样本 / `--num-shards 2` / Modal 首跑，
+  范围仅限 agent 新增补丁，链路与超参为已验证定论）；foundry 人审收尾 → apply 烘焙
+  r6 → 打包回接 → v4×α32 重训 / Qwen3.5-9B adapter 接入。
+- 本轮提交已推送。
 
 ### 2026-09-08（四审 3 项核实与修复）
 
