@@ -217,6 +217,22 @@
 
 ## 交接日志（追加式，新的写最上面）
 
+### 2026-09-08（本轮收官：环境单源 + 文档收敛 + α32 落码 + 目录清理）
+
+- 本轮（自 14110bc 起 6 个提交）成果汇总：依赖声明统一到 `pyproject.toml`
+  单源（torch 范围 + 四件套 ==，删 `envs/gpu.txt` / 孤儿 `requirements-lock.txt`，
+  cloud 壳读 pyproject）；README 精简为实验单元门厅（去模型/教师/预处理细节，
+  状态归 handoff）；SOP 第 3 节回退「建一次即用」去 bad-interpreter 幻影、
+  补回 `source offline/rocm_env.sh`、kernels 编译步骤内联；全仓文档核查对齐
+  （生成器口径、InternVL 状态、compileall 含 cloud、py3.12 注记）；
+  α32 落码（adapter 默认 `lora_alpha=32`、epochs 3）；删死常量 `DATA_ROOT`；
+  删 `envs/` 目录与各处残留引用。
+- 当前状态：174 项单测全绿（4 skip）+ compileall + ruff 全过；模型主力换代
+  （Qwen3.5-9B）+ v5 标注（r6 烘焙）仍在 foundry 人审待办链上。
+- 待办（下一轮起点）：foundry 人审收尾 → apply 烘焙 r6 → 打包回接本仓 →
+  v4×α32 重训 / Qwen3.5-9B adapter 接入；Modal 端到端由管理员验证。
+- 本轮提交已推送。
+
 ### 2026-09-08（删 envs/ 目录：kernels 编译步骤迁入 SOP，引用全部对齐）
 
 - **动因**：`envs/gpu.txt` 删除后目录只剩一份说明文；管理员判定 L0~L5 等背景
