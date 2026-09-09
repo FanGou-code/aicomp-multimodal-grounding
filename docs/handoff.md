@@ -34,7 +34,18 @@
 训练/推理用 `offline/`（魔搭 DSW）或 `cloud/`（Modal，H100）；`modal` 命令由
 用户本人执行。checkpoint/标注/提交包留 `/mnt/workspace`（持久盘）。
 
-## 当前状态（最后更新 2026-09-08，四轮独立审查收敛 + 环境/依赖单源落地，待真机冒烟与 v5 人审收尾）
+## 当前状态（最后更新 2026-09-09，三模型适配层接入 qwen3_5/glm46v/youtu_vl，待 GPU 冒烟与 v5 人审收尾）
+
+- **三模型适配层接入（2026-09-09）**：新增 `qwen3_5`（Qwen3.5-9B 训练型，复活
+  Qwen3.8 存档同 `Qwen3_5ForConditionalGeneration` 类，α32/3ep、`enable_thinking=False`、
+  `mm_token_type_ids` collate、ModelScope pin `460979c3`）、`glm46v`（GLM-4.6V-Flash
+  训练型，`glm4v` 类、tokenizer 加词 `begin_of_box`/`end_of_box`〔id 151361/151362〕
+  坐标 0-1000、`enable_thinking=False`、processor schema 与 qwen 同构、ModelScope pin
+  `a4ec61fc`，本地 processor dry-run 验证训练目标前缀匹配）、`youtu_vl`（Youtu-VL-4B
+  仅推理 `supports_lora=False`，`trust_remote_code`、绝对像素 `<x_N>/<y_N>` 坐标按原图
+  宽高归一化、greedy+rep1.05，HF pin `8d30a0e4`，Modal 专属不进 DSW）。注册表 +
+  `offline/train` choices + `training_core` 白名单/下载表同步；188 项单测 + compileall
+  + ruff 全绿，CPU preflight 通过；GPU 路径待真机冒烟。
 
 - **数据预处理与打包交付（2026-09-08）**：副仓 `query-foundry` 新增打包工具
   `scripts/package_approved.py` 与零依赖合同校验模块 `foundry/pipeline/contract.py`
@@ -212,10 +223,41 @@
 
 ### 验证基线
 
-172 项单测通过（2026-09-08；本机 qwen_vg 已装全量依赖 torch 2.14+cu130 /
+188 项单测通过（2026-09-09；本机 qwen_vg 已装全量依赖 torch 2.14+cu130 /
 transformers 5.14.1，本地 GPU 可用，无 skip）；compileall / ruff 全绿。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-09（三模型适配层接入：qwen3_5 / glm46v / youtu_vl）
+
+- **动因**：按已定案阵容接入下一阶段三个模型适配层，为 WBF 成员扩容与底座
+  换代铺路；复用现役训练核心，超参与推理参数对齐已验证的 Qwen3-VL 设置。
+- **改动**：
+  1. `qwen3_5`：复活 git 存档 `84ce34f` 的 Qwen3.8-27B 适配器（同
+     `Qwen3_5ForConditionalGeneration` 类、同 Qwen-VL 协议），改 `MODEL_NAME`/
+     `MODEL_REVISION`（ModelScope `460979c3`）、α48→32，保留 `enable_thinking=False`
+     与 `mm_token_type_ids` collate 修复。`offline/train`+`offline/infer` 的 max_pixels
+     元组纳入 `qwen3_5`。
+  2. `glm46v`：新写 GLM-4.6V-Flash 训练型适配器。`Glm4vForConditionalGeneration`
+     + `enable_thinking=False`（chat template 实证支持）；box 用 tokenizer 加词
+     `begin_of_box`/`end_of_box`（id 151361/151362）坐标 0-1000，自有 prompt
+     协议与容错解析器（多 box 判歧义拒绝）；processor 两步路径输出 schema
+     （`mm_token_type_ids`/`image_grid_thw`/`pixel_values`）与 qwen 同构，collate
+     复用；ModelScope pin `a4ec61fc`。本地下载 processor（非权重）dry-run 验证
+     三图模板渲染与训练目标前缀匹配；forward 不吃 `token_type_ids` 故不传。
+  3. `youtu_vl`：新写 Youtu-VL-4B 仅推理适配器（`supports_lora=False`）。
+     `AutoModelForCausalLM`+`trust_remote_code`；解析复用官方 demo 正则
+     `<box><x_N><y_N><x_N><y_N></box>` 绝对像素坐标按原图宽高归一化，多 box 取
+     最大；greedy + `repetition_penalty=1.05`；HF pin `8d30a0e4`。需
+     `transformers<=4.57.1`，Modal 专属环境运行，主仓 5.14.1 不受影响。
+  4. 注册表 + `offline/train` choices + `training_core`（白名单/adapter 派发/
+     下载子路径表）同步；`docs/sop.md` 第 4/5/6 节按既有格式补三模型下载、
+     训练、推理指令（youtu 注明 Modal 专属不走 `offline/infer`）。
+- **验证**：188 项单测全绿（+4 qwen3_5、+7 glm46v、+6 youtu_vl）+ compileall
+  + ruff 全过；`qwen3_5`/`glm46v` CPU preflight 通过（无需权重）。三模型 GPU
+  路径无执行史，列入真机冒烟待办。
+- **下一步**：GPU 冒烟（qwen3_5 训练 smoke、glm46v zero-shot 探针、youtu Modal
+  首跑）；其后按执行序推进 α32 重训 / WBF 成员扩容。
 
 ### 2026-09-08（本轮收官：四轮独立审查收敛，代码与文档冻结）
 

@@ -109,7 +109,17 @@ modelscope download --model OpenGVLab/InternVL3_5-8B-HF \
 
 modelscope download --model AI-ModelScope/grounding-dino-base \
   --local_dir "$MODEL_ROOT/AI-ModelScope/grounding-dino-base"
+
+modelscope download --model Qwen/Qwen3.5-9B \
+  --local_dir "$MODEL_ROOT/Qwen/Qwen3.5-9B"
+
+modelscope download --model ZhipuAI/GLM-4.6V-Flash \
+  --local_dir "$MODEL_ROOT/ZhipuAI/GLM-4.6V-Flash"
 ```
+
+> Youtu-VL-4B-Instruct 不在 DSW 下载：需 `transformers>=4.56.0,<=4.57.1` +
+> `trust_remote_code`，与本环境 5.14.1 冲突。由管理员在 Modal 专属 Image 内拉取，
+> 流程见 `cloud/README.md`；预测文件回流本仓后入 WBF 融合。
 
 下载前检查持久盘空间：
 
@@ -139,6 +149,50 @@ python offline/train.py \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
   --run-tag exp-qwen8-retrain \
+  --num-workers 4 \
+  --checkpoint-interval 20
+```
+
+### Qwen3.5-9B
+
+```bash
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model qwen3_5 \
+  --model-path /mnt/workspace/models/Qwen/Qwen3.5-9B \
+  --data-dir data \
+  --num-workers 4 \
+  --checkpoint-interval 20 \
+  --smoke-test
+
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model qwen3_5 \
+  --model-path /mnt/workspace/models/Qwen/Qwen3.5-9B \
+  --data-dir data \
+  --run-tag exp-qwen35-9b \
+  --num-workers 4 \
+  --checkpoint-interval 20
+```
+
+### GLM-4.6V-Flash
+
+```bash
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model glm46v \
+  --model-path /mnt/workspace/models/ZhipuAI/GLM-4.6V-Flash \
+  --data-dir data \
+  --num-workers 4 \
+  --checkpoint-interval 20 \
+  --smoke-test
+
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model glm46v \
+  --model-path /mnt/workspace/models/ZhipuAI/GLM-4.6V-Flash \
+  --data-dir data \
+  --run-tag exp-glm46v-flash \
   --num-workers 4 \
   --checkpoint-interval 20
 ```
@@ -205,6 +259,54 @@ python offline/infer.py \
   --batch-size 4 --batch-save 100 --run-tag qwen8-lora-full
 ```
 
+### Qwen3.5-9B
+
+微调后（命令形状与 Qwen3-VL-8B 一致，超参 α32/3ep 已落 adapter 默认）：
+
+```bash
+python offline/infer.py \
+  --model qwen3_5 \
+  --model-path /mnt/workspace/models/Qwen/Qwen3.5-9B \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --limit 100 --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen35-9b-lora-smoke
+
+python offline/infer.py \
+  --model qwen3_5 \
+  --model-path /mnt/workspace/models/Qwen/Qwen3.5-9B \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag qwen35-9b-lora-full
+```
+
+### GLM-4.6V-Flash
+
+微调后（亦可直接 zero-shot 探针，省略 `--lora-path`）：
+
+```bash
+python offline/infer.py \
+  --model glm46v \
+  --model-path /mnt/workspace/models/ZhipuAI/GLM-4.6V-Flash \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --limit 100 --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag glm46v-lora-smoke
+
+python offline/infer.py \
+  --model glm46v \
+  --model-path /mnt/workspace/models/ZhipuAI/GLM-4.6V-Flash \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --num-shards 1 --num-workers 2 \
+  --batch-size 4 --batch-save 100 --run-tag glm46v-lora-full
+```
+
 ### InternVL3.5-8B
 
 微调后：
@@ -248,6 +350,14 @@ python offline/infer.py \
   --num-shards 1 --num-workers 4 \
   --batch-size 8 --batch-save 100 --run-tag dino-full
 ```
+
+### Youtu-VL-4B（Zero-shot，Modal 专属）
+
+Youtu-VL 不走 `offline/infer.py`：需 `transformers<=4.57.1` + `trust_remote_code` +
+`pydensecrf`，与 DSW 5.14.1 冲突。由管理员在 Modal 专属 Image 内执行推理，预测
+文件 `predictions.json` 回流本仓 `outputs/inference/` 后入 WBF 融合。适配层
+`youtu_vl` 已就绪，本地解析单测覆盖；GPU 路径（多图 `img_input` kwarg）在 Modal
+首跑时冒烟验证。
 
 ## 7. 提交包
 
