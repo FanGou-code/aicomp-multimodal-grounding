@@ -22,6 +22,12 @@ from aicomp_grounding.models.internvl35 import (
     parse_internvl_box,
 )
 from aicomp_grounding.models.mock import _stable_box
+from aicomp_grounding.models.qwen3_5 import (
+    MAX_PIXELS as QWEN3_5_MAX_PIXELS,
+    MIN_PIXELS as QWEN3_5_MIN_PIXELS,
+    MODEL_NAME as QWEN3_5_MODEL_NAME,
+    MODEL_REVISION as QWEN3_5_MODEL_REVISION,
+)
 from aicomp_grounding.models.qwen3vl import (
     MAX_PIXELS,
     MIN_PIXELS,
@@ -36,7 +42,7 @@ class RegistryTests(unittest.TestCase):
     def test_registry_exposes_expected_models(self):
         self.assertEqual(
             available_models(),
-            ["groundingdino", "internvl35", "mock", "qwen3vl"],
+            ["groundingdino", "internvl35", "mock", "qwen3_5", "qwen3vl"],
         )
 
     def test_unknown_model_raises_with_valid_options(self):
@@ -78,9 +84,47 @@ class QwenIdentityContinuityTests(unittest.TestCase):
         )
 
 
+class Qwen3_5IdentityContinuityTests(unittest.TestCase):
+    """Pin the Qwen3.5-9B identity values so run fingerprints never drift."""
+
+    def test_model_constants_match_pinned_config(self):
+        self.assertEqual(QWEN3_5_MODEL_NAME, "Qwen/Qwen3.5-9B")
+        self.assertEqual(
+            QWEN3_5_MODEL_REVISION, "460979c3d11864dd16408d860ac930a360a2fac2"
+        )
+        self.assertEqual(QWEN3_5_MIN_PIXELS, 256 * 28 * 28)
+        self.assertEqual(QWEN3_5_MAX_PIXELS, 3072 * 28 * 28)
+
+    def test_prompt_hash_matches_prompts_module(self):
+        adapter = get_adapter("qwen3_5")
+        self.assertEqual(
+            adapter.prompt_hash(), grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
+        )
+
+    def test_default_generation_config_is_backward_compatible(self):
+        adapter = get_adapter("qwen3_5")
+        self.assertEqual(
+            adapter.generation_config,
+            {
+                "max_new_tokens": 32,
+                "do_sample": False,
+                "max_pixels": QWEN3_5_MAX_PIXELS,
+            },
+        )
+
+    def test_thinking_disabled_in_chat_template_kwargs(self):
+        # The grounding protocol must disable Qwen3.5 thinking for both
+        # training and inference; the kwarg is applied via _apply_chat_template.
+        from aicomp_grounding.models import qwen3_5
+
+        self.assertEqual(
+            qwen3_5.CHAT_TEMPLATE_KWARGS, {"enable_thinking": False}
+        )
+
+
 class TrainableAdapterContractTests(unittest.TestCase):
     def test_vlm_adapters_expose_training_contract(self):
-        for name in ("qwen3vl", "internvl35"):
+        for name in ("qwen3vl", "qwen3_5", "internvl35"):
             adapter = get_adapter(name)
             hyperparameters = adapter.training_hyperparameters()
             self.assertEqual(hyperparameters["lora_rank"], 16)

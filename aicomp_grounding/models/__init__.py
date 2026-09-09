@@ -8,10 +8,12 @@ from aicomp_grounding.models.base import GroundingAdapter, ModelInput, Predictio
 from aicomp_grounding.models.groundingdino import GroundingDINOAdapter
 from aicomp_grounding.models.internvl35 import InternVL35Adapter
 from aicomp_grounding.models.mock import MockAdapter
+from aicomp_grounding.models.qwen3_5 import Qwen3_5Adapter
 from aicomp_grounding.models.qwen3vl import Qwen3VLAdapter
 
 ADAPTERS: dict[str, type[GroundingAdapter]] = {
     "qwen3vl": Qwen3VLAdapter,
+    "qwen3_5": Qwen3_5Adapter,
     "internvl35": InternVL35Adapter,
     "groundingdino": GroundingDINOAdapter,
     "mock": MockAdapter,

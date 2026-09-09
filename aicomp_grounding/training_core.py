@@ -245,7 +245,7 @@ def prepare_training_plan(
         raise ValueError("smoke_test must be boolean")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id or ""):
         raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
-    if model not in {"qwen3vl", "internvl35"}:
+    if model not in {"qwen3vl", "qwen3_5", "internvl35"}:
         raise ValueError(f"Unsupported training model: {model!r}")
     adapter = get_adapter(model)
     hyperparameters = adapter.training_hyperparameters()
@@ -452,7 +452,7 @@ def run_training(
     weight_decay = hyperparameters["weight_decay"]
     eval_batch_size = hyperparameters["eval_batch_size"]
 
-    if model_name == "qwen3vl":
+    if model_name in ("qwen3vl", "qwen3_5"):
         adapter = get_adapter(
             model_name,
             max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
@@ -516,6 +516,7 @@ def run_training(
     if model_path is None:
         rel_subpath = {
             "qwen3vl": "Qwen/Qwen3-VL-8B-Instruct",
+            "qwen3_5": "Qwen/Qwen3.5-9B",
             "internvl35": "OpenGVLab/InternVL3_5-8B-HF",
         }[model_name]
         for candidate in [
