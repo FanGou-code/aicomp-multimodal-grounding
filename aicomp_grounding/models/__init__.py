@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from aicomp_grounding.models.base import GroundingAdapter, ModelInput, Prediction
+from aicomp_grounding.models.glm46v import Glm46VAdapter
 from aicomp_grounding.models.groundingdino import GroundingDINOAdapter
 from aicomp_grounding.models.internvl35 import InternVL35Adapter
 from aicomp_grounding.models.mock import MockAdapter
@@ -14,6 +15,7 @@ from aicomp_grounding.models.qwen3vl import Qwen3VLAdapter
 ADAPTERS: dict[str, type[GroundingAdapter]] = {
     "qwen3vl": Qwen3VLAdapter,
     "qwen3_5": Qwen3_5Adapter,
+    "glm46v": Glm46VAdapter,
     "internvl35": InternVL35Adapter,
     "groundingdino": GroundingDINOAdapter,
     "mock": MockAdapter,

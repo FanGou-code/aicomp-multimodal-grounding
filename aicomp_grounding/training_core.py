@@ -245,7 +245,7 @@ def prepare_training_plan(
         raise ValueError("smoke_test must be boolean")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id or ""):
         raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
-    if model not in {"qwen3vl", "qwen3_5", "internvl35"}:
+    if model not in {"qwen3vl", "qwen3_5", "glm46v", "internvl35"}:
         raise ValueError(f"Unsupported training model: {model!r}")
     adapter = get_adapter(model)
     hyperparameters = adapter.training_hyperparameters()
@@ -457,8 +457,8 @@ def run_training(
             model_name,
             max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
         )
-    elif model_name == "internvl35":
-        adapter = get_adapter("internvl35")
+    elif model_name in ("glm46v", "internvl35"):
+        adapter = get_adapter(model_name)
     else:
         raise ValueError(f"Unsupported training model: {model_name!r}")
     run_dir = Path(training_plan["run_dir"])
@@ -517,6 +517,7 @@ def run_training(
         rel_subpath = {
             "qwen3vl": "Qwen/Qwen3-VL-8B-Instruct",
             "qwen3_5": "Qwen/Qwen3.5-9B",
+            "glm46v": "ZhipuAI/GLM-4.6V-Flash",
             "internvl35": "OpenGVLab/InternVL3_5-8B-HF",
         }[model_name]
         for candidate in [

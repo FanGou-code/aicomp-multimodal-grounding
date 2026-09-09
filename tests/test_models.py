@@ -22,6 +22,14 @@ from aicomp_grounding.models.internvl35 import (
     parse_internvl_box,
 )
 from aicomp_grounding.models.mock import _stable_box
+from aicomp_grounding.models.glm46v import (
+    GLM_BOX_CLOSE as GLM46V_BOX_CLOSE,
+    GLM_BOX_OPEN as GLM46V_BOX_OPEN,
+    MODEL_NAME as GLM46V_MODEL_NAME,
+    MODEL_REVISION as GLM46V_MODEL_REVISION,
+    format_glm_bbox,
+    parse_glm_box,
+)
 from aicomp_grounding.models.qwen3_5 import (
     MAX_PIXELS as QWEN3_5_MAX_PIXELS,
     MIN_PIXELS as QWEN3_5_MIN_PIXELS,
@@ -42,7 +50,7 @@ class RegistryTests(unittest.TestCase):
     def test_registry_exposes_expected_models(self):
         self.assertEqual(
             available_models(),
-            ["groundingdino", "internvl35", "mock", "qwen3_5", "qwen3vl"],
+            ["glm46v", "groundingdino", "internvl35", "mock", "qwen3_5", "qwen3vl"],
         )
 
     def test_unknown_model_raises_with_valid_options(self):
@@ -122,9 +130,69 @@ class Qwen3_5IdentityContinuityTests(unittest.TestCase):
         )
 
 
+class Glm46VContractTests(unittest.TestCase):
+    """Pin GLM-4.6V-Flash identity, box contract, and thinking-disabled kwarg."""
+
+    def test_model_constants_match_pinned_config(self):
+        self.assertEqual(GLM46V_MODEL_NAME, "zai-org/GLM-4.6V-Flash")
+        self.assertEqual(
+            GLM46V_MODEL_REVISION, "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
+        )
+
+    def test_box_tokens_are_the_glm_added_vocab_delimiters(self):
+        self.assertEqual(GLM46V_BOX_OPEN, chr(0x3C) + "|begin_of_box|" + chr(0x3E))
+        self.assertEqual(GLM46V_BOX_CLOSE, chr(0x3C) + "|end_of_box|" + chr(0x3E))
+
+    def test_default_generation_config_is_backward_compatible(self):
+        adapter = get_adapter("glm46v")
+        self.assertEqual(
+            adapter.generation_config,
+            {"max_new_tokens": 32, "do_sample": False},
+        )
+
+    def test_thinking_disabled_in_chat_template_kwargs(self):
+        from aicomp_grounding.models import glm46v
+
+        self.assertEqual(glm46v.CHAT_TEMPLATE_KWARGS, {"enable_thinking": False})
+
+    def test_format_and_parse_round_trip(self):
+        text = format_glm_bbox([0.1, 0.2, 0.3, 0.4])
+        expected = GLM46V_BOX_OPEN + "100,200,300,400" + GLM46V_BOX_CLOSE
+        self.assertEqual(text, expected)
+        self.assertEqual(parse_glm_box(text), [0.1, 0.2, 0.3, 0.4])
+
+    def test_parse_tolerates_surrounding_prose_and_bare_ints(self):
+        tagged = (
+            "The target is "
+            + GLM46V_BOX_OPEN
+            + "100,200,300,400"
+            + GLM46V_BOX_CLOSE
+            + "."
+        )
+        self.assertEqual(parse_glm_box(tagged), [0.1, 0.2, 0.3, 0.4])
+        self.assertEqual(parse_glm_box("100,200,300,400"), [0.1, 0.2, 0.3, 0.4])
+
+    def test_parse_rejects_ambiguous_or_invalid(self):
+        two = (
+            GLM46V_BOX_OPEN
+            + "1,2,3,4"
+            + GLM46V_BOX_CLOSE
+            + " and "
+            + GLM46V_BOX_OPEN
+            + "5,6,7,8"
+            + GLM46V_BOX_CLOSE
+        )
+        self.assertIsNone(parse_glm_box(two))
+        self.assertIsNone(parse_glm_box(GLM46V_BOX_OPEN + "500,500,500,900" + GLM46V_BOX_CLOSE))
+        self.assertIsNone(parse_glm_box(GLM46V_BOX_OPEN + "100,200,100,400" + GLM46V_BOX_CLOSE))
+        self.assertIsNone(parse_glm_box(GLM46V_BOX_OPEN + "0,0,2000,400" + GLM46V_BOX_CLOSE))
+        self.assertIsNone(parse_glm_box(""))
+        self.assertIsNone(parse_glm_box("no box here"))
+
+
 class TrainableAdapterContractTests(unittest.TestCase):
     def test_vlm_adapters_expose_training_contract(self):
-        for name in ("qwen3vl", "qwen3_5", "internvl35"):
+        for name in ("qwen3vl", "qwen3_5", "glm46v", "internvl35"):
             adapter = get_adapter(name)
             hyperparameters = adapter.training_hyperparameters()
             self.assertEqual(hyperparameters["lora_rank"], 16)
