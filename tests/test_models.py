@@ -30,6 +30,12 @@ from aicomp_grounding.models.glm46v import (
     format_glm_bbox,
     parse_glm_box,
 )
+from aicomp_grounding.models.youtu_vl import (
+    MODEL_NAME as YOUTU_MODEL_NAME,
+    MODEL_REVISION as YOUTU_MODEL_REVISION,
+    YOUTU_GROUNDING_PROMPT,
+    parse_youtu_box,
+)
 from aicomp_grounding.models.qwen3_5 import (
     MAX_PIXELS as QWEN3_5_MAX_PIXELS,
     MIN_PIXELS as QWEN3_5_MIN_PIXELS,
@@ -50,7 +56,7 @@ class RegistryTests(unittest.TestCase):
     def test_registry_exposes_expected_models(self):
         self.assertEqual(
             available_models(),
-            ["glm46v", "groundingdino", "internvl35", "mock", "qwen3_5", "qwen3vl"],
+            ["glm46v", "groundingdino", "internvl35", "mock", "qwen3_5", "qwen3vl", "youtu_vl"],
         )
 
     def test_unknown_model_raises_with_valid_options(self):
@@ -188,6 +194,52 @@ class Glm46VContractTests(unittest.TestCase):
         self.assertIsNone(parse_glm_box(GLM46V_BOX_OPEN + "0,0,2000,400" + GLM46V_BOX_CLOSE))
         self.assertIsNone(parse_glm_box(""))
         self.assertIsNone(parse_glm_box("no box here"))
+
+
+class YoutuVLContractTests(unittest.TestCase):
+    """Pin Youtu-VL-4B identity and absolute-pixel box parsing."""
+
+    def test_model_constants_match_pinned_config(self):
+        self.assertEqual(YOUTU_MODEL_NAME, "tencent/Youtu-VL-4B-Instruct")
+        self.assertEqual(
+            YOUTU_MODEL_REVISION, "8d30a0e49662a1d628a472b12df264dbcd768753"
+        )
+
+    def test_adapter_is_inference_only(self):
+        adapter = get_adapter("youtu_vl")
+        self.assertFalse(adapter.supports_lora)
+        self.assertEqual(
+            adapter.generation_config,
+            {"max_new_tokens": 64, "do_sample": False, "repetition_penalty": 1.05},
+        )
+
+    def test_grounding_prompt_and_hash_are_pinned(self):
+        self.assertIn("{query}", YOUTU_GROUNDING_PROMPT)
+        self.assertIn("bounding box", YOUTU_GROUNDING_PROMPT)
+        adapter = get_adapter("youtu_vl")
+        self.assertEqual(len(adapter.prompt_hash()), 64)
+        self.assertEqual(adapter.prompt_hash(), adapter.prompt_hash())
+
+    def test_parse_single_box_normalizes_by_image_size(self):
+        text = "<ref>person</ref><box><x_100><y_200><x_300><y_400></box>"
+        self.assertEqual(parse_youtu_box(text, 1000, 1000), [0.1, 0.2, 0.3, 0.4])
+        # 1920x1080 frame: coords are absolute pixels.
+        text2 = "<box><x_192><y_216><x_576><y_432></box>"
+        self.assertEqual(parse_youtu_box(text2, 1920, 1080), [0.1, 0.2, 0.3, 0.4])
+
+    def test_parse_keeps_largest_box_when_multiple_emitted(self):
+        text = (
+            "<ref>a</ref><box><x_100><y_100><x_200><y_200></box>"
+            "<ref>b</ref><box><x_10><y_10><x_900><y_900></box>"
+        )
+        self.assertEqual(parse_youtu_box(text, 1000, 1000), [0.01, 0.01, 0.9, 0.9])
+
+    def test_parse_rejects_invalid_or_missing(self):
+        self.assertIsNone(parse_youtu_box("<box><x_300><y_200><x_100><y_400></box>", 1000, 1000))
+        self.assertIsNone(parse_youtu_box("no box here", 1000, 1000))
+        self.assertIsNone(parse_youtu_box("<box><x_1><y_2><x_3></box>", 1000, 1000))
+        self.assertIsNone(parse_youtu_box("<box><x_1><y_2><x_3><y_4></box>", 0, 1000))
+        self.assertIsNone(parse_youtu_box("", 1000, 1000))
 
 
 class TrainableAdapterContractTests(unittest.TestCase):
