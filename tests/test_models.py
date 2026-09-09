@@ -27,6 +27,7 @@ from aicomp_grounding.models.glm46v import (
     GLM_BOX_OPEN as GLM46V_BOX_OPEN,
     MODEL_NAME as GLM46V_MODEL_NAME,
     MODEL_REVISION as GLM46V_MODEL_REVISION,
+    MODELSCOPE_NAME as GLM46V_MODELSCOPE_NAME,
     format_glm_bbox,
     parse_glm_box,
 )
@@ -144,6 +145,9 @@ class Glm46VContractTests(unittest.TestCase):
         self.assertEqual(
             GLM46V_MODEL_REVISION, "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
         )
+        # ModelScope hosts GLM under ZhipuAI (not zai-org); the auto-load
+        # fallback must use the ModelScope org, not MODEL_NAME.
+        self.assertEqual(GLM46V_MODELSCOPE_NAME, "ZhipuAI/GLM-4.6V-Flash")
 
     def test_box_tokens_are_the_glm_added_vocab_delimiters(self):
         self.assertEqual(GLM46V_BOX_OPEN, chr(0x3C) + "|begin_of_box|" + chr(0x3E))

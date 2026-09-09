@@ -27,10 +27,13 @@ from aicomp_grounding.models.base import ModelInput, Prediction
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "zai-org/GLM-4.6V-Flash"
-# Pinned to the ModelScope head commit at adoption time so the auto-load
-# fallback (no --model-path) reproduces deterministically; the SOP always
-# loads from a local --model-path so this is identity + auto-load only.
+# ModelScope hosts the GLM family under the ZhipuAI org (not zai-org); the
+# auto-load fallback below downloads from there. Pinned to the ModelScope
+# head commit at adoption time so auto-load reproduces deterministically;
+# the SOP always loads from a local --model-path so this is identity +
+# auto-load only.
 MODEL_REVISION = "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
+MODELSCOPE_NAME = "ZhipuAI/GLM-4.6V-Flash"
 
 MAX_NEW_TOKENS = 32
 
@@ -112,7 +115,7 @@ def _resolve_model_source(model_path: str | None) -> tuple[str, bool]:
             "GLM-4.6V-Flash automatic loading requires modelscope; "
             "pass --model-path to a local model directory"
         ) from exc
-    return snapshot_download(MODEL_NAME, revision=MODEL_REVISION), False
+    return snapshot_download(MODELSCOPE_NAME, revision=MODEL_REVISION), False
 
 
 def _build_messages(visible, infrared, depth, query, *, assistant_text=None):
