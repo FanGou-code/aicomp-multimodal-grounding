@@ -29,9 +29,9 @@ INFERENCE_DEFAULT_MAX_PIXELS = 3072 * 28 * 28
 # current_runtime_packages() overwrites each entry with the actually-installed
 # version, so the pinned values below matter only when a package is absent.
 MODAL_GPU_PACKAGES = (
-    "transformers==5.14.1",
+    "transformers==5.15.1",
     "accelerate==1.14.0",
-    "peft==0.19.1",
+    "peft==0.20.0",
     "qwen-vl-utils==0.0.14",
     "pillow==12.1.0",
     "torch==2.13.0",

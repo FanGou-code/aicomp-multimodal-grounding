@@ -191,9 +191,9 @@
 - **A 卡性能定案（沿袭）**：80 CU 削减版 MI300X（满血 304），GEMM 实测
   200 TFLOPS = 硅片理论峰 90%，适配打满、优化层关闭；与 H100 诚实差距约
   1.5-1.7 倍。
-- **环境（2026-09-08 统一）**：依赖唯一声明源 = 根 `pyproject.toml`
+- **环境（2026-09-08 统一，2026-09-11 对齐）**：依赖唯一声明源 = 根 `pyproject.toml`
   （`dependencies` = numpy/pillow/opencv + torch 范围 `>=2.8,<3` +
-  transformers==5.14.1 / peft==0.19.1 / accelerate==1.14.0 /
+  transformers==5.15.1 / peft==0.20.0 / accelerate==1.14.0 /
   qwen-vl-utils==0.0.14；extras = kernels/hub/dev）。torch 范围让 DSW 双卡
   （A 卡 2.11 / N 卡 2.10）与 Modal/实验室 N 卡同一条 `pip install -e .`，
   平台已有版本自动跳过。`envs/gpu.txt` 与孤儿 `requirements-lock.txt` 已删；
@@ -230,9 +230,19 @@
 
 ### 验证基线
 
-188 项单测通过（2026-09-11；本机 qwen_vg 已装全量依赖 torch 2.14+cu130 / transformers 5.14.1，本地 GPU 可用，无 skip）；compileall / ruff 全绿；`annot_asm-r6` 契约校验 100% 通过。
+188 项单测通过（2026-09-11；全量依赖 transformers 5.15.1 / peft 0.20.0 验证通过，0 skip）；compileall / ruff 全绿；`annot_asm-r6` 契约校验 100% 通过。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-11（依赖对齐：transformers 5.15.1 与 peft 0.20.0）
+
+- **动因**：对齐 DSW 镜像系统预装版本，避免虚拟环境安装时的降级与卸载告警。
+- **改动**：
+  1. `pyproject.toml`：`transformers==5.14.1` → `5.15.1`，`peft==0.19.1` → `0.20.0`。
+  2. `aicomp_grounding/config.py`：`MODAL_GPU_PACKAGES` 同步更新版本号。
+  3. `docs/sop.md` 与 `aicomp_grounding/models/youtu_vl.py`：版本号描述同步。
+- **验证**：188 项单测全绿 + compileall + ruff 全绿；`tests/test_env_contract.py` 契约校验通过。
+- **下一步**：DSW 端执行 `pip install -e .` 验证透传命中后启动 GPU 训练。
 
 ### 2026-09-11（R6 黄金标注定稿并入库：annot_asm-r6）
 

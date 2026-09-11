@@ -71,7 +71,7 @@ cd /mnt/workspace/aicomp-multimodal-grounding
 
 ```bash
 python -c "import transformers, peft; print(transformers.__version__, transformers.__file__)"
-# 应输出 5.14.1，路径落在 venv 内
+# 应输出 5.15.1
 ```
 
 目标模型为混合线性注意力架构（`qwen3_5` 类）时，额外安装加速内核

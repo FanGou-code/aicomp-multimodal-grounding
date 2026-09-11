@@ -21,8 +21,8 @@ dependencies = [
     # DSW 镜像自带，Modal 容器必须显式装。
     "torchvision",
     # 模型框架层：== 紧 pin，跨平台行为一致
-    "transformers==5.14.1",
-    "peft==0.19.1",
+    "transformers==5.15.1",
+    "peft==0.20.0",
     "accelerate==1.14.0",
     "qwen-vl-utils==0.0.14",
 ]

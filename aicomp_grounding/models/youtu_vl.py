@@ -7,7 +7,7 @@ the 4B class, so it earns a WBF seat as a zero-shot member.
 
 The adapter is inference-only: Youtu requires ``transformers>=4.56,<=4.57.1``
 plus ``trust_remote_code`` (a custom ``youtu_vl`` architecture), which is
-incompatible with the repo's pinned 5.14.1. It therefore runs in a dedicated
+incompatible with the repo's pinned 5.15.1. It therefore runs in a dedicated
 Modal Image; the adapter code itself stays import-clean so the rest of the
 repo never loads the remote-code path. The parser is pure logic and is
 unit-tested locally; the GPU path (image-input contract, multi-image
