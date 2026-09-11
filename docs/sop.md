@@ -94,7 +94,7 @@ pip install causal-conv1d --no-build-isolation \
 pip install -e ".[kernels]" \
   -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
-python -c "import fla, causal_conv1d; print('Kernels ready!')"
+python -c "import fla, causal_conv1d; print(fla.__version__, causal_conv1d.__version__)"
 ```
 
 **venv 在持久盘 `/mnt/workspace` 上，同镜像代际的实例间直接复用，无需重建。**
