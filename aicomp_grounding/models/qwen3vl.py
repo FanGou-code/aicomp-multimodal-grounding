@@ -216,6 +216,8 @@ class Qwen3VLAdapter:
         if pad_id is None:
             raise ValueError("Processor tokenizer has no pad_token_id")
         ids, labels, attention, pixels, grids = [], [], [], [], []
+        has_mm_types = any("mm_token_type_ids" in item for item in batch)
+        mm_token_types = [] if has_mm_types else None
         for item in batch:
             padding = max_length - item["input_ids"].size(0)
             ids.append(
@@ -233,15 +235,30 @@ class Qwen3VLAdapter:
                     [item["attention_mask"], torch.zeros(padding, dtype=torch.long)]
                 )
             )
+            if has_mm_types:
+                mm_type = item.get("mm_token_type_ids")
+                if mm_type is None:
+                    raise ValueError("Qwen3-VL training batch is missing mm_token_type_ids")
+                mm_token_types.append(
+                    torch.cat(
+                        [
+                            mm_type,
+                            torch.zeros(padding, dtype=mm_type.dtype),
+                        ]
+                    )
+                )
             pixels.append(item["pixel_values"])
             grids.append(item["image_grid_thw"])
-        return {
+        result = {
             "input_ids": torch.stack(ids),
             "labels": torch.stack(labels),
             "attention_mask": torch.stack(attention),
             "pixel_values": torch.cat(pixels, dim=0),
             "image_grid_thw": torch.cat(grids, dim=0),
         }
+        if has_mm_types:
+            result["mm_token_type_ids"] = torch.stack(mm_token_types)
+        return result
 
     def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:
         from qwen_vl_utils import process_vision_info
