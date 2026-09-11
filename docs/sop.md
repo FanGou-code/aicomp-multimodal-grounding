@@ -234,7 +234,7 @@ VLM 三图模型统一使用：
 --data-dir data
 --num-shards 1
 --num-workers 2
---batch-size 4
+--batch-size 2
 --batch-save 100
 ```
 
@@ -253,7 +253,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag qwen8-lora-smoke
+  --batch-size 2 --batch-save 100 --run-tag qwen8-lora-smoke
 
 python offline/infer.py \
   --model qwen3vl \
@@ -262,7 +262,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag qwen8-lora-full
+  --batch-size 2 --batch-save 100 --run-tag qwen8-lora-full
 ```
 
 ### Qwen3.5-9B
@@ -277,7 +277,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag qwen35-9b-lora-smoke
+  --batch-size 2 --batch-save 100 --run-tag qwen35-9b-lora-smoke
 
 python offline/infer.py \
   --model qwen3_5 \
@@ -286,7 +286,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag qwen35-9b-lora-full
+  --batch-size 2 --batch-save 100 --run-tag qwen35-9b-lora-full
 ```
 
 ### GLM-4.6V-Flash
@@ -301,7 +301,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag glm46v-lora-smoke
+  --batch-size 2 --batch-save 100 --run-tag glm46v-lora-smoke
 
 python offline/infer.py \
   --model glm46v \
@@ -310,7 +310,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag glm46v-lora-full
+  --batch-size 2 --batch-save 100 --run-tag glm46v-lora-full
 ```
 
 ### InternVL3.5-8B
@@ -325,7 +325,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag internvl-lora-smoke
+  --batch-size 2 --batch-save 100 --run-tag internvl-lora-smoke
 
 python offline/infer.py \
   --model internvl35 \
@@ -334,7 +334,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
-  --batch-size 4 --batch-save 100 --run-tag internvl-lora-full
+  --batch-size 2 --batch-save 100 --run-tag internvl-lora-full
 ```
 
 ### GroundingDINO-B（Zero-shot）
