@@ -74,22 +74,28 @@ python -c "import transformers, peft; print(transformers.__version__, transforme
 # 应输出 5.15.1
 ```
 
-目标模型为混合线性注意力架构（`qwen3_5` 类）时，额外安装加速内核
-`pip install -e ".[kernels]"`：
+目标模型为混合线性注意力架构（`qwen3_5` 类）时，额外安装加速内核：
 
-- **N 卡 / CUDA 机**：一键即可（FLA 与 causal-conv1d 均有预编译轮）。
-- **A 卡（DSW）**：FLA 有预编译；causal-conv1d 无 HIP 预编译轮，需源码编译：
+- **N 卡 / CUDA 机**：一键安装（FLA 与 causal-conv1d 均有预编译轮）：
+
+```bash
+pip install -e ".[kernels]" \
+  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+```
+
+- **A 卡（DSW）**：先源码编译 `causal-conv1d`，再安装 `[kernels]`：
 
 ```bash
 export PYTORCH_ROCM_ARCH=gfx942 MAX_JOBS=8
 export CAUSAL_CONV1D_FORCE_BUILD=TRUE
 pip install causal-conv1d --no-build-isolation \
   -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-# 编不过可直接跳过；FLA 是主要收益来源
-python -c "import causal_conv1d; print('conv OK')"
-```
 
-注意：causal-conv1d 源码编译产物不进 pip 缓存，重建 venv 后需重编。
+pip install -e ".[kernels]" \
+  -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
+python -c "import fla, causal_conv1d; print('Kernels ready!')"
+```
 
 **venv 在持久盘 `/mnt/workspace` 上，同镜像代际的实例间直接复用，无需重建。**
 仅当持久盘被清空、或镜像大版本更换导致底座 python 路径变化时，按「首次执行」
