@@ -34,7 +34,14 @@
 训练/推理用 `offline/`（魔搭 DSW）或 `cloud/`（Modal，H100）；`modal` 命令由
 用户本人执行。checkpoint/标注/提交包留 `/mnt/workspace`（持久盘）。
 
-## 当前状态（最后更新 2026-09-09，三模型适配层接入 qwen3_5/glm46v/youtu_vl，待 GPU 冒烟与 v5 人审收尾）
+## 当前状态（最后更新 2026-09-11，R6 黄金标注定稿并入库 annot_asm-r6，准备启动全量训练）
+
+- **R6 黄金标注定稿并入库（2026-09-11）**：副仓 `query-foundry` 完成 Part 1（344 query / 129 box）、
+  Part 2（190 query / 52 box）、Part 3（Train 234 query / 147 box，Val 169 query / 165 box）
+  三人审查结果全量合并收敛，清理所有临时分片与任务清单；修正 `150_00000143#04` 脚手架违规用词与
+  `137_00000113#03` 同帧碰撞，解锁 3 条历史 `:todo`；严格质检打包生成 `annot_asm-r6`（Train 2,730 样本，
+  318 序列，含 768 条人工精修 Query + 328 处调框；Val 736 样本，80 序列，含 169 条人工精修 Query +
+  165 处调框）；主仓原生 `validate_approved_artifact` 契约校验 100% 通过，已纳入 `.gitignore` 白名单随仓分发。
 
 - **三模型适配层接入（2026-09-09）**：新增 `qwen3_5`（Qwen3.5-9B 训练型，复活
   Qwen3.8 存档同 `Qwen3_5ForConditionalGeneration` 类，α32/3ep、`enable_thinking=False`、
@@ -223,10 +230,20 @@
 
 ### 验证基线
 
-188 项单测通过（2026-09-09；本机 qwen_vg 已装全量依赖 torch 2.14+cu130 /
-transformers 5.14.1，本地 GPU 可用，无 skip）；compileall / ruff 全绿。
+188 项单测通过（2026-09-11；本机 qwen_vg 已装全量依赖 torch 2.14+cu130 / transformers 5.14.1，本地 GPU 可用，无 skip）；compileall / ruff 全绿；`annot_asm-r6` 契约校验 100% 通过。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-11（R6 黄金标注定稿并入库：annot_asm-r6）
+
+- **动因**：完成三人协作分片人工审查结果合并，消除标注缺陷与同帧碰撞，固化为最新黄金标注集 `annot_asm-r6` 并随仓库分发，为下一阶段模型重训与评测提供基准。
+- **改动**：
+  1. 副仓合并与流水账收敛：`query-foundry` 完成 Part 1（344 query 修订 / 129 调框）、Part 2（190 query 修订 / 52 调框）、Part 3（Train 234 query 修订 + 147 调框，Val 169 query 修订 + 165 调框）事务日志与快照合并至 `outputs/review/asm-train-r5` 与 `outputs/review/asm-val-r5`；清理临时分片清单 `outputs/asm-train-r5-part*.json` 与临时 `-part` review 目录。
+  2. 标注缺陷清洗：修正 `150_00000143#04` 脚手架用词（`'The biggest rock next to the grass'`）；修正 `137_00000113#03` 消除同帧碰撞（`'The third crane from left to right'`）；完善 `apply_review.py` 逻辑使后续分片正常解锁 3 条历史 `:todo`。
+  3. 资产打包与导出：通过 `package_approved.py` 严格质检打包为 `annot_asm-r6`，自动导出至主仓 `outputs/annotations/annot_asm-r6/`（Train 2,730 样本 / 318 序列 / `dataset_fingerprint` eca27a56...；Val 736 样本 / 80 序列 / `dataset_fingerprint` 6c8f9b86...）。
+  4. 仓库白名单分发：`.gitignore` 配置 `annot_asm-r6` 白名单规则，使其随主仓 Git 分发。
+- **验证**：主仓 `validate_approved_artifact` 契约校验 100% 通过；`query-foundry` 142 项单测全绿；主仓 188 项单测全绿（耗时 1.8s）+ compileall 全过。
+- **下一步**：使用 `annot_asm-r6` 启动 GPU 训练（Qwen3-VL-8B 重训、Qwen3.5-9B / GLM-4.6V-Flash 训练）。
 
 ### 2026-09-09（三模型适配层接入：qwen3_5 / glm46v / youtu_vl）
 
