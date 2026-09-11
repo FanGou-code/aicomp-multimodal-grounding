@@ -110,6 +110,8 @@ def _load_todo_items(queries_paths: list[Path]) -> set[str]:
     Reviewers mark problematic / ambiguous items as todo — they stay on the
     pending disambiguation list and must not ship as clean ground truth, so
     apply_review excludes and flags them instead of carrying them into r6.
+    If a subsequent review pass resolves the item with a clean human
+    annotation, it is no longer marked todo.
     """
     todo: set[str] = set()
     seen_dirs: set[Path] = set()
@@ -119,8 +121,11 @@ def _load_todo_items(queries_paths: list[Path]) -> set[str]:
             continue
         seen_dirs.add(data_dir)
         for item_id, meta in AnnotationStore(data_dir).all_meta().items():
-            if (meta.get("annotator") or "").endswith(":todo"):
+            ann = meta.get("annotator") or ""
+            if ann.endswith(":todo"):
                 todo.add(item_id)
+            elif ann and ann != "glm-4.6v":
+                todo.discard(item_id)
     return todo
 
 

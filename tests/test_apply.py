@@ -208,6 +208,45 @@ class ApplyReviewTest(unittest.TestCase):
         self.assertEqual(len(result["records"]), 0)
         self.assertTrue(any(f["reason"] == "todo" for f in result["flagged"]))
 
+    def test_todo_resolved_by_subsequent_review_pass(self):
+        records = [{
+            "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
+            "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
+            "query": "The deer", "family": "plain_attribute",
+            "bucket": "attribute_action", "quota_state": "quota", "facts": [],
+            "words": 2, "edited": False,
+        }]
+        asm = self._write_assembly(records)
+        dir1 = self.tmp_path / "part1"
+        dir1.mkdir()
+        (dir1 / "annotations.queries.json").write_text("{}", encoding="utf-8")
+        (dir1 / "annotations.jsonl").write_text(
+            json.dumps({"id": "001_00000001#01", "bbox": [0.1, 0.2, 0.3, 0.4],
+                        "annotator": "reviewer:todo", "ts": "2026-09-08 00:00:00"}) + "\n",
+            encoding="utf-8",
+        )
+        dir2 = self.tmp_path / "part2"
+        dir2.mkdir()
+        (dir2 / "annotations.queries.json").write_text(
+            json.dumps({"001_00000001#01": "The brown deer"}), encoding="utf-8"
+        )
+        (dir2 / "annotations.jsonl").write_text(
+            json.dumps({"id": "001_00000001#01", "query": "The brown deer",
+                        "bbox": [0.1, 0.2, 0.3, 0.4], "annotator": "Eric",
+                        "ts": "2026-09-08 01:00:00"}) + "\n",
+            encoding="utf-8",
+        )
+        result = apply(
+            asm,
+            [dir1 / "annotations.queries.json", dir2 / "annotations.queries.json"],
+            "asm-test-r6",
+            self.tmp_path,
+            force=True,
+        )
+        self.assertEqual(result["stats"]["todo_excluded"], 0)
+        self.assertEqual(len(result["records"]), 1)
+        self.assertEqual(result["records"][0]["query"], "The brown deer")
+
     def test_missing_explicit_queries_path_raises(self):
         records = [{
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
