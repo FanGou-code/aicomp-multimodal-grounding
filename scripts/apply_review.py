@@ -4,7 +4,7 @@
 Produces ``asm-*-r6`` as the packaging baseline for the R6 chain.
 
 Merge: human-edited query text, human-corrected target boxes and human-confirmed
-absence verdicts (from the review store snapshots) take priority; un-reviewed
+absence verdicts (from the review journal, or legacy snapshots) take priority; un-reviewed
 items keep their original assembled values. Re-validates bucket classifier
 and text QC for changed queries. Detects same-frame collisions.
 
@@ -28,7 +28,7 @@ from foundry.utils import (  # noqa: E402
     atomic_write_json,
     load_json,
 )
-from foundry.review.store import AnnotationStore  # noqa: E402
+from foundry.review.store import AnnotationStore, JOURNAL_NAME, QUERY_SNAPSHOT_NAME  # noqa: E402
 from foundry.pipeline.text_qc import apply_text_qc  # noqa: E402
 
 
@@ -64,39 +64,61 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _load_human_queries(queries_paths: list[Path] | Path | None) -> dict[str, str]:
-    if queries_paths is None:
-        return {}
-    if isinstance(queries_paths, (str, Path)):
-        queries_paths = [Path(queries_paths)]
-    merged: dict[str, str] = {}
-    for p in queries_paths:
-        p = Path(p)
-        if p.is_file():
-            merged.update(load_json(p))
-    return merged
-
-
 def _load_json_quiet(path: Path) -> dict:
     return load_json(path) if path.is_file() else {}
 
 
-def _review_snapshots(queries_paths: list[Path]) -> tuple[dict[str, list[float]], dict[str, str]]:
-    """Discover box / absence snapshots next to each review queries file.
+def _load_review_state(queries_paths: list[Path]) -> tuple[dict, dict, dict, set[str]]:
+    """Merge ordered review passes using one journal snapshot per pass.
 
-    The review store writes ``annotations.predictions.json`` (final box per
-    annotated item) and ``annotations.absent.json`` (``item_id -> *:absent``)
-    alongside ``annotations.queries.json``. All three must flow into r6:
-    box overrides correct the teacher geometry, and only human-confirmed
-    absences remove records — a ``{model}:absent`` verdict is still pending
-    human review.
+    Legacy snapshot-only deliveries remain readable. A later explicit human
+    box/absence replaces the opposite verdict; teacher seeds do not undo a
+    prior human review. Query-only edits leave geometry unchanged.
     """
-    boxes: dict[str, list[float]] = {}
-    absent: dict[str, str] = {}
+    queries, boxes, absent = {}, {}, {}
+    todo: set[str] = set()
+    human_owned: set[str] = set()
+    seen_journals: set[Path] = set()
     for path in queries_paths:
-        boxes.update(_load_json_quiet(path.parent / "annotations.predictions.json"))
-        absent.update(_load_json_quiet(path.parent / "annotations.absent.json"))
-    return boxes, absent
+        journal = path.parent / JOURNAL_NAME
+        if path.name == QUERY_SNAPSHOT_NAME and journal.is_file():
+            if journal.resolve() in seen_journals:
+                continue
+            seen_journals.add(journal.resolve())
+            state = AnnotationStore(path.parent).snapshot()
+        else:
+            q = _load_json_quiet(path)
+            b = _load_json_quiet(path.parent / "annotations.predictions.json")
+            a = _load_json_quiet(path.parent / "annotations.absent.json")
+            if set(b) & set(a):
+                raise ValueError(f"Review snapshots contain both box and absent verdict: {path.parent}")
+            state = {"queries": q, "boxes": b, "absent": a,
+                     "meta": {k: {"annotator": a.get(k, "human-snapshot")} for k in set(q) | set(b) | set(a)},
+                     "touched_ids": set(q) | set(b) | set(a)}
+        queries.update(state["queries"])
+        for item_id in state["touched_ids"]:
+            ann = state["meta"].get(item_id, {}).get("annotator") or ""
+            teacher = ann in {ANNOTATION_MODEL_NAME, f"{ANNOTATION_MODEL_NAME}:absent"}
+            if teacher and item_id in human_owned:
+                continue
+            if item_id in state["absent"]:
+                absent[item_id] = state["absent"][item_id]
+                boxes.pop(item_id, None)
+            elif item_id in state["boxes"]:
+                boxes[item_id] = state["boxes"][item_id]
+                absent.pop(item_id, None)
+            elif item_id not in state["meta"]:
+                # A plain DELETE is a real event even though it leaves no box
+                # or annotator entry in the final snapshot.
+                boxes.pop(item_id, None)
+                absent.pop(item_id, None)
+            if ann.endswith(":todo"):
+                todo.add(item_id)
+            elif not teacher:
+                todo.discard(item_id)
+            if not teacher:
+                human_owned.add(item_id)
+    return queries, boxes, absent, todo
 
 
 def _human_confirmed_absent(absent: dict[str, str]) -> set[str]:
@@ -104,37 +126,12 @@ def _human_confirmed_absent(absent: dict[str, str]) -> set[str]:
     return {item_id for item_id, annotator in absent.items() if annotator != pending}
 
 
-def _load_todo_items(queries_paths: list[Path]) -> set[str]:
-    """Item ids whose final journal annotator carries a ``:todo`` suffix.
-
-    Reviewers mark problematic / ambiguous items as todo — they stay on the
-    pending disambiguation list and must not ship as clean ground truth, so
-    apply_review excludes and flags them instead of carrying them into r6.
-    If a subsequent review pass resolves the item with a clean human
-    annotation, it is no longer marked todo.
-    """
-    todo: set[str] = set()
-    seen_dirs: set[Path] = set()
-    for path in queries_paths:
-        data_dir = path.parent
-        if data_dir in seen_dirs or not (data_dir / "annotations.jsonl").is_file():
-            continue
-        seen_dirs.add(data_dir)
-        for item_id, meta in AnnotationStore(data_dir).all_meta().items():
-            ann = meta.get("annotator") or ""
-            if ann.endswith(":todo"):
-                todo.add(item_id)
-            elif ann and ann != "glm-4.6v":
-                todo.discard(item_id)
-    return todo
-
-
 def _detect_collisions(records: list[dict]) -> set[str]:
     """Detect same-frame duplicate display queries after overlay."""
     by_frame: dict[str, dict[str, list[str]]] = {}
     for rec in records:
         sample_id = rec["sample_id"]
-        query = rec["query"].lower()
+        query = " ".join(rec["query"].split()).casefold()
         item_id = f"{sample_id}#{rec['object_index']:02d}"
         by_frame.setdefault(sample_id, {}).setdefault(query, []).append(item_id)
     collided: set[str] = set()
@@ -159,18 +156,16 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
     elif isinstance(queries_path, (str, Path)):
         queries_paths = [Path(queries_path)]
         for p in queries_paths:
-            if not p.is_file():
+            if not p.is_file() and not (p.name == QUERY_SNAPSHOT_NAME and (p.parent / JOURNAL_NAME).is_file()):
                 raise FileNotFoundError(f"Review queries file not found: {p}")
     else:
         queries_paths = [Path(p) for p in queries_path]
         for p in queries_paths:
-            if not p.is_file():
+            if not p.is_file() and not (p.name == QUERY_SNAPSHOT_NAME and (p.parent / JOURNAL_NAME).is_file()):
                 raise FileNotFoundError(f"Review queries file not found: {p}")
 
-    human_queries = _load_human_queries(queries_paths)
-    human_boxes, absent = _review_snapshots(queries_paths)
+    human_queries, human_boxes, absent, todo_items = _load_review_state(queries_paths)
     removed_absent = _human_confirmed_absent(absent)
-    todo_items = _load_todo_items(queries_paths)
 
     # --- Merge ---
     stats: dict[str, int] = Counter(
@@ -236,16 +231,6 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
         kept.append(rec)
     records = kept
 
-    # --- Detect collisions after overlay ---
-    collisions = _detect_collisions(records)
-    for rec in records:
-        item_id = f"{rec['sample_id']}#{rec['object_index']:02d}"
-        rec["collision"] = item_id in collisions
-        if rec["collision"]:
-            stats["collision"] += 1
-            flagged.append({"item_id": item_id, "reason": "collision",
-                            "query": rec.get("query", "")})
-
     # --- Text QC pass ---
     # Build minimal AssemblyRecord-like objects for apply_text_qc
     class _QCRecord:
@@ -263,6 +248,16 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
         rec["query"] = qc_records[i].query
         rec["edited"] = qc_records[i].edited
     stats["qc_edited"] = len(edits)
+
+    # --- Detect collisions after final text QC ---
+    collisions = _detect_collisions(records)
+    for rec in records:
+        item_id = f"{rec['sample_id']}#{rec['object_index']:02d}"
+        rec["collision"] = item_id in collisions
+        if rec["collision"]:
+            stats["collision"] += 1
+            flagged.append({"item_id": item_id, "reason": "collision",
+                            "query": rec.get("query", "")})
 
     # --- Assemble output ---
     out_dir = output_root / tag

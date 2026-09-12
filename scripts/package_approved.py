@@ -234,6 +234,7 @@ def package_single(
     # Assemble dataset
     data: dict[str, dict] = {}
     qc_failures: list[tuple[str, str, str]] = []
+    seen_queries: set[tuple[str, str]] = set()
 
     for rec in records:
         sample_id = rec["sample_id"]
@@ -248,6 +249,10 @@ def package_single(
             raise ValueError(f"Duplicate item key generated in dataset: {item_key!r}")
 
         query = clean_query_text(rec.get("query", ""))
+        query_key = (idx_item["visible"], " ".join(query.split()).casefold())
+        if rec.get("collision") or query_key in seen_queries:
+            raise ValueError(f"Unresolved same-frame query collision at {item_key!r}")
+        seen_queries.add(query_key)
         valid, reason = validate_annotation_query(query)
         if not valid:
             qc_failures.append((item_key, query, reason))
@@ -350,51 +355,15 @@ def package_single(
         base_dir = output_dir or (PROJECT_ROOT / "outputs" / "approved")
         output_path = base_dir / resolved_run_id / resolved_split / "approved.json"
 
-    if output_path.exists() and not force and not dry_run:
-        raise FileExistsError(f"Destination file already exists: {output_path}. Pass --force to overwrite.")
+    qc_report = None
+    if qc_failures:
+        qc_report = {
+            "run_id": resolved_run_id, "split": resolved_split, "lenient_qc": True,
+            "qc_failures_count": len(qc_failures),
+            "failures": [{"item_key": k, "query": q, "reason": reason} for k, q, reason in qc_failures],
+        }
 
-    written_paths = []
-    if not dry_run:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(output_path, artifact)
-        written_paths.append(output_path)
-
-        if qc_failures:
-            # The downstream contract pins qc.invalid_queries to 0 inside the
-            # artifact (exact-schema), so an honest count cannot live in the
-            # metadata. A lenient (knowingly imperfect) delivery records the
-            # real failures in a sidecar so the deviation stays traceable.
-            sidecar = output_path.with_name(output_path.stem + ".qc_report.json")
-            atomic_write_json(
-                sidecar,
-                {
-                    "run_id": resolved_run_id,
-                    "split": resolved_split,
-                    "lenient_qc": True,
-                    "qc_failures_count": len(qc_failures),
-                    "failures": [
-                        {"item_key": item_key, "query": query, "reason": reason}
-                        for item_key, query, reason in qc_failures
-                    ],
-                },
-            )
-            written_paths.append(sidecar)
-            print(
-                f"[WARNING] lenient delivery carries {len(qc_failures)} QC failures; "
-                f"report written to {sidecar}",
-                file=sys.stderr,
-            )
-
-        # Optional direct export to main repo
-        if export_to_main:
-            main_dest = export_to_main / "outputs" / "annotations" / resolved_run_id / resolved_split / "approved.json"
-            if main_dest.exists() and not force:
-                raise FileExistsError(f"Main repo target already exists: {main_dest}. Pass --force to overwrite.")
-            main_dest.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_json(main_dest, artifact)
-            written_paths.append(main_dest)
-
-    return {
+    result = {
         "run_id": resolved_run_id,
         "split": resolved_split,
         "sample_count": sample_count,
@@ -405,10 +374,39 @@ def package_single(
         "preparation_fingerprint": prep_fp,
         "prompt_hash": resolved_prompt_hash,
         "output_path": output_path,
-        "written_paths": written_paths,
+        "written_paths": [],
         "qc_failures_count": len(qc_failures),
         "artifact": artifact,
+        "qc_report": qc_report,
     }
+
+    if not dry_run:
+        _publish_results([result], export_to_main=export_to_main, force=force)
+    return result
+
+
+def _publish_results(results: list[dict], *, export_to_main: Path | None, force: bool) -> None:
+    """Check every destination before writing any already-validated artifact."""
+    deliveries: dict[Path, dict] = {}
+    for result in results:
+        destinations = [Path(result["output_path"])]
+        if export_to_main is not None:
+            destinations.append(export_to_main / "outputs" / "annotations" / result["run_id"] / result["split"] / "approved.json")
+        for destination in destinations:
+            payloads = [(destination, result["artifact"])]
+            if result["qc_report"] is not None:
+                payloads.append((destination.with_name(destination.stem + ".qc_report.json"), result["qc_report"]))
+            for path, payload in payloads:
+                path = path.resolve()
+                if path in deliveries and deliveries[path] != payload:
+                    raise ValueError(f"Conflicting packaging destinations: {path}")
+                if path.exists() and not force:
+                    raise FileExistsError(f"Destination file already exists: {path}. Pass --force to overwrite.")
+                deliveries[path] = payload
+                if path not in result["written_paths"]:
+                    result["written_paths"].append(path)
+    for path, payload in deliveries.items():
+        atomic_write_json(path, payload)
 
 
 def _derive_common_run_id(assemblies: list[Path]) -> str:
@@ -479,7 +477,7 @@ def package(
             prompt_hash=prompt_hash,
             key_format=key_format,
             lenient_qc=lenient_qc,
-            dry_run=dry_run,
+            dry_run=True,
             force=force,
         )
         s = res["split"]
@@ -500,6 +498,8 @@ def package(
             strict_query_qc=not lenient_qc,
         )
 
+    if not dry_run:
+        _publish_results(results, export_to_main=export_to_main, force=force)
     return results[0] if return_single else results
 
 

@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from foundry.pipeline.assembly import assemble_run, audit_assembly  # noqa: E402
 from foundry.pipeline.buckets import classify_frozen  # noqa: E402
-from foundry.utils import atomic_write_json, load_json  # noqa: E402
+from foundry.utils import atomic_write_json, load_json, resolve_index_dir  # noqa: E402
 from foundry.pipeline.text_qc import apply_text_qc  # noqa: E402
 
 
@@ -44,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--split", choices=("train", "val"), default="train",
         help="which index file to load for GT boxes",
     )
+    parser.add_argument("--index-dir", type=Path, default=None)
     parser.add_argument("--run-tag", default="")
     parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "outputs" / "assembly")
     parser.add_argument("--max-teacher-per-frame", type=int, default=2,
@@ -67,7 +68,7 @@ def main() -> None:
     if not merged_path.exists():
         raise SystemExit(f"merged.json not found under {args.census_run}")
     merged = load_json(merged_path)
-    index = load_json(args.data_root / "indexes" / f"{args.split}.json")
+    index = load_json(resolve_index_dir(args.data_root, args.index_dir) / f"{args.split}.json")
     spec = None  # bucket shares use frozen constants
     result = assemble_run(
         merged,

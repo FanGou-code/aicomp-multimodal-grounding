@@ -12,6 +12,44 @@ from scripts.package_approved import package
 
 
 class PackageApprovedTests(unittest.TestCase):
+    def test_final_collisions_are_rejected_even_without_flags(self):
+        import copy
+        for flagged in (False, True):
+            bad = copy.deepcopy(self.valid_assembly)
+            bad["records"][1].update(sample_id=bad["records"][0]["sample_id"],
+                                     query=bad["records"][0]["query"], collision=flagged)
+            path = self.root / "collision.json"
+            path.write_text(json.dumps(bad))
+            with self.subTest(flagged=flagged), self.assertRaisesRegex(ValueError, "collision"):
+                package(assembly_path=path, index_path=self.index_path,
+                        split_manifest_path=self.manifest_path, output_path=self.root / "no-output.json")
+            self.assertFalse((self.root / "no-output.json").exists())
+
+    def test_joint_validation_failure_leaves_no_deliveries(self):
+        import copy
+        val = copy.deepcopy(self.valid_assembly)
+        val["metadata"]["split"] = "val"
+        val_path = self.root / "val-assembly.json"
+        val_path.write_text(json.dumps(val))
+        with self.assertRaisesRegex(ValueError, "overlap"):
+            package(assemblies=[self.assembly_path, val_path], index_path=self.index_path,
+                    split_manifest_path=self.manifest_path, output_dir=self.root / "out",
+                    export_to_main=self.root / "main", run_id="annot_failed")
+        self.assertFalse((self.root / "out").exists())
+        self.assertFalse((self.root / "main").exists())
+
+    def test_existing_export_target_is_checked_before_local_output_is_written(self):
+        dest = self.root / "main/outputs/annotations/annot_existing/train/approved.json"
+        dest.parent.mkdir(parents=True)
+        dest.write_bytes(b"historical output")
+        out = self.root / "new.json"
+        with self.assertRaises(FileExistsError):
+            package(assembly_path=self.assembly_path, index_path=self.index_path,
+                    split_manifest_path=self.manifest_path, output_path=out,
+                    export_to_main=self.root / "main", run_id="annot_existing")
+        self.assertEqual(dest.read_bytes(), b"historical output")
+        self.assertFalse(out.exists())
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)

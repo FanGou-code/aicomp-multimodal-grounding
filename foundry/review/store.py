@@ -26,8 +26,11 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+
+from foundry.utils import atomic_write_json
 
 JOURNAL_NAME = "annotations.jsonl"
 QUERY_SNAPSHOT_NAME = "annotations.queries.json"
@@ -45,12 +48,7 @@ def _is_absent_annotator(annotator: object) -> bool:
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(
-        json.dumps(data, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
-    )
-    os.replace(tmp, path)
+    atomic_write_json(path, data)
 
 
 class AnnotationStore:
@@ -65,30 +63,35 @@ class AnnotationStore:
         self._queries: dict[str, str] = {}
         self._meta: dict[str, dict] = {}
         self._absent: dict[str, str] = {}
+        self._touched: set[str] = set()
         self._journal_sig: tuple[int, int, int] | None = None
         self._replay()
 
     # -- journal replay ----------------------------------------------------
 
-    def _read_journal_state(self) -> tuple[dict[str, list[float]], dict[str, str], dict[str, dict], dict[str, str]]:
+    def _read_journal_state(self) -> tuple[dict, dict, dict, dict, set[str]]:
         state: dict[str, list[float]] = {}
         queries: dict[str, str] = {}
         meta: dict[str, dict] = {}
         absent: dict[str, str] = {}
+        touched: set[str] = set()
         if not self.journal_path.is_file():
-            return state, queries, meta, absent
-        with self.journal_path.open("r", encoding="utf-8") as fh:
+            return state, queries, meta, absent, touched
+        with self.journal_path.open("rb") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
                     continue
                 try:
                     record = json.loads(line)
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, UnicodeDecodeError):
                     continue  # torn tail from a crash; journal remains truth
+                if not isinstance(record, dict):
+                    continue
                 item_id = record.get("id")
                 if not isinstance(item_id, str) or not item_id:
                     continue
+                touched.add(item_id)
                 annotator = record.get("annotator")
                 if record.get("query"):
                     queries[item_id] = str(record["query"])
@@ -116,7 +119,7 @@ class AnnotationStore:
                         continue
                     meta[item_id] = {"annotator": annotator, "ts": record.get("ts")}
                     absent.pop(item_id, None)
-        return state, queries, meta, absent
+        return state, queries, meta, absent, touched
 
     def _journal_signature(self) -> tuple[int, int, int] | None:
         try:
@@ -126,8 +129,11 @@ class AnnotationStore:
         return (st.st_ino, st.st_mtime_ns, st.st_size)
 
     def _replay(self) -> None:
-        self._state, self._queries, self._meta, self._absent = self._read_journal_state()
-        self._journal_sig = self._journal_signature()
+        signature = self._journal_signature()
+        self._state, self._queries, self._meta, self._absent, self._touched = self._read_journal_state()
+        # If another writer appended during this read, leave the earlier
+        # signature so the next read refreshes instead of hiding the new tail.
+        self._journal_sig = signature
 
     def _refresh_locked(self) -> None:
         """Hot-reload in-memory state if another process appended to the journal."""
@@ -135,12 +141,13 @@ class AnnotationStore:
             sig = self._journal_signature()
             if sig == self._journal_sig:
                 return
-            state, queries, meta, absent = self._read_journal_state()
+            state, queries, meta, absent, touched = self._read_journal_state()
             # Concurrent writers may have appended while we replayed; only
             # commit the replay if the file is unchanged since it started,
             # otherwise the new tail would be swallowed by this signature.
             if self._journal_signature() == sig:
                 self._state, self._queries, self._meta, self._absent = state, queries, meta, absent
+                self._touched = touched
                 self._journal_sig = sig
                 return
         # Journal kept changing under us; leave state as-is, next read retries.
@@ -171,17 +178,37 @@ class AnnotationStore:
 
     # -- writes --------------------------------------------------------------
 
+    def snapshot(self) -> dict:
+        """Read one coherent journal state without modifying journal or snapshots."""
+        with self._lock:
+            self._refresh_locked()
+            return {
+                "boxes": {k: list(v) for k, v in self._state.items()},
+                "queries": dict(self._queries),
+                "meta": {k: dict(v) for k, v in self._meta.items()},
+                "absent": dict(self._absent),
+                "touched_ids": set(self._touched),
+            }
+
+    @contextmanager
+    def _write_lock(self):
+        # Review servers run on Linux/macOS. flock coordinates separate server
+        # processes/instances; the Python lock protects threads on this instance.
+        import fcntl
+        with self._lock:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            with (self.data_dir / ".annotations.lock").open("a+b") as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(handle, fcntl.LOCK_UN)
+
     def set(self, item_id: str, bbox: list[float], annotator: str | None = None) -> list[float]:
         bbox = [float(v) for v in bbox]
         record = {"id": item_id, "bbox": bbox, "annotator": annotator, "ts": _now()}
-        with self._lock:
+        with self._write_lock():
             self._append(record)
-            self._state[item_id] = bbox
-            self._meta[item_id] = {"annotator": annotator, "ts": record["ts"]}
-            self._absent.pop(item_id, None)
-            # Deliberately do NOT advance _journal_sig here: other processes
-            # may have appended before our append, and stat-ing now would
-            # mark those unread records as seen. The next read re-replays.
             self._write_snapshots()
         return bbox
 
@@ -195,37 +222,23 @@ class AnnotationStore:
         replay semantics); excluding human-annotated items stays the caller's
         job, decided against a single all_meta() snapshot.
         """
-        with self._lock:
-            self._refresh_locked()
-            if not seeds:
-                return 0
-            self.journal_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.journal_path.open("a", encoding="utf-8") as fh:
-                for item_id, bbox, annotator in seeds:
-                    record = {
-                        "id": item_id,
-                        "bbox": [float(v) for v in bbox],
-                        "annotator": annotator,
-                        "ts": _now(),
-                    }
-                    fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-                    self._state[item_id] = record["bbox"]
-                    self._meta[item_id] = {"annotator": annotator, "ts": record["ts"]}
-                    self._absent.pop(item_id, None)
-                fh.flush()
-                os.fsync(fh.fileno())
-            # Like set(), do not advance _journal_sig: the next read re-replays
-            # once and reconciles any interleaved foreign appends.
+        if not seeds:
+            return 0
+        records = [
+            {"id": item_id, "bbox": [float(v) for v in bbox], "annotator": annotator, "ts": _now()}
+            for item_id, bbox, annotator in seeds
+        ]
+        with self._write_lock():
+            self._append_many(records)
             self._write_snapshots()
-            return len(seeds)
+        return len(seeds)
+
 
     def set_query(self, item_id: str, query: str, annotator: str | None = None) -> str:
         """Record a human-edited query text; the box state is untouched."""
         record = {"id": item_id, "query": query, "annotator": annotator, "ts": _now()}
-        with self._lock:
+        with self._write_lock():
             self._append(record)
-            self._queries[item_id] = query
-            self._meta[item_id] = {"annotator": annotator, "ts": record["ts"]}
             self._write_snapshots()
         return query
 
@@ -236,37 +249,31 @@ class AnnotationStore:
 
     def delete(self, item_id: str, annotator: str | None = None) -> None:
         record = {"id": item_id, "bbox": None, "annotator": annotator, "ts": _now()}
-        with self._lock:
+        with self._write_lock():
             self._append(record)
-            self._state.pop(item_id, None)
-            self._meta.pop(item_id, None)
-            self._absent.pop(item_id, None)
             self._write_snapshots()
 
     def _append(self, record: dict) -> None:
-        self.journal_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.journal_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self._append_many([record])
+
+    def _append_many(self, records: list[dict]) -> None:
+        # Preserve all original bytes. A damaged/non-newline-terminated tail
+        # gets its own line so it cannot swallow the next successful write.
+        with self.journal_path.open("a+b") as fh:
+            fh.seek(0, os.SEEK_END)
+            if fh.tell():
+                fh.seek(-1, os.SEEK_END)
+                if fh.read(1) != b"\n":
+                    fh.write(b"\n")
+            for record in records:
+                fh.write((json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8"))
             fh.flush()
             os.fsync(fh.fileno())
 
     def _write_snapshots(self) -> None:
-        # Caller holds the lock. Re-derive from the journal instead of the
-        # in-memory state so entries written by other processes survive.
-        state: dict[str, list[float]] = {}
-        queries: dict[str, str] = {}
-        meta: dict[str, dict] = {}
-        absent: dict[str, str] = {}
-        for _ in range(5):
-            sig = self._journal_signature()
-            state, queries, meta, absent = self._read_journal_state()
-            if self._journal_signature() == sig:
-                break
-        # Every snapshot AND the in-memory views must agree with the journal.
-        # Writing a stale local queries dict here would let a box-only writer
-        # (set/seed/delete) flush another process's query edits out of
-        # annotations.queries.json even though the journal still holds them.
-        self._state, self._queries, self._meta, self._absent = state, queries, meta, absent
+        # Caller holds both thread and process locks, so all snapshots reflect
+        # the same journal. Readers recover from the journal after any crash.
+        self._replay()
         _atomic_write_json(self.snapshot_path, self._state)
         _atomic_write_json(self.queries_path, self._queries)
         _atomic_write_json(self.absent_path, self._absent)

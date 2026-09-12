@@ -262,10 +262,6 @@ class PooledClientTests(unittest.TestCase):
         self.assertEqual(seen_keys, ["k1", "k1"])
         self.assertEqual(pool.alive(), 2)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_remote_disconnected_retries_and_succeeds(self):
         # Regression (full-run crash): the provider sometimes closes the
         # connection without a response (http.client.RemoteDisconnected) —
@@ -292,7 +288,7 @@ if __name__ == "__main__":
             messages=[{"role": "user", "content": "t"}], max_tokens=8, temperature=0.1
         )
         self.assertEqual(len(calls), 3)
-        self.assertIn("content", response.content)
+        self.assertEqual(json.loads(response.content), {"query": "test"})
         self.assertEqual(pool.alive(), 1)
 
 
@@ -319,5 +315,13 @@ if __name__ == "__main__":
         pool2.retire(0, "HTTP 401")
         pool2.note_transport_failure(1)
         pool2.note_transport_failure(1)
+        self.assertEqual(pool2.current(), (1, "b"))
+        self.assertEqual(pool2.current(), (1, "b"))  # auth-retired a never returns
+        pool2.note_transport_failure(1)
+        pool2.note_transport_failure(1)
         with self.assertRaises(APIKeyPoolExhausted):
             pool2.current()
+
+
+if __name__ == "__main__":
+    unittest.main()

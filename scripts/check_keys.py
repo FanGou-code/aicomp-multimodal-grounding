@@ -88,7 +88,7 @@ def classify_status(status: int | None, error_text: str) -> str:
     return f"UNEXPECTED HTTP {status}: {error_text[:120]}"
 
 
-def build_payload(*, probe: str, data_root: Path, model: str) -> dict:
+def build_payload(*, probe: str, data_root: Path, model: str, index_dir: Path | None = None) -> dict:
     """Build the request payload shared by every key probe."""
     if probe == "minimal":
         return {
@@ -97,7 +97,8 @@ def build_payload(*, probe: str, data_root: Path, model: str) -> dict:
             "max_tokens": 1,
             "thinking": {"type": "disabled"},
         }
-    index_path = data_root / "indexes" / "train.json"
+    from foundry.utils import resolve_index_dir
+    index_path = resolve_index_dir(data_root, index_dir) / "train.json"
     if not index_path.is_file():
         raise SystemExit(f"train index not found at {index_path} (realistic probe needs it; try --probe minimal)")
     index = json.loads(index_path.read_text(encoding="utf-8"))
@@ -147,6 +148,7 @@ def describe_usage(usage: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", default=str(PROJECT_ROOT / "keys" / "api_keys.txt"))
+    parser.add_argument("--index-dir", type=Path, default=None)
     parser.add_argument("--probe", choices=("realistic", "minimal"), default="realistic")
     parser.add_argument(
         "--data-root",
@@ -166,7 +168,7 @@ def main() -> int:
     if not entries:
         print(f"no keys in {path}")
         return 2
-    payload = build_payload(probe=args.probe, data_root=Path(args.data_root), model=ANNOTATION_MODEL_NAME)
+    payload = build_payload(probe=args.probe, data_root=Path(args.data_root), model=ANNOTATION_MODEL_NAME, index_dir=args.index_dir)
     print(f"probing {len(entries)} keys from {path} | probe={args.probe} model={ANNOTATION_MODEL_NAME} (1 call each)")
 
     results: dict[int, tuple[int | None, str]] = {}
@@ -186,7 +188,7 @@ def main() -> int:
                 continue
             status, detail, _ = probe_key(key, payload=payload, base_url=ANNOTATION_API_BASE_URL, timeout=args.timeout)
             first = results[line_no]
-            results[line_no] = status if status == 200 else first
+            results[line_no] = (status, detail) if status == 200 else first
             note = f"was {first[0]}, now" if status == 200 else "still"
             print(f"  line {line_no}: {note} HTTP {status} -> {classify_status(results[line_no][0], detail)}", flush=True)
 

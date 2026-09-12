@@ -17,7 +17,7 @@ from pathlib import Path
 def __trusted_objects(frame):
     from foundry.pipeline.census import trusted_objects
     return trusted_objects(frame)
-from foundry.utils import ANNOTATION_MODEL_NAME, load_json  # noqa: E402
+from foundry.utils import ANNOTATION_MODEL_NAME, load_json, resolve_index_dir  # noqa: E402
 from foundry.review.store import AnnotationStore  # noqa: E402
 
 #: Single source of truth for the seeding model's annotator label. Must stay
@@ -26,14 +26,14 @@ from foundry.review.store import AnnotationStore  # noqa: E402
 TEACHER_ANNOTATOR = ANNOTATION_MODEL_NAME
 
 
-def build_census_session(census_run_dir: Path, data_root: Path, review_root: Path) -> dict:
+def build_census_session(census_run_dir: Path, data_root: Path, review_root: Path, *, index_dir: Path | None = None) -> dict:
     """Build review items from a census run and seed missing teacher boxes."""
     census_run_dir = Path(census_run_dir)
     data_root = Path(data_root)
     merged = load_json(census_run_dir / "merged.json")
     metadata = merged.get("metadata", {})
     split = metadata.get("split", "train")
-    index = load_json(data_root / "indexes" / f"{split}.json")
+    index = load_json(resolve_index_dir(data_root, index_dir) / f"{split}.json")
     results = merged.get("results", {})
     store = AnnotationStore(Path(review_root) / str(metadata.get("run_id") or census_run_dir.name))
     existing_meta = store.all_meta()
@@ -86,7 +86,7 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
     }
 
 
-def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Path) -> dict:
+def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Path, *, index_dir: Path | None = None) -> dict:
     """Review items from an assembled query manifest (1 sampled frame/sequence).
 
     Each record becomes an item whose query text is the assembled sentence and
@@ -100,7 +100,7 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
     manifest = load_json(assembly_path)
     metadata = manifest.get("metadata", {})
     split = metadata.get("split", "train")
-    index = load_json(data_root / "indexes" / f"{split}.json")
+    index = load_json(resolve_index_dir(data_root, index_dir) / f"{split}.json")
     by_sequence: dict[str, dict[str, list[dict]]] = {}
     for record in manifest.get("records", []):
         sequence_id = record["sequence_id"]

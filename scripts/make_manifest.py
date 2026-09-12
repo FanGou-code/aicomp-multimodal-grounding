@@ -32,11 +32,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from foundry.utils import resolve_index_dir
+
 
 def build_manifest_from_assembly(
     assembly_path: Path,
     data_root: Path,
     *,
+    index_dir: Path | None = None,
     split: int = 0,
     part: int = 0,
     out: Path | None = None,
@@ -48,7 +51,7 @@ def build_manifest_from_assembly(
     run_tag = metadata.get("run_tag", assembly_path.parent.name)
 
     data_root = Path(data_root)
-    index = json.loads((data_root / "indexes" / f"{split_name}.json").read_text(encoding="utf-8"))
+    index = json.loads((resolve_index_dir(data_root, index_dir) / f"{split_name}.json").read_text(encoding="utf-8"))
 
     items: list[dict] = []
     for record in manifest.get("records", []):
@@ -157,6 +160,7 @@ def main() -> None:
                         help="root directory for image paths (required with --source)")
     parser.add_argument("--data-root", type=Path, default=None,
                         help="dataset root holding indexes/ (required with --assembly)")
+    parser.add_argument("--index-dir", type=Path, default=None)
     parser.add_argument("--split", type=int, default=0,
                         help="divide into N parts (0 = no split)")
     parser.add_argument("--part", type=int, default=0,
@@ -191,7 +195,7 @@ def main() -> None:
         out = Path(f"{tag}-part{args.part}of{args.split}.json") if args.split > 0 else Path(f"{tag}.json")
 
     result = build_manifest_from_assembly(
-        assembly_path=args.assembly, data_root=args.data_root,
+        assembly_path=args.assembly, data_root=args.data_root, index_dir=args.index_dir,
         split=args.split, part=args.part, out=out,
     )
     print(f"manifest: {len(result['items'])} items, run_tag={result['run_tag']}")

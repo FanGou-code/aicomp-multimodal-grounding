@@ -65,6 +65,10 @@
     currentIndex: 0,
     annotator: localStorage.getItem(STORAGE_KEY_ANNOTATOR) || '',
     reviewMode: false,
+    teacherAnnotator: 'glm-4.6v',
+    viewVersion: 0,
+    pendingBboxSaves: new Set(),
+    pendingQuerySaves: new Map(),
     
     // Cached Images with LRU eviction
     imageCache: new ImageLRUCache(IMAGE_CACHE_CAPACITY),
@@ -152,7 +156,7 @@
 
   // --- Annotation Status Predicates ---
   function isAiAnnotator(annotator) {
-    return !!annotator && (annotator.startsWith('glm') || annotator.includes('ai'));
+    return annotator === state.teacherAnnotator || annotator === `${state.teacherAnnotator}:absent`;
   }
 
   // AI pre-annotation awaiting human review: a glm-drawn box
@@ -216,6 +220,7 @@
       state.totalItems = data.total_items || data.items.length;
       state.items = data.items || [];
       state.reviewMode = data.mode === 'census-review';
+      state.teacherAnnotator = data.teacher_annotator || 'glm-4.6v';
 
       // Corpus filter removed — manifest mode shows all items
 
@@ -289,6 +294,7 @@
   function goToIndex(index) {
     if (index < 0 || index >= state.items.length) return;
     if (state.currentIndex === index && state.currentImage) return;
+    state.viewVersion += 1;
     state.currentIndex = index;
     const item = state.items[index];
     if (item && item.id) {
@@ -1122,7 +1128,8 @@
 
   async function saveBbox() {
     const item = getCurrentItem();
-    if (!item) return;
+    if (!item || state.pendingBboxSaves.has(item.id)) return;
+    const viewVersion = state.viewVersion;
 
     if (!state.activeBbox) {
       showToast('请先在图片上绘制目标框', 'error');
@@ -1135,6 +1142,8 @@
       return;
     }
 
+    const submittedBbox = [...state.activeBbox];
+
     const annotatorName = (dom.annotatorInput.value || state.annotator || (state.reviewMode ? 'reviewer' : '')).trim();
     if (!annotatorName) {
       showToast('保存需署名：请先在右上角填写标注者', 'error');
@@ -1144,12 +1153,13 @@
     state.annotator = annotatorName;
     localStorage.setItem(STORAGE_KEY_ANNOTATOR, annotatorName);
 
+    state.pendingBboxSaves.add(item.id);
     try {
       dom.saveBtn.disabled = true;
       const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/bbox`, {
         method: 'PUT',
         body: JSON.stringify({
-          bbox: state.activeBbox,
+          bbox: submittedBbox,
           annotator: annotatorName
         })
       });
@@ -1164,46 +1174,65 @@
       // Update local item
       item.bbox = result.bbox;
       item.annotator = annotatorName || null;
-      state.activeBbox = [...result.bbox];
-
       updateOverallProgress();
-      goToNextTodo();
+      if (state.viewVersion === viewVersion && getCurrentItem()?.id === item.id &&
+          JSON.stringify(state.activeBbox) === JSON.stringify(submittedBbox)) {
+        state.activeBbox = [...result.bbox];
+        goToNextTodo();
+      }
     } catch (err) {
       showToast('保存失败: ' + err.message, 'error');
     } finally {
-      dom.saveBtn.disabled = false;
+      state.pendingBboxSaves.delete(item.id);
+      dom.saveBtn.disabled = state.pendingBboxSaves.size > 0;
     }
   }
 
   async function saveQueryEdit() {
-    // 人工修缮 query: 同步到服务端 journal, 本地 item 更新, 声明主体刷新。
     const item = getCurrentItem();
     if (!item) return;
     const el = dom.queryEnText;
     if (el.tagName !== 'INPUT') return;
     const fresh = el.value.trim();
-    if (!fresh || fresh === (el.dataset.original || '')) return;
+    const previous = state.pendingQuerySaves.get(item.id);
+    if (!fresh || (!previous && fresh === (el.dataset.original || ''))) return;
     const name = (dom.annotatorInput.value || state.annotator || (state.reviewMode ? 'reviewer' : '')).trim();
     if (!name) {
       showToast('请先在右上角填写标注者', 'error');
       return;
     }
+    if (previous?.query === fresh) return previous.promise;
+    const viewVersion = state.viewVersion;
     state.annotator = name;
     localStorage.setItem(STORAGE_KEY_ANNOTATOR, name);
-    try {
-      const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/query`, {
-        method: 'PUT',
-        body: JSON.stringify({ query: fresh, annotator: name })
-      });
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error || `HTTP ${resp.status}`);
+    // Enter + blur shares one request. A newer edit waits for the older one,
+    // so responses cannot commit the same item's text out of order.
+    const promise = (async () => {
+      if (previous) await previous.promise;
+      try {
+        const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/query`, {
+          method: 'PUT',
+          body: JSON.stringify({ query: fresh, annotator: name })
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error || `HTTP ${resp.status}`);
+        }
+        item.query_en = fresh;
+        if (state.viewVersion === viewVersion && getCurrentItem()?.id === item.id) {
+          el.dataset.original = fresh;
+        }
+        showToast('query 已更新', 'success');
+      } catch (err) {
+        showToast('query 保存失败: ' + err.message, 'error');
       }
-      item.query_en = fresh;
-      el.dataset.original = fresh;
-      showToast('query 已更新', 'success');
-    } catch (err) {
-      showToast('query 保存失败: ' + err.message, 'error');
+    })();
+    const entry = { query: fresh, promise };
+    state.pendingQuerySaves.set(item.id, entry);
+    try {
+      await promise;
+    } finally {
+      if (state.pendingQuerySaves.get(item.id) === entry) state.pendingQuerySaves.delete(item.id);
     }
   }
 
@@ -1211,7 +1240,8 @@
     // 加入待办: 这条有问题(指代歧义/表述不佳), 留在待办清单里
     // 由后续消歧流程处理(补描述或废弃)。保留当前框, 署名带 :todo 后缀。
     const item = getCurrentItem();
-    if (!item || !state.activeBbox) return;
+    if (!item || !state.activeBbox || state.pendingBboxSaves.has(item.id)) return;
+    const viewVersion = state.viewVersion;
     const name = (dom.annotatorInput.value || state.annotator || (state.reviewMode ? 'reviewer' : '')).trim();
     if (!name) {
       showToast('请先在右上角填写标注者', 'error');
@@ -1219,6 +1249,7 @@
     }
     state.annotator = name;
     localStorage.setItem(STORAGE_KEY_ANNOTATOR, name);
+    state.pendingBboxSaves.add(item.id);
     try {
       const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/bbox`, {
         method: 'PUT',
@@ -1230,9 +1261,12 @@
       }
       item.annotator = `${name}:todo`;
       updateOverallProgress();
-      goToNextTodo();
+      if (state.viewVersion === viewVersion && getCurrentItem()?.id === item.id) goToNextTodo();
     } catch (err) {
       showToast('标记失败: ' + err.message, 'error');
+    } finally {
+      state.pendingBboxSaves.delete(item.id);
+      dom.saveBtn.disabled = state.pendingBboxSaves.size > 0;
     }
   }
 

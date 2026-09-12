@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from foundry.utils import stable_json_hash
+from foundry.utils import resolve_index_dir, split_index_fingerprint, stable_json_hash
 from foundry.utils import PREPARATION_PROTOCOL_VERSION
 from foundry.pipeline.views import (
     trusted_dataset_image_fingerprint,
@@ -19,16 +19,16 @@ from foundry.pipeline.views import (
 from foundry.utils import load_json
 
 
-def load_annotation_source(data_root: Path, split: str) -> dict:
+def load_annotation_source(data_root: Path, split: str, *, index_dir: Path | None = None) -> dict:
     """Load the split index and verify it against split_manifest.json."""
-    indexes = data_root / "indexes"
+    indexes = resolve_index_dir(data_root, index_dir)
     path = indexes / f"{split}.json"
     manifest_path = indexes / "split_manifest.json"
     if not path.is_file():
         raise FileNotFoundError(f"Annotation source index not found: {path}")
     if not manifest_path.is_file():
         raise FileNotFoundError(
-            f"Annotation requires split_manifest.json from prepare_rgbdt.py: {manifest_path}"
+            f"Annotation requires split_manifest.json from prepare_split.py: {manifest_path}"
         )
     data = load_json(path)
     manifest = load_json(manifest_path)
@@ -39,16 +39,19 @@ def load_annotation_source(data_root: Path, split: str) -> dict:
         raise ValueError("Dataset split manifest is not a completed supported preparation")
     fingerprints = manifest.get("index_fingerprints")
     counts = manifest.get("index_sample_counts")
-    if not isinstance(fingerprints, dict) or fingerprints.get(split) != stable_json_hash(data):
+    # Both serializations occurred under protocol 2. Check their exact content
+    # hashes without rewriting either existing indexes or frozen artifacts.
+    valid_hashes = {split_index_fingerprint(data), stable_json_hash(data)}
+    if not isinstance(fingerprints, dict) or fingerprints.get(split) not in valid_hashes:
         raise ValueError(f"{split} index does not match split_manifest.json")
     if not isinstance(counts, dict) or counts.get(split) != len(data):
         raise ValueError(f"{split} sample count does not match split_manifest.json")
     return data
 
 
-def preparation_fingerprint(data_root: Path) -> str:
+def preparation_fingerprint(data_root: Path, *, index_dir: Path | None = None) -> str:
     """Content hash of the split manifest — the preparation half of the run identity."""
-    return stable_json_hash(load_json(data_root / "indexes" / "split_manifest.json"))
+    return stable_json_hash(load_json(resolve_index_dir(data_root, index_dir) / "split_manifest.json"))
 
 
 def image_fingerprint(

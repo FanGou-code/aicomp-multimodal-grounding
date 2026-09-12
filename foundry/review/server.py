@@ -192,6 +192,7 @@ class AnnotatorState:
         )
         return {
             "mode": "census-review",
+            "teacher_annotator": TEACHER_ANNOTATOR,
             "manifest": self.session["name"],
             "census_run_id": self.session.get("census_run_id"),
             "total_items": len(self.items),
@@ -359,6 +360,7 @@ def create_server(
     *,
     census_run_dir: str | Path | None = None,
     data_root: str | Path = "",
+    index_dir: Path | None = None,
     review_root: str | Path = "",
     assembly_path: str | Path | list[str | Path] | None = None,
     manifest_path: str | Path | None = None,
@@ -377,10 +379,10 @@ def create_server(
         stores: dict[str, AnnotationStore] = dict(sessions[0].get("stores", {}))
     elif assembly_path is not None:
         paths = [assembly_path] if isinstance(assembly_path, (str, Path)) else list(assembly_path)
-        sessions = [build_assembly_session(Path(p), Path(data_root), Path(review_root)) for p in paths]
+        sessions = [build_assembly_session(Path(p), Path(data_root), Path(review_root), index_dir=index_dir) for p in paths]
         stores = {}
     else:
-        sessions = [build_census_session(Path(census_run_dir), Path(data_root), Path(review_root))]
+        sessions = [build_census_session(Path(census_run_dir), Path(data_root), Path(review_root), index_dir=index_dir)]
         stores = {}
 
     items: list[dict] = []
@@ -423,6 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--assembly", nargs="+", help="assembly.json path(s); several = combined session")
     parser.add_argument("--manifest", help="path to a review manifest JSON (from make_manifest.py)")
     parser.add_argument("--data-root", type=Path, required=False)
+    parser.add_argument("--index-dir", type=Path, default=None)
     parser.add_argument("--review-root", default=PROJECT_ROOT / "outputs" / "review")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8788)
@@ -434,6 +437,7 @@ def main(argv: list[str] | None = None) -> int:
         server, state = create_server(
             census_run_dir=args.census_run,
             data_root=args.data_root,
+            index_dir=args.index_dir,
             review_root=args.review_root,
             assembly_path=args.assembly,
             manifest_path=args.manifest,

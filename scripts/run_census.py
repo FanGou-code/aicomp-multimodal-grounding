@@ -110,14 +110,15 @@ def build_census_plan(
     num_shards: int,
     run_tag: str,
     verify_images: bool = False,
+    index_dir: Path | None = None,
 ) -> dict:
     root = Path(data_root).resolve()
-    dataset = load_annotation_source(root, split)
+    dataset = load_annotation_source(root, split, index_dir=index_dir)
     identity = {
         "protocol_version": CENSUS_PROTOCOL_VERSION,
         "run_tag": run_tag,
         "split": split,
-        "preparation_fingerprint": preparation_fingerprint(root),
+        "preparation_fingerprint": preparation_fingerprint(root, index_dir=index_dir),
         "provider": ANNOTATION_PROVIDER,
         "api_base_url": ANNOTATION_API_BASE_URL,
         "model_name": ANNOTATION_MODEL_NAME,
@@ -171,10 +172,11 @@ def build_census_plan(
     return plan
 
 
-def census_preflight(*, data_root, output_root, split, limit_sequences, seed, num_shards, run_tag, resume, retry_failed, overwrite, deep_verify_images) -> dict:
+def census_preflight(*, data_root, output_root, split, limit_sequences, seed, num_shards, run_tag, resume, retry_failed, overwrite, deep_verify_images, index_dir=None) -> dict:
     plan = build_census_plan(
         data_root=data_root, split=split, limit_sequences=limit_sequences, seed=seed,
         num_shards=num_shards, run_tag=run_tag, verify_images=deep_verify_images,
+        index_dir=index_dir,
     )
     run_dir = Path(output_root).resolve() / plan["metadata"]["run_id"]
     if overwrite and run_dir.is_dir():
@@ -200,10 +202,12 @@ def census_preflight(*, data_root, output_root, split, limit_sequences, seed, nu
             raise ValueError(f"Census shard {shard_id} checkpoint belongs to another run")
         results = payload.get("results", {})
         sequences = plan["shards"][shard_id]
-        todo = [seq for seq in sequences if results.get(seq, {}).get("status") != "completed"]
-        if todo or not retry_failed:
-            pending.append(shard_id) if todo else None
-        if not todo:
+        todo = [seq for seq in sequences
+                if results.get(seq, {}).get("status") not in {"completed", "failed"}
+                or (retry_failed and results.get(seq, {}).get("status") == "failed")]
+        if todo:
+            pending.append(shard_id)
+        else:
             completed[shard_id] = payload
     return {**plan, "completed_payloads": completed, "pending_shard_ids": pending}
 
@@ -315,9 +319,10 @@ def census_shard(
     timeout_seconds: float,
     rate_limiter,
     progress,
+    index_dir: Path | None = None,
 ) -> dict:
     metadata = plan["metadata"]
-    dataset = load_annotation_source(data_root, metadata["split"])
+    dataset = load_annotation_source(data_root, metadata["split"], index_dir=index_dir)
     checkpoint_path = output_root / metadata["run_id"] / "shards" / f"shard_{shard_id:02d}.json"
     results: dict = {}
     if resume and checkpoint_path.is_file():
@@ -340,7 +345,8 @@ def census_shard(
     groups = group_keys_by_scene(list(dataset), dataset)
     todo = [
         seq for seq in sequence_ids
-        if results.get(seq, {}).get("status") != "completed" or (retry_failed and results.get(seq, {}).get("status") == "failed")
+        if results.get(seq, {}).get("status") not in {"completed", "failed"}
+        or (retry_failed and results.get(seq, {}).get("status") == "failed")
     ]
 
     def save_checkpoint() -> None:
@@ -354,13 +360,17 @@ def census_shard(
         for seq_offset, sequence_id in enumerate(todo, start=1):
             sample_ids = groups[sequence_id]
             frames: dict = dict(results.get(sequence_id, {}).get("frames", {}))
+            sequence_result = results.setdefault(sequence_id, {})
+            sequence_result.update(status="running", frames=frames)
             candidates: list[dict] = []
             for frame_offset, sample_id in enumerate(sample_ids, start=1):
                 item = dataset[sample_id]
                 frame_no = int(sample_id.rsplit("_", 1)[1])
                 previous = frames.get(sample_id)
-                if previous and previous.get("status") == "completed" and not retry_failed:
+                if previous and previous.get("status") == "completed":
                     candidates.append(previous["candidate"])
+                    continue
+                if previous and previous.get("status") == "failed" and not retry_failed:
                     continue
                 marked = build_marked_annotation_view(_load_plain_frame(data_root, item), item["bbox"])
                 frame_started = time.monotonic()
@@ -431,6 +441,7 @@ def census_shard(
             selected_records = []
             chosen = select_frames(candidates, k=SELECTED_FRAMES_PER_SEQUENCE)
             chosen_ids = {c["sample_id"] for c in chosen}
+            sequence_result["selected"] = sorted(chosen_ids)
             attr_failures = 0
             for sample_id in chosen_ids:
                 frame = frames[sample_id]
@@ -438,6 +449,11 @@ def census_shard(
                 agreed = _trusted_objects(frame)
                 indices = [obj["i"] for obj in agreed]
                 item = dataset[sample_id]
+                previous_attr_status = frame.get("attr", {}).get("status")
+                if previous_attr_status == "completed" or (previous_attr_status == "failed" and not retry_failed):
+                    attr_failures += previous_attr_status == "failed"
+                    selected_records.append(frame)
+                    continue
                 numbered = _numbered_view(_load_plain_frame(data_root, item), agreed)
                 attr = _complete_with_repair(
                     client,
@@ -448,6 +464,7 @@ def census_shard(
                     parser_kwargs={"indices": indices},
                 )
                 frame["attr"] = attr
+                save_checkpoint()
                 if attr["status"] != "completed":
                     attr_failures += 1
                 selected_records.append(frame)
@@ -561,6 +578,7 @@ def run_census(
     *,
     split: str = "train",
     data_root: Path | None = None,
+    index_dir: Path | None = None,
     output_root: Path = Path("outputs/census"),
     limit_sequences: int | None = 20,
     seed: int = 42,
@@ -585,6 +603,7 @@ def run_census(
         num_shards=num_shards if num_shards is not None else concurrency,
         run_tag=run_tag, resume=resume, retry_failed=retry_failed,
         overwrite=overwrite, deep_verify_images=deep_verify_images,
+        index_dir=index_dir,
     )
     if preflight_only:
         print(f"Census preflight passed: {plan['metadata']['run_id']} | pending shards: {len(plan['pending_shard_ids'])}", flush=True)
@@ -626,6 +645,7 @@ def run_census(
                 sequence_ids=plan["shards"][shard_id],
                 plan=plan,
                 data_root=data_root,
+                index_dir=index_dir,
                 output_root=output_root,
                 key_pool=key_pool,
                 resume=resume,
@@ -652,6 +672,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the v5 census protocol over source frames.")
     parser.add_argument("--split", choices=["train", "val"], default="train")
     parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--index-dir", type=Path, default=None,
+                        help="source indexes (default: this repo's data/indexes; legacy data-root/indexes accepted)")
     parser.add_argument("--output-root", type=Path, default=Path("outputs/census"))
     parser.add_argument("--limit-sequences", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
