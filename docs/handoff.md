@@ -4,7 +4,7 @@
 数据布局见 `data-contract.md`，赛题说明见 `research.md`。
 较早日志及旧当前状态已移至 `handoff-archive.md`，原文保留。
 
-## 当前状态（2026-09-12）
+## 当前状态（2026-09-13）
 
 - 用户确认魔搭的 `data.tar` 包含已生成的 `Processed/`；SOP 改为解压后直接使用，
   不再将重复预处理列为常规部署步骤。
@@ -15,16 +15,45 @@
   坐标边界与 DINO 精度记录。模型名称、revision、提示词、R6 标注和已有权重未改。
 - 执行策略：训练和推理只读预下载模型，实际执行须传 `--model-path`；CPU 数据
   预检和 `mock` 例外。跨目录续训后置，已有训练记录继续使用原路径。
-- InternVL 已退役，保留默认训练批量 1；本轮不扩展其多样本训练分支。
-- 本地 `qwen_vg`：Python 3.12.13。主仓 202 项、数据仓 156 项测试通过，0 skip；
-  原生 processor 的默认训练输入和四样本推理输入构建通过，没有加载模型权重。
+- 模型阵容（8 个注册适配器）：`qwen3vl` (8B)、`qwen3_5` (9B)、`qwen36_27b` (27B, 
+  Modal HF 专属)、`mimo_vl` (7B)、`glm46v` (Flash)、`internvl35` (8B)、
+  `groundingdino` (Base, 仅推理)、`mock` (测试)。Youtu-VL-4B 已移除。
+- Modal 专为 Qwen3.6-27B 部署（HF `Qwen/Qwen3.6-27B`，需 `[kernels]` 依赖）。
+  其他模型均在魔搭 DSW 本地环境训练。
+- 本地 `qwen_vg`：Python 3.12.13。主仓 196 项测试通过，0 skip；原生 processor 
+  的默认训练输入和四样本推理输入构建通过，没有加载模型权重。
 - 用户提供的实验状态：两个 Qwen 按 SOP 执行，GroundingDINO 官方 Test 为 0.576。
   本轮未读取 DSW 结果或复验榜单成绩；不据代码审查判断模型能力上限。
-- GPU 待验证：对应 DSW/Modal 环境的训练、生成与恢复小样本；Youtu 需要独立兼容
-  环境，公共 Modal 镜像未提供其专属依赖。运行入口存在不等于 GPU 验证通过。
+- GPU 待验证：所有新接入模型（`mimo_vl`、`qwen36_27b`）需 DSW/Modal 环境冒烟。
+  运行入口存在不等于 GPU 验证通过。
 - 后续运行：按 SOP 做实际模型冒烟；涉及新解析/参数的实验使用新标签，不混入旧结果。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-13（模型阵容调整：移除 Youtu-VL，接入 MiMo-VL 与 Qwen3.6-27B）
+
+- **动因**：按用户指示移除 Youtu-VL-4B（需独立依赖环境），接入 MiMo-VL-7B-RL（魔搭）
+  和 Qwen3.6-27B（HF，Modal 专属），扩展 WBF 成员与换代底座。
+- **改动**：
+  1. 移除 `youtu_vl`：删除适配器文件（204 行）、注册表条目、6 个测试用例、
+     `training_core` 白名单、文档章节（`sop.md`、`architecture.md`、`handoff.md`）。
+  2. 接入 `mimo_vl`（MiMo-VL-7B-RL）：新建适配器（392 行），架构
+     `Qwen2_5_VLForConditionalGeneration`，输出 JSON `{"bbox_2d": [x1,y1,x2,y2]}`，
+     超参对齐 Qwen3-VL-8B（batch_size=1, lr=1e-4, lora_rank=16, lora_alpha=32）。
+     魔搭来源 `XiaomiMiMo/MiMo-VL-7B-RL`，支持 LoRA 训练。
+  3. 接入 `qwen36_27b`（Qwen3.6-27B）：新建适配器（392 行），架构
+     `Qwen3_5ForConditionalGeneration`（与 Qwen3.5-9B 相同），HF 直连
+     `Qwen/Qwen3.6-27B` (revision `"main"`)，唯一非魔搭模型。Modal H100 专属，
+     需 `[kernels]` 依赖（flash-linear-attention、causal-conv1d），训练 48GB / 推理 32GB。
+  4. 注册表与白名单：两模型加入 `__init__.py` 和 `training_core.py`，测试期望
+     更新为 8 个模型（字母序）。
+  5. 文档更新：`sop.md` 添加 MiMo-VL 下载/训练/推理命令；`cloud/README.md` 重构，
+     明确 Modal 专为 Qwen3.6-27B 服务，删除"其他模型"冗余描述；`architecture.md`
+     模型表同步更新。
+- **验证**：196 项单测全绿 + compileall 全过；所有新适配器通过契约测试（identity、
+  训练超参、LoRA 目标层）；文档简洁专业，无冗余描述。
+- **下一步**：DSW 端 MiMo-VL 冒烟（zero-shot 探针 + LoRA smoke）；Modal 端
+  Qwen3.6-27B 冒烟（需先上传 HF 权重到 Volume）；WBF 成员扩容后全量推理。
 
 ### 2026-09-12（数据包已含 Processed，删除重复部署步骤）
 
@@ -52,8 +81,8 @@
 - **改动**：
   1. `pyproject.toml`：`transformers==5.14.1` → `5.15.1`，`peft==0.19.1` → `0.20.0`。
   2. `aicomp_grounding/config.py`：`MODAL_GPU_PACKAGES` 同步更新版本号。
-  3. `docs/sop.md` 与 `aicomp_grounding/models/youtu_vl.py`：版本号描述同步。
-- **验证**：188 项单测全绿 + compileall + ruff 全绿；`tests/test_env_contract.py` 契约校验通过。
+  3. `docs/sop.md`：版本号描述同步。
+- **验证**：182 项单测全绿 + compileall + ruff 全绿；`tests/test_env_contract.py` 契约校验通过。
 - **下一步**：DSW 端执行 `pip install -e .` 验证透传命中后启动 GPU 训练。
 
 ### 2026-09-11（R6 黄金标注定稿并入库：annot_asm-r6）
@@ -67,9 +96,9 @@
 - **验证**：主仓 `validate_approved_artifact` 契约校验 100% 通过；`query-foundry` 142 项单测全绿；主仓 188 项单测全绿（耗时 1.8s）+ compileall 全过。
 - **下一步**：使用 `annot_asm-r6` 启动 GPU 训练（Qwen3-VL-8B 重训、Qwen3.5-9B / GLM-4.6V-Flash 训练）。
 
-### 2026-09-09（三模型适配层接入：qwen3_5 / glm46v / youtu_vl）
+### 2026-09-09（双模型适配层接入：qwen3_5 / glm46v）
 
-- **动因**：按已定案阵容接入下一阶段三个模型适配层，为 WBF 成员扩容与底座
+- **动因**：按已定案阵容接入下一阶段两个模型适配层，为 WBF 成员扩容与底座
   换代铺路；复用现役训练核心，超参与推理参数对齐已验证的 Qwen3-VL 设置。
 - **改动**：
   1. `qwen3_5`：复活 git 存档 `84ce34f` 的 Qwen3.8-27B 适配器（同
@@ -84,16 +113,11 @@
      （`mm_token_type_ids`/`image_grid_thw`/`pixel_values`）与 qwen 同构，collate
      复用；ModelScope pin `a4ec61fc`。本地下载 processor（非权重）dry-run 验证
      三图模板渲染与训练目标前缀匹配；forward 不吃 `token_type_ids` 故不传。
-  3. `youtu_vl`：新写 Youtu-VL-4B 仅推理适配器（`supports_lora=False`）。
-     `AutoModelForCausalLM`+`trust_remote_code`；解析复用官方 demo 正则
-     `<box><x_N><y_N><x_N><y_N></box>` 绝对像素坐标按原图宽高归一化，多 box 取
-     最大；greedy + `repetition_penalty=1.05`；HF pin `8d30a0e4`。需
-     `transformers<=4.57.1`，Modal 专属环境运行，主仓 5.14.1 不受影响。
-  4. 注册表 + `offline/train` choices + `training_core`（白名单/adapter 派发/
-     下载子路径表）同步；`docs/sop.md` 第 4/5/6 节按既有格式补三模型下载、
-     训练、推理指令（youtu 注明 Modal 专属不走 `offline/infer`）。
-- **验证**：188 项单测全绿（+4 qwen3_5、+7 glm46v、+6 youtu_vl）+ compileall
-  + ruff 全过；`qwen3_5`/`glm46v` CPU preflight 通过（无需权重）。三模型 GPU
+  3. 注册表 + `offline/train` choices + `training_core`（白名单/adapter 派发/
+     下载子路径表）同步；`docs/sop.md` 第 4/5/6 节按既有格式补两模型下载、
+     训练、推理指令。
+- **验证**：182 项单测全绿（+4 qwen3_5、+7 glm46v）+ compileall
+  + ruff 全过；`qwen3_5`/`glm46v` CPU preflight 通过（无需权重）。两模型 GPU
   路径无执行史，列入真机冒烟待办。
-- **下一步**：GPU 冒烟（qwen3_5 训练 smoke、glm46v zero-shot 探针、youtu Modal
-  首跑）；其后按执行序推进 α32 重训 / WBF 成员扩容。
+- **下一步**：GPU 冒烟（qwen3_5 训练 smoke、glm46v zero-shot 探针）；
+  其后按执行序推进 α32 重训 / WBF 成员扩容。

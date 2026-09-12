@@ -43,10 +43,11 @@ CLI 相对路径以 `--project-root` 解析。新训练可以使用不同输出�
 | --- | --- | --- | --- |
 | `qwen3vl` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
 | `qwen3_5` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
+| `qwen36_27b` | RGB、IR、深度三图 | LoRA（Modal H100 专属） | 0–1000 整数 |
+| `mimo_vl` | RGB、IR、深度三图 | LoRA | JSON bbox 归一化 |
 | `glm46v` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
 | `internvl35` | RGB、IR、深度三图 | LoRA，训练批量为 1 | 0–1000 整数 |
 | `groundingdino` | RGB | 仅推理，原生置信度 | 归一化 XYXY |
-| `youtu_vl` | RGB、IR、深度三图 | 仅推理，需匹配原生代码的依赖环境 | 原图像素坐标 |
 | `mock` | 测试输入 | CPU 流程测试 | 归一化 XYXY |
 
 所有适配器返回归一化 XYXY 与可选 score。训练接口负责输入、监督掩码、组批、
