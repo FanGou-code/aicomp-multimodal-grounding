@@ -44,7 +44,7 @@ prepare_split → census → assembly → text_qc → review → apply → packa
 | `scripts/prepare_split.py` | 数据划分（--seed --train-ratio） |
 | `scripts/check_keys.py` | Key 测活 |
 | `scripts/review_report.py` | 审查报告 |
-| `configs/default/` | 默认风格配置（prompts + rules） |
+| `configs/default/` | 实际读取的提示词与 qc.json；API 和桶规则固定在代码 |
 
 ## 已删除（git 可溯）
 
@@ -52,3 +52,18 @@ prepare_split → census → assembly → text_qc → review → apply → packa
 `generate_queries.py`、`annotation_state.py`、`query_style.py`、`query.py`、
 `audit_query_style.py`（v4 管线）、`phase0_mine_test_style.py`、`audit_corpus.py`、
 `compare_distributions.py`（test 分析）。
+
+## 输入、恢复与发布
+
+图片根与索引目录分开传入；显式 `--index-dir` 优先，否则兼容旧图片根下索引，
+再使用本仓 `data/indexes/`。协议 2 两种已有序列化哈希均可读，生成器格式保持不变。
+
+census 将进行中序列纳入 checkpoint，已完成帧和属性在恢复时复用，失败部分按
+`--retry-failed` 处理。真实 API 调用不属于单元测试。
+
+store 使用追加日志与进程锁；快照通过独立临时文件发布。apply 从一次完整日志
+重放获取 query、bbox、absent、todo，避免混用不同时间的快照。前端保存响应只
+更新发起请求的条目，跳转后的当前画布不接受旧响应覆盖。
+
+package 先构建并校验整批产物，再检查所有目标并逐文件原子写入。校验失败不
+产生交付文件；操作系统中途写入失败仍应检查目标目录后重试。默认不覆盖旧文件。

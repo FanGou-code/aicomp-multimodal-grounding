@@ -12,6 +12,14 @@ INDEX_HTML = WEB_DIR / "index.html"
 
 
 class FrontendStaticTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "frontend state tests require Node.js")
+    def test_real_frontend_save_state_transitions(self):
+        result = subprocess.run(
+            [shutil.which("node"), str(Path(__file__).with_name("review_frontend.cjs"))],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_no_references_to_retired_identifiers(self):
         # Retired variables must never be referenced again: a leftover throws
         # ReferenceError/TypeError on startup or canvas redraw and freezes the reviewer.

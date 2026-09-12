@@ -24,6 +24,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from foundry.utils import split_index_fingerprint
+
 def _build_split(sequences: list[str], seed: int, train_ratio: float) -> tuple[list[str], list[str]]:
     """Deterministic sequence-level split."""
     import random
@@ -238,12 +240,8 @@ def build_indexes(
             "train_sequences": sorted(train_set),
             "val_sequences": sorted(val_set),
             "index_fingerprints": {
-                "train": hashlib.sha256(
-                    json.dumps(outputs["train"], sort_keys=True, ensure_ascii=False).encode()
-                ).hexdigest(),
-                "val": hashlib.sha256(
-                    json.dumps(outputs["val"], sort_keys=True, ensure_ascii=False).encode()
-                ).hexdigest(),
+                "train": split_index_fingerprint(outputs["train"]),
+                "val": split_index_fingerprint(outputs["val"]),
             },
             "index_sample_counts": {"train": stats["train"], "val": stats["val"]},
             "preparation_protocol_version": 2,

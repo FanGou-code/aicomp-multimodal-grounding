@@ -187,6 +187,68 @@ class ReviewReportTest(unittest.TestCase):
 class StoreReplayTest(unittest.TestCase):
     """Journal replay must survive every record shape the server writes."""
 
+    def test_append_during_initial_replay_is_not_marked_as_already_read(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            reader = AnnotationStore(tmp)
+            reader.set("a", [0, 0, 1, 1], "reviewer")
+            read_state = reader._read_journal_state
+            def read_then_append():
+                state = read_state()
+                AnnotationStore(tmp).set_query("late", "the updated query", "reviewer")
+                return state
+            with patch.object(reader, "_read_journal_state", side_effect=read_then_append):
+                reader._replay()
+            self.assertEqual(reader.get_query("late"), "the updated query")
+
+    def test_first_write_after_torn_tail_preserves_original_bytes(self):
+        for tail in (b'{"id":"broken"', b'{"query":"\xe4\xb8', b'{"id":"valid","query":"old"}'):
+            with self.subTest(tail=tail), tempfile.TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                store = AnnotationStore(directory)
+                store.set("a", [0, 0, 1, 1], "reviewer")
+                with store.journal_path.open("ab") as handle:
+                    handle.write(tail)
+                original = store.journal_path.read_bytes()
+                recovered = AnnotationStore(directory)
+                recovered.set("b", [0.1, 0.2, 0.3, 0.4], "reviewer")
+                self.assertEqual(AnnotationStore(directory).get("b"), [0.1, 0.2, 0.3, 0.4])
+                self.assertTrue(store.journal_path.read_bytes().startswith(original))
+
+    def test_two_store_instances_serialize_snapshot_publication(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        import foundry.review.store as module
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = AnnotationStore(tmp), AnnotationStore(tmp)
+            first_inside, second_started, second_inside, release = (threading.Event() for _ in range(4))
+            original = module._atomic_write_json
+            def write_snapshot(path, data):
+                if path.name == "annotations.predictions.json":
+                    if "b" in data:
+                        second_inside.set()
+                    else:
+                        first_inside.set()
+                        if not release.wait(5):
+                            raise TimeoutError("test failed to release first writer")
+                original(path, data)
+            def second_write():
+                second_started.set()
+                b.set("b", [0, 0, 1, 1], "reviewer")
+            with patch.object(module, "_atomic_write_json", side_effect=write_snapshot), ThreadPoolExecutor(2) as pool:
+                first = pool.submit(a.set, "a", [0, 0, 1, 1], "reviewer")
+                self.assertTrue(first_inside.wait(5))
+                second = pool.submit(second_write)
+                try:
+                    self.assertTrue(second_started.wait(5))
+                    self.assertFalse(second_inside.wait(0.1))
+                finally:
+                    release.set()
+                first.result(timeout=5)
+                second.result(timeout=5)
+            self.assertEqual(set(AnnotationStore(tmp).all_boxes()), {"a", "b"})
+            self.assertEqual(set(json.loads(a.snapshot_path.read_text())), {"a", "b"})
+
     def test_query_edit_preserves_box_across_replay(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = AnnotationStore(Path(tmp) / "store")

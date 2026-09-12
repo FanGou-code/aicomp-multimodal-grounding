@@ -141,7 +141,7 @@ class PrepareSplitTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        out_dir = self.root / "indexes"
+        out_dir = self.root / "separate-indexes"
         stats = build_indexes(
             raw_root=self.root,
             out_dir=out_dir,
@@ -176,6 +176,17 @@ class PrepareSplitTests(unittest.TestCase):
         self.assertEqual(records[0]["test_images"], ["000099"])
 
         self.assertTrue((out_dir / "excluded.json").is_file())
+
+        from foundry.pipeline.source import load_annotation_source
+        self.assertEqual(load_annotation_source(self.root, "train", index_dir=out_dir), train_idx)
+        self.assertEqual(load_annotation_source(self.root, "val", index_dir=out_dir), val_idx)
+        # A changed source must still be rejected: accepting historical hash
+        # serializers is not permission to skip content verification.
+        key = next(iter(train_idx))
+        train_idx[key]["width"] += 1
+        (out_dir / "train.json").write_text(json.dumps(train_idx))
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            load_annotation_source(self.root, "train", index_dir=out_dir)
 
 
 if __name__ == "__main__":

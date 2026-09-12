@@ -74,6 +74,22 @@ def stable_json_hash(value: object, *, length: int | None = None) -> str:
     return digest if length is None else digest[:length]
 
 
+def split_index_fingerprint(data: dict) -> str:
+    """Preserve the serialization used by the committed protocol-2 indexes."""
+    encoded = json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def resolve_index_dir(data_root: Path, index_dir: Path | None = None) -> Path:
+    """Separate source indexes from image roots; accept the legacy co-located layout."""
+    if index_dir is not None:
+        return Path(index_dir).resolve()
+    legacy = Path(data_root) / "indexes"
+    if legacy.is_dir():
+        return legacy.resolve()
+    return Path(__file__).resolve().parents[1] / "data" / "indexes"
+
+
 def key_hash(keys: Iterable[str]) -> str:
     
     values = list(keys)

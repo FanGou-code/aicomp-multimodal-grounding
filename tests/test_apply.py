@@ -10,6 +10,49 @@ from scripts.apply_review import apply, _detect_collisions
 
 
 class ApplyReviewTest(unittest.TestCase):
+    def _one_record(self):
+        return {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
+                "category": "car", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
+                "query": "The red car beside the tree", "bucket": "spatial"}
+
+    def test_apply_uses_durable_journal_when_snapshots_are_stale_or_missing(self):
+        from unittest.mock import patch
+        from foundry.review.store import AnnotationStore
+        store = AnnotationStore(self.tmp_path / "review")
+        assembly = self._write_assembly([self._one_record()])
+        with patch.object(store, "_write_snapshots", side_effect=RuntimeError("simulated crash")):
+            with self.assertRaises(RuntimeError):
+                store.set_query("001_00000001#01", "The blue car beside the tree", "reviewer")
+        self.assertFalse(store.queries_path.exists())
+        result = apply(assembly, store.queries_path, "after-crash", self.tmp_path, False)
+        self.assertEqual(result["records"][0]["query"], "The blue car beside the tree")
+        self.assertFalse(store.queries_path.exists())  # apply is a read-only consumer
+
+    def test_later_human_box_cancels_earlier_absent(self):
+        from foundry.review.store import AnnotationStore
+        first = AnnotationStore(self.tmp_path / "first")
+        second = AnnotationStore(self.tmp_path / "second")
+        first.delete("001_00000001#01", "reviewer:absent")
+        second.set("001_00000001#01", [0.2, 0.2, 0.5, 0.5], "reviewer")
+        result = apply(self._write_assembly([self._one_record()]),
+                       [first.queries_path, second.queries_path], "present", self.tmp_path, False)
+        self.assertEqual(len(result["records"]), 1)
+        self.assertEqual(result["records"][0]["bbox"], [0.2, 0.2, 0.5, 0.5])
+
+    def test_later_delete_clears_old_override_and_teacher_cannot_undo_human(self):
+        from foundry.review.store import AnnotationStore
+        first = AnnotationStore(self.tmp_path / "first")
+        second = AnnotationStore(self.tmp_path / "second")
+        first.set("001_00000001#01", [0.2, 0.2, 0.5, 0.5], "reviewer")
+        second.set("001_00000001#01", [0.4, 0.4, 0.8, 0.8], "glm-4.6v")
+        asm = self._write_assembly([self._one_record()])
+        paths = [first.queries_path, second.queries_path]
+        result = apply(asm, paths, "teacher", self.tmp_path, False)
+        self.assertEqual(result["records"][0]["bbox"], [0.2, 0.2, 0.5, 0.5])
+        second.delete("001_00000001#01", "reviewer")
+        result = apply(asm, paths, "deleted", self.tmp_path, False)
+        self.assertEqual(result["records"][0]["bbox"], self._one_record()["bbox"])
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.tmp_path = Path(self.tmp.name)

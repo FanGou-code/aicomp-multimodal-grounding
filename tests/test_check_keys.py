@@ -34,6 +34,20 @@ class ReadKeyLinesTests(unittest.TestCase):
 
 
 class ClassifyStatusTests(unittest.TestCase):
+    def test_retest_recovery_produces_success_summary(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from scripts import check_keys
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fake-keys.txt"
+            path.write_text("test-placeholder\n")
+            with patch("sys.argv", ["check_keys.py", "--file", str(path), "--probe", "minimal", "--pause", "1"]), \
+                 patch.object(check_keys, "probe_key", side_effect=[(429, "temporary", {}), (200, "", {})]), \
+                 patch.object(check_keys.time, "sleep"), contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(check_keys.main(), 0)
+            self.assertIn("summary: 1/1 alive", output.getvalue())
+
     def test_known_statuses(self):
         self.assertEqual(classify_status(200, ""), "OK")
         self.assertIn("invalid", classify_status(401, ""))
