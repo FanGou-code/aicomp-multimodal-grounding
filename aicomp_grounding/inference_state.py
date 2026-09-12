@@ -24,6 +24,7 @@ Summary dict (summary.json):
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -162,6 +163,7 @@ def build_run_metadata(
     base_prediction_fingerprint: str = "",
     min_pixels: int | None = INFERENCE_DEFAULT_MIN_PIXELS,
     max_pixels: int | None = INFERENCE_DEFAULT_MAX_PIXELS,
+    compute_dtype: str | None = None,
 ) -> dict:
     if mode not in {"base", "retry"}:
         raise ValueError(f"Unsupported inference mode: {mode}")
@@ -186,7 +188,7 @@ def build_run_metadata(
         "adapter_fingerprint": adapter_fingerprint,
         "prompt_hash": prompt_hash,
         "generation_config": generation_config,
-        "compute_dtype": INFERENCE_COMPUTE_DTYPE,
+        "compute_dtype": compute_dtype if compute_dtype is not None else INFERENCE_COMPUTE_DTYPE,
         "min_pixels": min_pixels,
         "max_pixels": max_pixels,
         "run_tag": run_tag,
@@ -241,12 +243,28 @@ def validate_checkpoint_payload(
     label: str = "checkpoint",
 ) -> dict[str, list[float] | None]:
     if not isinstance(payload, dict) or not (
-        {"metadata", "predictions"} <= set(payload) <= {"metadata", "predictions", "scores"}
+        {"metadata", "predictions"} <= set(payload)
+        <= {"metadata", "predictions", "scores", "assigned_keys"}
     ):
         raise ValueError(
             f"{label} must contain metadata and predictions (scores is optional)"
         )
-    require_exact_metadata(payload["metadata"], expected_metadata, label=label)
+    actual_metadata = payload["metadata"]
+    if not isinstance(actual_metadata, dict):
+        raise ValueError(f"{label} metadata must be an object")
+    # The adapter content fingerprint, not its machine-specific directory,
+    # identifies weights. Keep the original path as trace information only.
+    require_exact_metadata(
+        {k: v for k, v in actual_metadata.items() if k != "lora_path"},
+        {k: v for k, v in expected_metadata.items() if k != "lora_path"},
+        label=label,
+    )
+    if set(actual_metadata) != set(expected_metadata):
+        raise ValueError(f"{label} metadata fields do not match")
+    if "assigned_keys" in payload:
+        recorded_keys = payload["assigned_keys"]
+        if not isinstance(recorded_keys, list) or key_hash(recorded_keys) != key_hash(assigned_keys):
+            raise ValueError(f"{label} assigned keys do not match")
     predictions = payload["predictions"]
     if not isinstance(predictions, dict):
         raise ValueError(f"{label} predictions must be an object")
@@ -269,7 +287,91 @@ def validate_checkpoint_payload(
         if bbox is None:
             raise ValueError(f"{label} contains invalid bbox for {key!r}: {value!r}")
         normalized[key] = bbox
+    scores = payload.get("scores", {})
+    if not isinstance(scores, dict) or set(scores) - set(predictions):
+        raise ValueError(f"{label} scores must map predicted query IDs")
+    for key, score in scores.items():
+        if score is not None and (
+            isinstance(score, bool) or not isinstance(score, (int, float))
+            or not math.isfinite(score) or not 0 <= score <= 1
+        ):
+            raise ValueError(f"{label} contains invalid score for {key!r}")
     return normalized
+
+
+def load_resume_predictions(
+    run_dir: Path, metadata: dict, selected_keys: list[str],
+) -> tuple[dict[str, list[float] | None], dict[str, float | None]]:
+    """Validate every saved source before reconciling interrupted inference."""
+    predictions: dict[str, list[float] | None] = {}
+    scores: dict[str, float | None] = {}
+
+    def merge(payload, expected, assigned, label):
+        checked = validate_checkpoint_payload(
+            payload, expected, assigned, require_complete=False, label=label,
+        )
+        for key, value in checked.items():
+            if key in predictions and predictions[key] != value:
+                raise ValueError(f"Conflicting resumed prediction for {key!r}: {label}")
+            predictions[key] = value
+        for key, value in payload.get("scores", {}).items():
+            if key in scores and scores[key] is not None and value is not None and scores[key] != value:
+                raise ValueError(f"Conflicting resumed score for {key!r}: {label}")
+            if value is not None or key not in scores:
+                scores[key] = value
+
+    checkpoint_path = run_dir / "checkpoint.json"
+    checkpoint = load_json(checkpoint_path) if checkpoint_path.is_file() else None
+    if checkpoint is not None:
+        merge(checkpoint, metadata, selected_keys, str(checkpoint_path))
+
+    metadata_path = run_dir / "metadata.json"
+    saved_metadata = load_json(metadata_path) if metadata_path.is_file() else None
+    if saved_metadata is not None:
+        validate_checkpoint_payload(
+            {"metadata": saved_metadata, "predictions": {}}, metadata, selected_keys,
+            require_complete=False, label=str(metadata_path),
+        )
+    elif checkpoint is not None:
+        saved_metadata = checkpoint["metadata"]
+    predictions_path = run_dir / "predictions.json"
+    if predictions_path.is_file():
+        if saved_metadata is None:
+            raise ValueError(f"Cannot resume {predictions_path} without recorded metadata")
+        scores_path = run_dir / "scores.json"
+        merge(
+            {"metadata": saved_metadata, "predictions": load_json(predictions_path),
+             "scores": load_json(scores_path) if scores_path.is_file() else {}},
+            metadata, selected_keys, str(predictions_path),
+        )
+
+    for path in sorted((run_dir / "shard_checkpoints").glob("shard_*.checkpoint.json")):
+        payload = load_json(path)
+        recorded = payload.get("metadata", {})
+        match = re.fullmatch(r"shard_(\d+)\.checkpoint\.json", path.name)
+        if match is None or not isinstance(recorded, dict):
+            raise ValueError(f"Invalid shard checkpoint: {path}")
+        shard_id = int(match[1])
+        if not 0 <= shard_id < metadata["num_shards"]:
+            raise ValueError(f"Unexpected shard ID in {path}")
+        assigned = payload.get("assigned_keys")
+        if assigned is None:
+            # Legacy files did not store assignments. Validate their full run
+            # identity and every result key; do not invent a new assignment hash.
+            digest = recorded.get("assigned_key_hash")
+            if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError(f"Invalid legacy shard assignment hash: {path}")
+            expected = {**metadata, "shard_id": shard_id, "assigned_key_hash": digest}
+            assigned = selected_keys
+        else:
+            if not isinstance(assigned, list) or not assigned:
+                raise ValueError(f"Invalid shard assignment: {path}")
+            key_hash(assigned)  # validates string IDs and uniqueness
+            if set(assigned) - set(selected_keys):
+                raise ValueError(f"Shard assignment contains unknown query IDs: {path}")
+            expected = build_shard_metadata(metadata, shard_id, assigned)
+        merge(payload, expected, assigned, str(path))
+    return predictions, scores
 
 
 def pending_keys(assigned_keys: list[str], predictions: Mapping[str, object]) -> list[str]:

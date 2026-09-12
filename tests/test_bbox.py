@@ -11,6 +11,15 @@ from aicomp_grounding.bbox import (
 
 
 class BBoxTests(unittest.TestCase):
+    def test_quantized_edge_boxes_stay_in_range_and_nonempty(self):
+        for box in ([0.9996, 0.1, 1, 0.5], [0.1, 0.9996, 0.5, 1], [0, 0, 0.0001, 0.0001]):
+            with self.subTest(box=box):
+                parsed = parse_bbox_from_text(format_qwen_bbox(box))
+                self.assertIsNotNone(parsed)
+                self.assertTrue(all(0 <= v <= 1 for v in parsed))
+                self.assertLess(parsed[0], parsed[2])
+                self.assertLess(parsed[1], parsed[3])
+
     def test_qwen_round_trip_preserves_xy_order(self):
         box = [0.1, 0.2, 0.3, 0.4]
         encoded = format_qwen_bbox(box)

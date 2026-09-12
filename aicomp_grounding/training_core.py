@@ -512,24 +512,9 @@ def run_training(
     device = torch.device("cuda:0")
     compute_dtype = torch.bfloat16
 
-    model_path = training_plan.get("model_path")
-    if model_path is None:
-        rel_subpath = {
-            "qwen3vl": "Qwen/Qwen3-VL-8B-Instruct",
-            "qwen3_5": "Qwen/Qwen3.5-9B",
-            "glm46v": "ZhipuAI/GLM-4.6V-Flash",
-            "internvl35": "OpenGVLab/InternVL3_5-8B-HF",
-        }[model_name]
-        for candidate in [
-            Path("/mnt/workspace/models") / rel_subpath,
-            Path("models") / rel_subpath,
-            Path("/root/models") / rel_subpath,
-        ]:
-            if candidate.is_dir():
-                model_path = str(candidate)
-                break
-
-    base_model, processor = adapter.load_for_training(device=device, model_path=model_path)
+    base_model, processor = adapter.load_for_training(
+        device=device, model_path=training_plan.get("model_path")
+    )
 
     class RGBDTGroundingDataset(Dataset):
         def __init__(self, data: dict):
@@ -565,6 +550,7 @@ def run_training(
             base_model,
             resume_checkpoint,
             is_trainable=True,
+            local_files_only=True,
         )
     else:
         lora = LoraConfig(

@@ -83,8 +83,8 @@ def normalize_pixel_bbox(
     return validate_bbox(values)
 
 
-def format_qwen_bbox(box: Sequence[float], *, special_tokens: bool = True) -> str:
-    """Format normalized XYXY as Qwen's integer 0-1000 coordinate protocol."""
+def quantize_bbox_1000(box: Sequence[float]) -> list[int]:
+    """Quantize valid XYXY to a non-empty box inside the inclusive 0-1000 grid."""
     values = validate_bbox(box)
     if values is None:
         raise ValueError(f"Invalid normalized bbox: {box!r}")
@@ -92,8 +92,14 @@ def format_qwen_bbox(box: Sequence[float], *, special_tokens: bool = True) -> st
     x1, y1, x2, y2 = (round(value * 1000) for value in values)
     # Keep degenerate (sub-milli) boxes at least one integer unit wide so a
     # parsed box never collapses into an invalid empty/reversed box.
-    x2 = max(x2, x1 + 1)
-    y2 = max(y2, y1 + 1)
+    x1, y1 = min(x1, 999), min(y1, 999)
+    x2, y2 = max(x2, x1 + 1), max(y2, y1 + 1)
+    return [x1, y1, x2, y2]
+
+
+def format_qwen_bbox(box: Sequence[float], *, special_tokens: bool = True) -> str:
+    """Format normalized XYXY as Qwen's integer 0-1000 coordinate protocol."""
+    x1, y1, x2, y2 = quantize_bbox_1000(box)
     body = f"({x1},{y1}),({x2},{y2})"
     if special_tokens:
         return f"<|box_start|>{body}<|box_end|>"
@@ -157,5 +163,4 @@ def compute_iou(box_a: Sequence[float], box_b: Sequence[float]) -> float:
     area_b = (b[2] - b[0]) * (b[3] - b[1])
     union = area_a + area_b - intersection
     return intersection / union if union > 0.0 else 0.0
-
 
