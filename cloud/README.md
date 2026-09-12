@@ -1,65 +1,63 @@
-# cloud/ — Modal 壳（H100 / 单卡）
+# cloud/ — Modal 执行入口
 
-硬编码即全部：**H100、8 核、32GiB 内存**（Iteration 02 实测够用的配置）；
-超参在适配器里、推理参数用 offline 默认值——本目录没有任何业务逻辑。
+运行配置为 H100、8 CPU、32 GiB 内存，调用与离线端相同的训练/推理编排。
+`modal` 命令由管理员执行。
 
-## Volume 布局（与魔搭 /mnt/workspace 契约对齐）
+## 模型与数据准备
 
 ```text
-Volume "aicomp" 挂载于 /mnt/workspace
-  data/                 数据集（推理只需 Test/ + Processed/Test/，训练需 Train/）
-  models/<org>/<name>/  权重（可选：不传则从 HF 快速下载）
-  outputs/
-    annotations/<run_id>/      approved.json（训练输入）
-    output_lora/<run_id>/      训练产物
-    inference/<run_id>/        预测/提交包
+Volume aicomp 的根目录，运行时挂载到 /mnt/workspace：
+  data/
+  models/<org>/<name>/
+  outputs/annotations/<run_id>/
+  outputs/output_lora/<run_id>/
+  outputs/inference/<run_id>/
 ```
 
-首次准备：
+模型先按 `docs/sop.md` 中的来源和版本下载，再上传完整目录。Volume CLI 的目标
+路径相对 Volume 根；它不包含运行时的挂载前缀 `/mnt/workspace`。
 
 ```bash
-modal volume create aicomp            # 或让首次运行自动创建
-modal volume put aicomp data.tar /mnt/workspace/data.tar   # 上传后可在任务内解压
-modal volume put aicomp <本地权重目录> /mnt/workspace/models/<org>/<name>
+modal volume create aicomp
+modal volume put aicomp LOCAL_MODEL_DIR /models/Qwen/Qwen3-VL-8B-Instruct
 ```
+
+上传后，程序通过 `/mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct` 读取。
+数据和标注按上表放入 Volume。训练/推理不自动下载或补齐模型文件。
 
 ## 推理
 
 ```bash
-# 冒烟（100 条）
 modal run cloud/infer.py --model qwen3vl \
-  --lora-path /mnt/workspace/outputs/output_lora/<RUN_ID>/best/epoch_XX \
-  --limit 100 --run-tag modal-smoke
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
+  --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --limit 100 --batch-size 2 --run-tag modal-smoke-auditfix
 
-# 全量 Test（自动打包 submission.zip）
 modal run cloud/infer.py --model qwen3vl \
-  --lora-path /mnt/workspace/outputs/output_lora/<RUN_ID>/best/epoch_XX \
-  --run-tag modal-full
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
+  --lora-path /mnt/workspace/outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --batch-size 2 --run-tag modal-full-auditfix
 ```
-
-- 模型/LoRA 路径全部以 `/mnt/workspace` 开头（Volume 内）
-- `--model-path` 省略时从 HuggingFace 下载（Modal 机房快）；16B/27B 级权重请先传 Volume
 
 ## 训练
 
 ```bash
-# CPU 预检（不占 GPU 时长也挂 H100，秒级结束）
-modal run cloud/train.py --annotation-run-id annot_dc189f029d962b27 --preflight-only
+modal run cloud/train.py --model qwen3vl \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct --smoke-test
 
-# 单 batch 冒烟
-modal run cloud/train.py --annotation-run-id annot_dc189f029d962b27 --smoke-test
-
-# 全量训练（epochs 由 adapter 超参决定；断点/抢占自动恢复，每次 checkpoint 提交 Volume）
-modal run cloud/train.py --annotation-run-id annot_dc189f029d962b27 --run-tag exp-<name>
+modal run cloud/train.py --model qwen3vl \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
+  --run-tag modal-train-auditfix
 ```
 
-## 费用与护栏
+数据预检可在本地用 `offline/train.py --preflight-only`。通过 cloud 入口运行预检
+仍会分配 H100。中断后维持原路径和标签继续；改参数或解析行为时使用新标签。
+checkpoint 写入后调用 Volume commit；推理超时 8 小时，训练超时 24 小时。
 
-- H100 按 Modal 官网当前单价计费；全量 Test 推理一趟约 $25-40，**训练 16B 级超出 Starter 月额度**——付费训练仅限 8B 级短跑
-- 护栏 = 函数 timeout（推理 8h / 训练 24h）+ 断点续跑；费用看 Modal 面板 Usage 页
+## 依赖边界
 
-## 新模型接入（不动核心文件）
-
-`aicomp_grounding/models/` 加适配器 → `models/__init__.py` 注册一行 →
-`pyproject.toml` 加依赖（如需）→ `--model <name>` 在 cloud/infer、cloud/train、
-offline 三端同时可用。
+公共镜像直接读取根 `pyproject.toml` 的 dependencies，不复制另一份依赖列表。
+Youtu 的原生代码需要独立兼容环境，公共镜像没有提供该环境。各模型 GPU 验证
+进度只记录在 `docs/handoff.md`，注册适配器不代表平台已完成验证。

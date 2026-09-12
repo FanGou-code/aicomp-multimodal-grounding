@@ -12,7 +12,7 @@ from typing import Any
 
 from aicomp_grounding.bbox import format_qwen_bbox, parse_bbox_from_text
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
 from aicomp_grounding.prompts import (
     GROUNDING_SYSTEM_PROMPT,
     build_training_messages,
@@ -66,15 +66,15 @@ class Qwen3VLAdapter:
         lora_path: Path | None = None,
         model_path: str | None = None,
     ) -> None:
+        source = require_local_model_path(model_path)
+
         import torch
         from peft import PeftModel
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
-        source = model_path or self.model_name
-        from_hub = model_path is None
         processor = AutoProcessor.from_pretrained(
             source,
-            **({"revision": self.model_revision} if from_hub else {}),
+            local_files_only=True,
             min_pixels=MIN_PIXELS,
             max_pixels=self.max_pixels,
         )
@@ -88,21 +88,21 @@ class Qwen3VLAdapter:
         try:
             model = Qwen3VLForConditionalGeneration.from_pretrained(
                 source,
-                **({"revision": self.model_revision} if from_hub else {}),
+                local_files_only=True,
                 dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
         except TypeError:
             model = Qwen3VLForConditionalGeneration.from_pretrained(
                 source,
-                **({"revision": self.model_revision} if from_hub else {}),
+                local_files_only=True,
                 torch_dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
         model = model.to(device)
 
         if lora_path is not None:
-            model = PeftModel.from_pretrained(model, str(lora_path)).to(device)
+            model = PeftModel.from_pretrained(model, str(lora_path), local_files_only=True).to(device)
 
         model.eval()
         self._processor = processor

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.training_core import SEED, persist_training_plan, prepare_training_plan, run_training
 from aicomp_grounding.paths import ProjectPaths, resolve_from_root
+from aicomp_grounding.models.base import require_local_model_path
 
 
 def parse_args():
@@ -36,7 +37,7 @@ def parse_args():
         "--model-path",
         type=str,
         default=None,
-        help="Optional local base-model directory override (e.g. /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct).",
+        help="Pre-downloaded model directory; required for training (not CPU preflight).",
     )
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument(
@@ -94,19 +95,24 @@ def run_cli(args, *, commit_hook=None):
     data_root = resolve_from_root(args.data_dir, paths.root)
     annotation_root = resolve_from_root(args.annotation_root, paths.root)
     output_root = resolve_from_root(args.output_root, paths.root)
+    model_path = (
+        str(resolve_from_root(args.model_path, paths.root)) if args.model_path else None
+    )
     plan = prepare_training_plan(
         data_root=data_root,
         annotation_root=annotation_root,
         output_root=output_root,
         annotation_run_id=args.annotation_run_id,
         model=args.model,
-        model_path=args.model_path,
+        model_path=model_path,
         run_tag=args.run_tag,
         seed=args.seed,
         resume=args.resume,
         smoke_test=args.smoke_test,
         verify_images=args.deep_verify_images,
     )
+    if not args.preflight_only and (args.smoke_test or not plan["skip_training"]):
+        plan["model_path"] = require_local_model_path(plan["model_path"])
     if not args.smoke_test and not args.preflight_only:
         persist_training_plan(plan, commit_hook=commit_hook)
 

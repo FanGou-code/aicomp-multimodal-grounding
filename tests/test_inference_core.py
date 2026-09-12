@@ -14,6 +14,17 @@ from aicomp_grounding.io import atomic_write_json
 
 
 class LoadInferenceItemsTests(unittest.TestCase):
+    def test_bad_official_entry_is_rejected_before_path_mapping(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "queries.json"
+            atomic_write_json(path, {
+                "a": {"visible": "Images/visible/a.png", "infrared": "Images/infrared/a.png",
+                      "depth": "Images/depth/a.png", "query": "the car"},
+                "b": None,
+            })
+            with self.assertRaisesRegex(ValueError, "'b'"):
+                load_inference_items(path)
+
     def test_flat_index_gains_keys_and_returns_no_metadata(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "index.json"

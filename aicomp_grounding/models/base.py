@@ -21,6 +21,19 @@ from typing import Any, Protocol
 from PIL.Image import Image
 
 
+def require_local_model_path(model_path: str | Path | None) -> str:
+    """Require a pre-downloaded model; model execution never downloads files."""
+    if model_path is None or not str(model_path).strip():
+        raise ValueError(
+            "Automatic model download is disabled. Download the model first "
+            "and pass --model-path pointing to its local directory."
+        )
+    path = Path(model_path).expanduser().resolve()
+    if not path.is_dir() or not (path / "config.json").is_file():
+        raise FileNotFoundError(f"Local model directory is missing config.json: {path}")
+    return str(path)
+
+
 @dataclass(frozen=True)
 class Prediction:
     """Unified grounding output: normalized XYXY box plus optional score."""
@@ -68,8 +81,8 @@ class GroundingAdapter(Protocol):
     ) -> None:
         """Load weights; heavy dependencies import lazily inside.
 
-        ``model_path`` overrides the hub id with a local weights directory
-        (offline machines); identity/fingerprinting always use the canonical
+        ``model_path`` is the required pre-downloaded weights directory;
+        identity/fingerprinting always use the canonical
         ``model_name``/``model_revision``.
         """
         ...

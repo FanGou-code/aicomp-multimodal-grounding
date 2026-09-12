@@ -138,6 +138,23 @@ class Qwen3_5IdentityContinuityTests(unittest.TestCase):
 
 
 class Glm46VContractTests(unittest.TestCase):
+    def test_invalid_numbers_are_not_parsed_as_positive_substrings(self):
+        for body in ("-100,200,300,400", "100.5,200,300,400", "1,2,3,4,5"):
+            with self.subTest(body=body):
+                self.assertIsNone(parse_glm_box(body))
+                self.assertIsNone(parse_glm_box(GLM46V_BOX_OPEN + body + GLM46V_BOX_CLOSE))
+
+    def test_quantized_edge_box_is_valid(self):
+        self.assertEqual(
+            parse_glm_box(format_glm_bbox([0.9996, 0.1, 1, 0.5])),
+            [0.999, 0.1, 1.0, 0.5],
+        )
+
+    def test_valid_bare_box_with_prose_or_incomplete_delimiter_stays_supported(self):
+        for text in ("Box: 100,200,300,400.", GLM46V_BOX_OPEN + "100,200,300,400"):
+            with self.subTest(text=text):
+                self.assertEqual(parse_glm_box(text), [0.1, 0.2, 0.3, 0.4])
+
     """Pin GLM-4.6V-Flash identity, box contract, and thinking-disabled kwarg."""
 
     def test_model_constants_match_pinned_config(self):
@@ -327,6 +344,51 @@ class GroundingDINOContractTests(unittest.TestCase):
             select_top_detection([[0.1, 0.1, 0.5, 0.5]], [0.05]), (None, None)
         )
         self.assertEqual(select_top_detection([], []), (None, None))
+
+
+class LocalModelPolicyTests(unittest.TestCase):
+    def test_real_adapters_reject_missing_directory_before_loading(self):
+        for name in ("qwen3vl", "qwen3_5", "glm46v", "internvl35", "groundingdino", "youtu_vl"):
+            with self.subTest(model=name):
+                with self.assertRaisesRegex(ValueError, "--model-path"):
+                    get_adapter(name).load()
+                with tempfile.TemporaryDirectory() as td:
+                    with self.assertRaises(FileNotFoundError):
+                        get_adapter(name).load(model_path=td)
+
+    def test_loaders_explicitly_forbid_network_fallback(self):
+        import ast
+        import inspect
+        for name in ("qwen3vl", "qwen3_5", "glm46v", "internvl35", "groundingdino", "youtu_vl"):
+            module = inspect.getmodule(type(get_adapter(name)))
+            calls = [n for n in ast.walk(ast.parse(inspect.getsource(module)))
+                     if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                     and n.func.attr == "from_pretrained"]
+            self.assertTrue(calls, name)
+            for call in calls:
+                self.assertTrue(any(k.arg == "local_files_only" and isinstance(k.value, ast.Constant)
+                                    and k.value.value is True for k in call.keywords), name)
+
+    def test_dino_instance_threshold_reaches_final_selection(self):
+        import torch
+        from transformers import BatchEncoding
+        class Processor:
+            def __call__(self, **kwargs):
+                return BatchEncoding({"input_ids": torch.tensor([[1]])})
+            def post_process_grounded_object_detection(self, outputs, ids, threshold, text_threshold):
+                self.threshold = threshold
+                return [{"boxes": torch.tensor([[0.1, 0.2, 0.5, 0.6]]), "scores": torch.tensor([0.2])}]
+        class Model:
+            device = "cpu"
+            def __call__(self, **kwargs):
+                return None
+        adapter = get_adapter("groundingdino", box_threshold=0.1)
+        adapter._processor, adapter._model = Processor(), Model()
+        result = adapter.predict([ModelInput(None, None, None, "the object")])[0]
+        self.assertEqual(adapter._processor.threshold, 0.1)
+        self.assertIsNotNone(result.bbox)
+        self.assertAlmostEqual(result.score, 0.2)
+        self.assertEqual(adapter.compute_dtype, "float32")
 
 
 class MockAdapterTests(unittest.TestCase):

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from aicomp_grounding.bbox import validate_bbox
-from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
 
 MODEL_NAME = "IDEA-Research/grounding-dino-base"
 MODEL_REVISION = "12bdfa3120f3e7ec7b434d90674b3396eccf88eb"
@@ -39,12 +39,14 @@ def normalize_grounding_query(query: str) -> str:
 def select_top_detection(
     boxes_xyxy: list[list[float]],
     scores: list[float],
+    *,
+    box_threshold: float = BOX_THRESHOLD,
 ) -> tuple[list[float] | None, float | None]:
     """Pick the highest-confidence valid post-processed XYXY box."""
     if not boxes_xyxy or not scores:
         return None, None
     for index in sorted(range(len(scores)), key=lambda i: scores[i], reverse=True):
-        if scores[index] < BOX_THRESHOLD:
+        if scores[index] < box_threshold:
             break
         # Float regression can push boxes a hair outside [0, 1]; clip before
         # validation so edge-of-frame targets are not wrongly discarded.
@@ -71,9 +73,9 @@ def _load_local_processor(source: str):
     if (Path(source) / "preprocessor_config.json").is_file():
         from transformers import AutoProcessor
 
-        return AutoProcessor.from_pretrained(source)
+        return AutoProcessor.from_pretrained(source, local_files_only=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(source)
+    tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=True)
     return GroundingDinoProcessor(
         image_processor=GroundingDinoImageProcessor(),
         tokenizer=tokenizer,
@@ -85,6 +87,7 @@ class GroundingDINOAdapter:
     model_name = MODEL_NAME
     model_revision = MODEL_REVISION
     supports_lora = False
+    compute_dtype = "float32"
 
     def __init__(self, *, box_threshold: float = BOX_THRESHOLD):
         self.box_threshold = box_threshold
@@ -113,19 +116,14 @@ class GroundingDINOAdapter:
         lora_path: Path | None = None,
         model_path: str | None = None,
     ) -> None:
+        source = require_local_model_path(model_path)
+
         import torch
-        from transformers import AutoProcessor
 
         if lora_path is not None:
             raise ValueError("GroundingDINO path is zero-shot only; no LoRA support")
 
-        source = model_path or self.model_name
-        from_hub = model_path is None
-        processor = (
-            AutoProcessor.from_pretrained(source, revision=self.model_revision)
-            if from_hub
-            else _load_local_processor(source)
-        )
+        processor = _load_local_processor(source)
         try:
             from transformers import GroundingDinoForObjectDetection
 
@@ -135,17 +133,16 @@ class GroundingDINOAdapter:
 
             model_class = AutoModelForObjectDetection
 
-        revision_kwargs = {"revision": self.model_revision} if from_hub else {}
         try:
             model = model_class.from_pretrained(
                 source,
-                **revision_kwargs,
+                local_files_only=True,
                 dtype=torch.float32,
             )
         except TypeError:
             model = model_class.from_pretrained(
                 source,
-                **revision_kwargs,
+                local_files_only=True,
                 torch_dtype=torch.float32,
             )
         model = model.to(device)
@@ -184,6 +181,7 @@ class GroundingDINOAdapter:
             bbox, score = select_top_detection(
                 results["boxes"].tolist(),
                 results["scores"].tolist(),
+                box_threshold=self.box_threshold,
             )
             predictions.append(Prediction(bbox=bbox, score=score))
         return predictions
