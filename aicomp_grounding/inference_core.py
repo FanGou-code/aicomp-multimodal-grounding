@@ -40,6 +40,9 @@ def load_inference_items(
         raw = raw["data"]
 
     if isinstance(raw, dict) and raw:
+        for key, item in raw.items():
+            if not isinstance(item, dict):
+                raise ValueError(f"Dataset entry {key!r} is not a JSON object")
         first = next(iter(raw.values()))
         if (
             isinstance(first, dict)
@@ -57,7 +60,6 @@ def load_inference_items(
                     ),
                 }
                 for key, item in raw.items()
-                if isinstance(item, dict)
             }
 
     items: list[dict] = []

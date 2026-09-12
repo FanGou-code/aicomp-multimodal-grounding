@@ -1,17 +1,11 @@
-"""Youtu-VL-4B-Instruct grounding adapter (inference-only, Modal-resident).
+"""Youtu-VL-4B-Instruct grounding adapter (inference only).
 
-Youtu-VL-4B is a 3B-class MLLM from Tencent Youtu Lab that emits bounding
-boxes as absolute-pixel coordinate tokens (``<x_N>``/``<y_N>``, N in 0..2047)
-wrapped in ``<ref>...</ref><box>...</box>``. Its REC/counting numbers lead
-the 4B class, so it earns a WBF seat as a zero-shot member.
-
-The adapter is inference-only: Youtu requires ``transformers>=4.56,<=4.57.1``
-plus ``trust_remote_code`` (a custom ``youtu_vl`` architecture), which is
-incompatible with the repo's pinned 5.15.1. It therefore runs in a dedicated
-Modal Image; the adapter code itself stays import-clean so the rest of the
-repo never loads the remote-code path. The parser is pure logic and is
-unit-tested locally; the GPU path (image-input contract, multi-image
-``img_input`` kwarg) is verified on Modal before a recorded run.
+Produces absolute-pixel coordinate tokens (<x_N>/<y_N>) inside <box>.
+The model's custom code declares transformers 4.56-4.57.1 requirements,
+separate from the common 5.15.1 environment. Its execution environment
+must be prepared independently; registering this adapter does not build a
+compatible Modal image. Weights and custom code are pre-downloaded and
+loaded locally. GPU verification status belongs in docs/handoff.md.
 """
 
 from __future__ import annotations
@@ -21,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from aicomp_grounding.bbox import validate_bbox
-from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
 
 MODEL_NAME = "tencent/Youtu-VL-4B-Instruct"
 MODEL_REVISION = "8d30a0e49662a1d628a472b12df264dbcd768753"
@@ -128,20 +122,19 @@ class YoutuVLAdapter:
         lora_path: Path | None = None,
         model_path: str | None = None,
     ) -> None:
+        source = require_local_model_path(model_path)
+
         import torch
         from transformers import AutoModelForCausalLM, AutoProcessor
 
         if lora_path is not None:
             raise ValueError("Youtu-VL is zero-shot only; no LoRA support")
 
-        source = model_path or self.model_name
-        from_hub = model_path is None
-        revision_kwargs = {"revision": self.model_revision} if from_hub else {}
         processor = AutoProcessor.from_pretrained(
             source,
             trust_remote_code=True,
             use_fast=True,
-            **revision_kwargs,
+            local_files_only=True,
         )
         processor.tokenizer.padding_side = "left"
         print(
@@ -153,7 +146,7 @@ class YoutuVLAdapter:
             model = AutoModelForCausalLM.from_pretrained(
                 source,
                 trust_remote_code=True,
-                **revision_kwargs,
+                local_files_only=True,
                 dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
@@ -161,7 +154,7 @@ class YoutuVLAdapter:
             model = AutoModelForCausalLM.from_pretrained(
                 source,
                 trust_remote_code=True,
-                **revision_kwargs,
+                local_files_only=True,
                 torch_dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )

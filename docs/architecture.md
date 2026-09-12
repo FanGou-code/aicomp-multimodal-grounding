@@ -1,125 +1,76 @@
 # 仓库架构与协作接入指南
 
-> 本文是三模型仓库的架构约定。数据、成绩等实际状态见 `handoff.md`，
-> 本文件只描述**结构不变量**：改代码前先读这里。
+本文件记录模块与数据边界；运行进度见 `handoff.md`，GPU 操作见 `sop.md`。
 
-## 总览
+## 两仓职责
 
-```text
-┌───────────────────────────── aicomp_grounding (核心库) ─────────────────────────────┐
-│                                                                                     │
-│  数据层    prepare/contract-QC (annotation_state, sharding, sequence, query, ...) │
-│            （标注生成管线在外部 query-foundry 仓，产物经合同校验接入）             │
-│  身份层    指纹与 run id (artifacts, training_state, inference_state)                │
-│  推理核心  inference_core (items 加载 / ACC@0.5 评估 / 分片合并)                     │
-│  训练核心  training_core (adapter 驱动训练循环, 平台无关)                          │
-│  模型适配  models/ (qwen3vl | internvl35 | groundingdino | mock)                    │
-│  融合      fusion/wbf (多模型加权框融合)                                             │
-│  提交      submission (官方模板合同 + ZIP 构建)                                      │
-│                                                                                     │
-├────────── cloud/ (Modal 壳) ──────────┬────────── offline/ (离线壳) ────────────────┤
-│  train.py   H100 训练                  │  train.py   单机训练 (同一 training_core) │
-│  infer.py   单卡推理 (--model, 同 offline) │  infer.py   单卡推理 (--model)             │
-└────────────────────────────────────────┴─────────────────────────────────────────────┘
-```
+| 位置 | 职责 |
+| --- | --- |
+| `aicomp_grounding/` | 图像、坐标、合同、运行身份、训练核心、模型适配、融合与提交 |
+| `offline/` | 训练/推理 CLI 与共享运行编排 |
+| `cloud/` | Modal 镜像、H100 与 Volume 包装，复用 `offline.run_cli` |
+| `scripts/` | 深度伪彩预处理、数据上传工具 |
+| `query-foundry` | 切分查重、教师普查、描述组装、人审与标注交付 |
 
-## Portable Repository Path Contract
+依赖方向：`cloud → offline → aicomp_grounding`。主仓训练只消费 `approved.json`，
+不导入数据构建仓代码。两仓不通过复制训练循环适配平台。
 
-The repository is the portable experiment unit copied to a lab workstation,
-cloud workspace, or Modal-backed job. The platform-independent entrypoints in
-`offline/` use these roots:
+数据流：原始图像 → 深度伪彩与索引 → 普查/组装/人审 → `approved.json`
+→ 训练/验证/推理 → `fusion.wbf` → 官方模板 ZIP。
+
+## 路径
 
 ```text
-PROJECT_ROOT/                 repository root
-PROJECT_ROOT/data/             dataset files and generated indexes
-PROJECT_ROOT/outputs/annotations/  approved query artifacts
-PROJECT_ROOT/outputs/          training, inference, fusion, submission outputs
+PROJECT_ROOT/
+  data/                       Train/、Test/、Processed/
+  outputs/annotations/        标注合同产物
+  outputs/output_lora/        训练记录和 LoRA
+  outputs/inference/          预测与 checkpoint
 ```
 
-`data_root` is only the dataset root. It must not be used to derive
-`data/outputs/annotations`; portable callers pass the repository-level
-annotation root explicitly. The historical `data/outputs/annotations` layout
-is retained only as a compatibility path inside the Modal adapter.
+标注源索引位于 `query-foundry/data/indexes/`。数据构建入口分别接收图片根
+`--data-root` 和索引目录 `--index-dir`，不依赖跨仓符号链接。
 
-The official `data/Test/queries/queries.json`
-can be sent directly to inference-core workers; it is mapped in memory to
-`Test/Images/...` and `Processed/Test/depth_jet/...`, so no
-separate processed index file is generated or required.
+CLI 相对路径以 `--project-root` 解析。新训练可以使用不同输出根；恢复已有训练
+记录仍要求保留其记录的绝对路径，不提供跨目录迁移。已训练 LoRA 可单独用于推理。
 
-两条铁律：
+官方 `data/Test/queries/queries.json` 在内存中映射图片路径，不另造 `test.json`。
+提交文件仅补 `bbox`，保留官方模板其余字段。
 
-1. **业务逻辑只存在于核心库**。cloud/ 与 offline/ 是平台壳，只做平台相关的事
-   （Modal 装饰器/卷挂载、本地 CLI）。二者不做双向依赖：cloud 壳复用
-   offline 抽出的 `run_cli(args)` 编排入口（`docs/handoff.md` 2026-09-01
-   「CLI 解耦」），offline 不引用 cloud。
-2. **平台的差异 = 环境安装的差异**。推理/训练本体平台无关；各平台的装法
-   （镜像源、锁版本）见 `offline/README.md` 的平台矩阵，不新增目录或脚本。
+## 模型适配
 
-## 模型适配层（models/）
+| 名称 | 输入 | 训练能力 | 坐标 |
+| --- | --- | --- | --- |
+| `qwen3vl` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
+| `qwen3_5` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
+| `glm46v` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
+| `internvl35` | RGB、IR、深度三图 | LoRA，训练批量为 1 | 0–1000 整数 |
+| `groundingdino` | RGB | 仅推理，原生置信度 | 归一化 XYXY |
+| `youtu_vl` | RGB、IR、深度三图 | 仅推理，需匹配原生代码的依赖环境 | 原图像素坐标 |
+| `mock` | 测试输入 | CPU 流程测试 | 归一化 XYXY |
 
-统一接口（`models/base.py`）：
+所有适配器返回归一化 XYXY 与可选 score。训练接口负责输入、监督掩码、组批、
+验证解码和 LoRA 目标层；普通训练循环不猜测模型协议。
 
-```python
-adapter.name               # "qwen3vl" | "internvl35" | "groundingdino" | "mock"
-adapter.model_name         # HF 模型 id（进指纹）
-adapter.model_revision     # revision（进指纹；记录 run 前必须 pin 具体 commit）
-adapter.supports_lora      # VLM=True, DINO=False
-adapter.generation_config  # 解码参数（进 run identity）
-adapter.prompt_hash()      # prompt 协议哈希（进 run identity）
-adapter.load(device, lora_path=None, model_path=None)   # 惰性导入重依赖
-adapter.predict([ModelInput(visible, infrared, depth, query, key)]) -> [Prediction(bbox, score)]
-```
+底座先下载到本地，通过 `--model-path` 指定。适配器拒绝缺少配置的目录，所有
+`from_pretrained` 调用采用 `local_files_only=True`，执行阶段不下载模型。
+模型名称、revision 和提示词是冻结协议；更改训练目标、解析行为或运行参数时使用新标签。
 
-- **输出统一为归一化 XYXY + score(可 None)**：坐标换算全部封装在 adapter 内
-  （Qwen `<|box_start|>` 0-1000、InternVL `<box>` 0-1000、DINO 直接消费 post-process XYXY）。
-- **纯逻辑（prompt 构造/解析/坐标换算）是模块级函数**，无 GPU 也能单测；
-  `load/predict` 才需要 GPU。
-- **训练能力由 `TrainableGroundingAdapter` 提供**：`load_for_training`、
-  `build_training_batch`、`collate_training_batch`、验证解码和 LoRA target 都由 adapter 实现。
-- **指纹连续性**：`qwen3vl` 的 identity 值被 `tests/test_models.py` 钉死，
-  保证 Qwen 历史 run id 永不漂移。新模型接入 = 新 identity，天然隔离。
+## 身份和恢复
 
-### 各模型输入策略（已论证，勿随意改动）
+训练/推理身份绑定模型版本、提示词、数据与参数。LoRA 指纹读取配置、清单和权重；
+底座目录使用调用者预下载的快照，不自动核验该目录与声明 revision 的对应关系。
+当前 `manifest_` 图像指纹绑定路径与尺寸；图像字节版本须单独固定，深检查见数据合同。
 
-| | Qwen3-VL | InternVL3.5 | GroundingDINO |
-|---|---|---|---|
-| 输入 | RGB+IR+Depth 三图 | 同左 | **仅 RGB**（单图架构） |
-| 分辨率机制 | 整图动态分辨率 `max_pixels` | 448 tile 网格 `max_patches` | 内部 resize ~800×1333 |
-| prompt | 系统提示 + `Locate:` | 官方 grounding prompt + `<ref>` | 裸 query（无模板） |
-| 置信度 | 无 | 无 | **原生 score**（WBF 用） |
+推理恢复先验证 checkpoint、预测文件和各分片的运行身份、框、分数与键集合，
+冲突结果拒绝合并。仅有预测文件时必须同时有记录元数据。新分片保存完整分配列表；
+旧分片缺少列表时校验运行身份及结果键，保留原分配哈希，不伪造旧分配记录。
+LoRA 的机器路径只用于追溯，内容指纹一致时允许推理端重新定位它。
 
-### 验证状态（诚实标注）
+单卡使用一个分片。单机多卡可用 `--num-shards`；分片进程使用 spawn，CPU 数据
+加载使用 Linux fork，数据加载子进程不访问 GPU。没有剩余工作时直接汇总。
 
-- `qwen3vl`：GPU 路径与历史成绩对应代码同源，identity 由测试钉死。
-- `internvl35`：已微调（0.60）后退役，adapter 保留、不再作融合成员（见
-  `docs/handoff.md` 当前状态）。
-- `groundingdino`：协议契约已单测对齐（post-process XYXY）；真实 GPU 首跑
-  仍应先跑 val 小切片。`model_revision` 已 pin 具体 commit。
+## 协作
 
-## 指纹与溯源
-
-一切 run（训练/推理/融合）的 id = hash(数据指纹 + 模型 identity + prompt 协议 +
-参数 + seed + Python runtime 版本)。三模型经 `adapter.identity()` 注入，互不污染；融合 run id =
-hash(输入 predictions 文件字节 + 权重 + 阈值)，可回溯到每一次推理。
-
-## 协作工作流
-
-```bash
-git clone                         # 代码 + 已批准标注集 (approved.json 白名单入库)
-# 大数据 (data/ 43G) 与权重自行获取，见 offline/README.md 外部数据清单
-
-# 1. zero-shot 跑通（单张 24GB GPU 即可）
-python offline/infer.py --model internvl35 --test-json data/Test/queries/queries.json --limit 100 ...
-python offline/infer.py --model groundingdino --test-json data/Test/queries/queries.json --limit 100 ...
-
-# 2. 训练（通过 --model 选择已接入训练循环的 adapter；标注 run id 用当前 golden 值）
-modal run cloud/train.py --model <name> --annotation-run-id YOUR_ANNOTATION_RUN_ID ...
-
-# 3. 交回 predictions_*.json（WBF 只交换预测文件，不交换权重）
-
-# 4. 融合
-python -m aicomp_grounding.fusion.wbf --predictions qwen.json internvl.json dino.json \
-    --weights 1 1 1 --scores '' '' '' --test-json data/Test/queries/queries.json
-```
-
-分支约定：fork → 特性分支 → PR 回主仓库，由仓库管理员 review 合并。
+特性分支提交修改；CPU 全量测试和静态检查通过后，再按 SOP 做实际模型的 GPU
+小样本验证。模型和大数据不入 Git，冻结标注与历史产物不覆盖。

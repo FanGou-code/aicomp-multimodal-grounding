@@ -21,17 +21,15 @@ import re
 from pathlib import Path
 from typing import Any
 
-from aicomp_grounding.bbox import validate_bbox
+from aicomp_grounding.bbox import quantize_bbox_1000, validate_bbox
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "zai-org/GLM-4.6V-Flash"
 # ModelScope hosts the GLM family under the ZhipuAI org (not zai-org); the
-# auto-load fallback below downloads from there. Pinned to the ModelScope
-# head commit at adoption time so auto-load reproduces deterministically;
-# the SOP always loads from a local --model-path so this is identity +
-# auto-load only.
+# version below identifies the pre-download source. Execution only reads
+# the explicit local --model-path; it does not contact either hub.
 MODEL_REVISION = "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
 MODELSCOPE_NAME = "ZhipuAI/GLM-4.6V-Flash"
 
@@ -60,20 +58,17 @@ CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
 
 _GLM_BOX_PATTERN = re.compile(
     re.escape(GLM_BOX_OPEN)
-    + r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*"
+    + r"\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*"
     + re.escape(GLM_BOX_CLOSE)
 )
-_GLM_BARE_PATTERN = re.compile(r"(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)")
+_GLM_BARE_PATTERN = re.compile(
+    r"(?<![\w.+-])([+-]?\d+)\s*,\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*,\s*([+-]?\d+)(?!\w|\.\d)"
+)
 
 
 def format_glm_bbox(box) -> str:
     """Format normalized XYXY as GLM integer 0-1000 box tokens."""
-    vals = validate_bbox(box)
-    if vals is None:
-        raise ValueError(f"Invalid normalized bbox: {box!r}")
-    x1, y1, x2, y2 = (round(value * 1000) for value in vals)
-    x2 = max(x2, x1 + 1)
-    y2 = max(y2, y1 + 1)
+    x1, y1, x2, y2 = quantize_bbox_1000(box)
     return f"{GLM_BOX_OPEN}{x1},{y1},{x2},{y2}{GLM_BOX_CLOSE}"
 
 
@@ -85,10 +80,17 @@ def parse_glm_box(text: str) -> list[float] | None:
     if len(tagged) == 1:
         values = [float(v) for v in tagged[0]]
     elif not tagged:
-        bare = _GLM_BARE_PATTERN.findall(text)
-        if len(bare) != 1:
+        candidates = list(_GLM_BARE_PATTERN.finditer(text))
+        if len(candidates) != 1:
             return None
-        values = [float(v) for v in bare[0]]
+        bare = candidates[0]
+        # Preserve the existing bare-coordinate fallback, including surrounding
+        # prose, without taking a numeric substring or four entries from a
+        # longer coordinate list.
+        prefix, suffix = text[:bare.start()].rstrip(), text[bare.end():].lstrip()
+        if re.search(r"[\d.]\s*,$", prefix) or re.match(r",\s*[+-]?\d", suffix):
+            return None
+        values = [float(v) for v in bare.groups()]
     else:
         return None
     if not all(0.0 <= v <= 1000.0 for v in values):
@@ -105,17 +107,9 @@ def _apply_chat_template(processor, messages, *, add_generation_prompt: bool) ->
     )
 
 
-def _resolve_model_source(model_path: str | None) -> tuple[str, bool]:
-    if model_path is not None:
-        return model_path, False
-    try:
-        from modelscope import snapshot_download
-    except ImportError as exc:
-        raise RuntimeError(
-            "GLM-4.6V-Flash automatic loading requires modelscope; "
-            "pass --model-path to a local model directory"
-        ) from exc
-    return snapshot_download(MODELSCOPE_NAME, revision=MODEL_REVISION), False
+def _resolve_model_source(model_path: str | None) -> str:
+    """Resolve the required pre-downloaded model directory."""
+    return require_local_model_path(model_path)
 
 
 def _build_messages(visible, infrared, depth, query, *, assistant_text=None):
@@ -185,14 +179,15 @@ class Glm46VAdapter:
         lora_path: Path | None = None,
         model_path: str | None = None,
     ) -> None:
+        source = _resolve_model_source(model_path)
+
         import torch
         from peft import PeftModel
         from transformers import AutoProcessor, Glm4vForConditionalGeneration
 
-        source, from_hub = _resolve_model_source(model_path)
         processor = AutoProcessor.from_pretrained(
             source,
-            **({"revision": self.model_revision} if from_hub else {}),
+            local_files_only=True,
         )
         processor.tokenizer.padding_side = "left"
         print(
@@ -203,21 +198,21 @@ class Glm46VAdapter:
         try:
             model = Glm4vForConditionalGeneration.from_pretrained(
                 source,
-                **({"revision": self.model_revision} if from_hub else {}),
+                local_files_only=True,
                 dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
         except TypeError:
             model = Glm4vForConditionalGeneration.from_pretrained(
                 source,
-                **({"revision": self.model_revision} if from_hub else {}),
+                local_files_only=True,
                 torch_dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
         model = model.to(device)
 
         if lora_path is not None:
-            model = PeftModel.from_pretrained(model, str(lora_path)).to(device)
+            model = PeftModel.from_pretrained(model, str(lora_path), local_files_only=True).to(device)
 
         model.eval()
         self._processor = processor

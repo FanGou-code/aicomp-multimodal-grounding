@@ -16,6 +16,7 @@ from aicomp_grounding.inference_state import (
     evaluate_dataset_predictions,
     fingerprint_inputs,
     fingerprint_lora,
+    load_resume_predictions,
     merge_retry_predictions,
     merge_shard_payloads,
     pending_keys,
@@ -187,6 +188,117 @@ class PendingShardTests(unittest.TestCase):
         self.assertEqual(set(keys), {"k0", "k2", "k4", "k5"})
         self.assertNotIn("k1", keys)
         self.assertNotIn("k3", keys)
+
+
+class ResumeFilesTests(unittest.TestCase):
+    def test_foreign_checkpoint_rejected_without_rewriting(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            metadata = _metadata(["001_1"])
+            path = root / "checkpoint.json"
+            atomic_write_json(path, {"metadata": {**metadata, "model": "foreign"},
+                                     "predictions": {"001_1": [0, 0, 1, 1]}})
+            before = path.read_bytes()
+            with self.assertRaises(ValueError):
+                load_resume_predictions(root, metadata, ["001_1"])
+            self.assertEqual(before, path.read_bytes())
+
+    def test_flat_predictions_require_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            atomic_write_json(root / "predictions.json", {"001_1": None})
+            with self.assertRaisesRegex(ValueError, "without recorded metadata"):
+                load_resume_predictions(root, _metadata(["001_1"]), ["001_1"])
+
+    def test_base_and_legacy_shard_progress_survive_repeated_resume(self):
+        keys = ["001_1", "002_1", "003_1"]
+        metadata = _metadata(keys, num_shards=2)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            atomic_write_json(root / "checkpoint.json", {
+                "metadata": metadata, "predictions": {keys[0]: None},
+            })
+            shard_path = root / "shard_checkpoints/shard_00.checkpoint.json"
+            atomic_write_json(shard_path, {
+                "metadata": build_shard_metadata(metadata, 0, keys[1:]),
+                "predictions": {keys[1]: [0, 0, 1, 1]}, "scores": {keys[1]: 0.5},
+            })
+            predictions, scores = load_resume_predictions(root, metadata, keys)
+            self.assertEqual(set(predictions), set(keys[:2]))
+            atomic_write_json(root / "checkpoint.json", {
+                "metadata": metadata, "predictions": predictions, "scores": scores,
+            })
+            atomic_write_json(shard_path, {
+                "metadata": build_shard_metadata(metadata, 0, keys[2:]),
+                "assigned_keys": keys[2:], "predictions": {keys[2]: [0.1, 0.1, 0.5, 0.5]},
+            })
+            final, final_scores = load_resume_predictions(root, metadata, keys)
+            self.assertEqual(set(final), set(keys))
+            self.assertEqual(final[keys[1]], [0, 0, 1, 1])
+            self.assertEqual(final_scores[keys[1]], 0.5)
+
+    def test_conflicting_results_and_wrong_shard_assignment_are_rejected(self):
+        keys = ["001_1", "002_1"]
+        metadata = _metadata(keys, num_shards=2)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            atomic_write_json(root / "checkpoint.json", {
+                "metadata": metadata, "predictions": {keys[0]: None},
+            })
+            path = root / "shard_checkpoints/shard_00.checkpoint.json"
+            atomic_write_json(path, {
+                "metadata": build_shard_metadata(metadata, 0, keys),
+                "assigned_keys": keys, "predictions": {keys[0]: [0, 0, 1, 1]},
+            })
+            with self.assertRaisesRegex(ValueError, "Conflicting"):
+                load_resume_predictions(root, metadata, keys)
+            atomic_write_json(path, {
+                "metadata": build_shard_metadata(metadata, 0, keys),
+                "assigned_keys": keys[1:], "predictions": {keys[1]: None},
+            })
+            with self.assertRaises(ValueError):
+                load_resume_predictions(root, metadata, keys)
+
+    def test_identical_lora_content_allows_different_path_in_trace(self):
+        keys = ["001_1"]
+        metadata = _metadata(keys, lora_path=Path("/new/adapter"), adapter_fingerprint="lora_same")
+        payload = {"metadata": {**metadata, "lora_path": "/old/adapter"},
+                   "predictions": {keys[0]: None}}
+        self.assertEqual(validate_checkpoint_payload(payload, metadata, keys, require_complete=True),
+                         {keys[0]: None})
+        payload["metadata"]["adapter_fingerprint"] = "lora_foreign"
+        with self.assertRaises(ValueError):
+            validate_checkpoint_payload(payload, metadata, keys, require_complete=True)
+
+    def test_multishard_with_loader_workers_and_completed_resume(self):
+        import argparse
+        import contextlib
+        import io
+        from PIL import Image
+        from offline.infer import run_cli
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            data = root / "data"
+            data.mkdir()
+            rows = {}
+            for i in range(4):
+                row = {"query": f"object {i}", "bbox": [0, 0, 1, 1]}
+                for field in ("visible", "infrared", "depth"):
+                    name = f"{i}_{field}.png"
+                    Image.new("RGB", (16, 16)).save(data / name)
+                    row[field] = name
+                rows[str(i)] = row
+            atomic_write_json(root / "index.json", rows)
+            args = argparse.Namespace(project_root=root, data_dir=data, test_json=root / "index.json",
+                output_dir=root / "outputs", model="mock", model_path=None, lora_path=None,
+                max_pixels=2408448, annotation_run_id="", run_tag="regression", limit=0,
+                num_shards=2, num_workers=1, batch_size=2, batch_save=1, resume=True)
+            with contextlib.redirect_stdout(io.StringIO()):
+                first = run_cli(args)
+                second = run_cli(args)
+            self.assertEqual(first["total_predictions"], 4)
+            self.assertEqual(second["total_predictions"], 4)
+            self.assertEqual(first["metadata"], second["metadata"])
 
 
 class CheckpointTests(unittest.TestCase):

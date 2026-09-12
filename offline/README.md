@@ -27,6 +27,7 @@ torch 声明为范围，平台已有版本自动跳过；A 卡加速内核（cau
 python offline/train.py \
   --annotation-run-id <ANNOTATION_RUN_ID> \
   --model qwen3vl \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
   --annotation-root outputs/annotations \
   --output-root outputs \
@@ -34,21 +35,23 @@ python offline/train.py \
 ```
 
 训练适配器和检查点默认写入 `outputs/output_lora/<training_run_id>/`。如平台将
-输出挂载到其他目录，可通过 `--output-root` 指定新的仓库级输出根。
+输出挂载到其他目录，可通过 `--output-root` 指定新运行的输出根。已有训练
+记录继续使用原绝对路径；本仓当前不提供跨目录续训迁移。
 
-推理本体（`--model` 选适配器：qwen3vl / internvl35 / groundingdino / mock）。
-VLM 单卡推理标准用 DataLoader 预取（`--num-workers 2` + `--batch-size 4`），
+推理模型可选值见 `docs/architecture.md`；真实模型必须给出已下载的本地目录。
+VLM 单卡推理标准用 DataLoader 预取（`--num-workers 2` + `--batch-size 2`），
 不要用 `--num-shards >1` 在单卡上拉起多个模型副本：
 
 ```bash
 python offline/infer.py \
   --model qwen3vl \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --lora-path YOUR_LORA_PATH \
   --output-dir outputs/inference \
   --num-workers 2 \
-  --batch-size 4 \
+  --batch-size 2 \
   --run-tag offline-test
 ```
 
@@ -57,6 +60,7 @@ python offline/infer.py \
 ```bash
 python offline/infer.py \
   --model qwen3vl \
+  --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --test-json outputs/annotations/<ANNOTATION_RUN_ID>/val/approved.json \
   --annotation-run-id <ANNOTATION_RUN_ID> \
   --data-dir data \
@@ -68,7 +72,8 @@ python offline/infer.py \
 
 单机多卡推理才使用 `--num-shards N`，且 N 应等于可见 GPU 数；单卡固定
 `--num-shards 1`。多进程路径会写独立的 `shard_checkpoints/shard_<id>.checkpoint.json`，
-但恢复以最终 `predictions.json` 为准，中断后请保持稳定会话完整跑完。
+恢复时合并通过身份检查的主 checkpoint、预测文件与分片记录；全部完成后再次
+启动会直接汇总。冲突内容或其他运行的记录会被拒绝。
 
 `--num-workers 2` 通过 DataLoader 预取图像并与 GPU 推理并行；`--num-workers 0`
 使用串行加载。
@@ -83,11 +88,11 @@ python offline/infer.py \
 | 缺的东西 | 体量 | 获取方式 |
 | --- | --- | --- |
 | `data/Train` 原始三模态（400 序列） | 共 ~43G | 由数据提供方另行获取 |
-| `data/Test` 测试集 | 含在 43G 内 | 同上 |
-| `data/Processed`（depth JET 伪彩） | 含在内 | 跟着传，或自己跑 `scripts/prepare_rgbdt.py` 重生成 |
+| `data/Test` 官方测试集 | 单独提供 | 从赛事渠道获取 |
+| `data/Processed`（depth JET 伪彩） | 本地派生 | 使用 `scripts/prepare_rgbdt.py --dataset-root data` 生成 |
 | 基础模型权重 | Qwen-8B 17G / InternVL 17G / DINO 0.7G | 下载到持久目录 |
 
-**不需要**：LoRA 权重（融合只交换各自 predictions.json）。
+微调推理需要完整 LoRA 目录；仅进行融合时，只交换各成员预测文件即可。
 
 ## AMD ROCm 环境
 

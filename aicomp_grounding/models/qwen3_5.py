@@ -20,7 +20,7 @@ from typing import Any
 
 from aicomp_grounding.bbox import format_qwen_bbox, parse_bbox_from_text
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
 from aicomp_grounding.prompts import (
     GROUNDING_SYSTEM_PROMPT,
     build_grounding_messages,
@@ -30,9 +30,8 @@ from aicomp_grounding.prompts import (
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "Qwen/Qwen3.5-9B"
-# Pinned to the ModelScope head commit at adoption time so the auto-load
-# fallback (no --model-path) reproduces deterministically; the SOP always
-# loads from a local --model-path so this is identity + auto-load only.
+# ModelScope snapshot recorded at adoption. Download this version before
+# execution; the adapter only reads the explicit local --model-path.
 MODEL_REVISION = "460979c3d11864dd16408d860ac930a360a2fac2"
 
 # Pixel budgets in Qwen processor units (28x28 per patch); 3072 patches
@@ -62,23 +61,9 @@ def _apply_chat_template(
     )
 
 
-def _resolve_model_source(model_path: str | None) -> tuple[str, bool]:
-    """Resolve the Qwen3.5 source to a local directory.
-
-    The pinned revision is a ModelScope git commit, not a Hugging Face
-    revision, so automatic loading uses ModelScope even without
-    ``--model-path``; the returned path is always local afterwards.
-    """
-    if model_path is not None:
-        return model_path, False
-    try:
-        from modelscope import snapshot_download
-    except ImportError as exc:
-        raise RuntimeError(
-            "Qwen3.5 automatic loading requires modelscope; "
-            "pass --model-path to a local model directory"
-        ) from exc
-    return snapshot_download(MODEL_NAME, revision=MODEL_REVISION), False
+def _resolve_model_source(model_path: str | None) -> str:
+    """Resolve the required pre-downloaded model directory."""
+    return require_local_model_path(model_path)
 
 
 class Qwen3_5Adapter:
@@ -115,14 +100,15 @@ class Qwen3_5Adapter:
         lora_path: Path | None = None,
         model_path: str | None = None,
     ) -> None:
+        source = _resolve_model_source(model_path)
+
         import torch
         from peft import PeftModel
         from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
 
-        source, from_hub = _resolve_model_source(model_path)
         processor = AutoProcessor.from_pretrained(
             source,
-            **({"revision": self.model_revision} if from_hub else {}),
+            local_files_only=True,
             min_pixels=MIN_PIXELS,
             max_pixels=self.max_pixels,
         )
@@ -136,21 +122,21 @@ class Qwen3_5Adapter:
         try:
             model = Qwen3_5ForConditionalGeneration.from_pretrained(
                 source,
-                **({"revision": self.model_revision} if from_hub else {}),
+                local_files_only=True,
                 dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
         except TypeError:
             model = Qwen3_5ForConditionalGeneration.from_pretrained(
                 source,
-                **({"revision": self.model_revision} if from_hub else {}),
+                local_files_only=True,
                 torch_dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
         model = model.to(device)
 
         if lora_path is not None:
-            model = PeftModel.from_pretrained(model, str(lora_path)).to(device)
+            model = PeftModel.from_pretrained(model, str(lora_path), local_files_only=True).to(device)
 
         model.eval()
         self._processor = processor

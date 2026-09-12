@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+from concurrent.futures import ProcessPoolExecutor
 from collections import OrderedDict
 from collections.abc import Callable
 from datetime import datetime
@@ -30,11 +31,12 @@ from aicomp_grounding.inference_state import (
     build_run_metadata,
     fingerprint_inputs,
     fingerprint_lora,
+    load_resume_predictions,
     validate_checkpoint_payload,
 )
-from aicomp_grounding.io import atomic_write_json, load_json
+from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.models import available_models, get_adapter
-from aicomp_grounding.models.base import ModelInput
+from aicomp_grounding.models.base import ModelInput, require_local_model_path
 from aicomp_grounding.models.qwen3vl import MAX_PIXELS
 from aicomp_grounding.paths import ProjectPaths, resolve_from_root
 from aicomp_grounding.submission import build_submission
@@ -73,8 +75,7 @@ def parse_args():
         "--model-path",
         type=str,
         default=None,
-        help="Optional local base-model directory override (offline machines); "
-        "defaults to the adapter's canonical hub id + pinned revision.",
+        help="Pre-downloaded model directory (required except for mock). No automatic download.",
     )
     parser.add_argument(
         "--test-json",
@@ -301,6 +302,7 @@ def _run_inference_loop(
                             "metadata": checkpoint_metadata,
                             "predictions": predictions,
                             "scores": scores or {},
+                            "assigned_keys": [item["key"] for item in items],
                         },
                     )
                     if commit_hook is not None:
@@ -382,6 +384,7 @@ def _run_dataloader_inference_loop(
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
+        multiprocessing_context=multiprocessing.get_context("fork") if num_workers > 0 else None,
         prefetch_factor=2 if num_workers > 0 else None,
         collate_fn=_collate,
     )
@@ -424,6 +427,7 @@ def _run_dataloader_inference_loop(
                         "metadata": checkpoint_metadata,
                         "predictions": predictions,
                         "scores": scores or {},
+                        "assigned_keys": [item["key"] for item in items],
                     },
                 )
                 if commit_hook is not None:
@@ -514,6 +518,8 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     args.output_dir = resolve_from_root(args.output_dir, paths.root)
     if args.lora_path is not None:
         args.lora_path = resolve_from_root(args.lora_path, paths.root)
+    if args.model_path:
+        args.model_path = str(resolve_from_root(args.model_path, paths.root))
 
     if not args.test_json.is_file():
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
@@ -563,6 +569,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
         input_fingerprint=input_fingerprint,
         image_fingerprint=image_fingerprint,
         num_shards=args.num_shards,
+        compute_dtype=getattr(adapter, "compute_dtype", "bfloat16"),
     )
     run_id = metadata["run_id"]
     run_dir = args.output_dir / run_id
@@ -573,50 +580,26 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     print(f"Run id: {run_id}")
     print(f"Output dir: {run_dir}")
 
-    predictions: dict[str, list[float] | None] = {}
-    scores: dict[str, float | None] = {}
-    if args.resume:
-        if predictions_path.is_file():
-            print(f"Resuming from existing predictions file: {predictions_path}")
-            predictions = load_json(predictions_path)
-            if (run_dir / "scores.json").is_file():
-                scores = load_json(run_dir / "scores.json")
-        elif checkpoint_path.is_file():
-            print(f"Resuming from existing checkpoint file: {checkpoint_path}")
-            ckpt_data = load_json(checkpoint_path)
-            if isinstance(ckpt_data, dict):
-                predictions = ckpt_data.get("predictions") or {}
-                scores = ckpt_data.get("scores") or {}
+    predictions, scores = (
+        load_resume_predictions(run_dir, metadata, selected_keys)
+        if args.resume else ({}, {})
+    )
+    if any(key not in predictions for key in selected_keys) and adapter.name != "mock":
+        args.model_path = require_local_model_path(args.model_path)
+    # Record identity before any prediction file is published. Existing files
+    # have already been checked above; no foreign metadata is silently replaced.
+    atomic_write_json(metadata_path, metadata)
     if args.num_shards > 1:
         shard_checkpoint_dir = run_dir / "shard_checkpoints"
         shard_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        if args.resume:
-            # Always reconcile with shard checkpoints, not only when the main
-            # checkpoint is empty: after a resumed phase persists its state to
-            # checkpoint.json, a second interruption leaves phase-2 progress in
-            # the per-shard files. Scanning and merging them incrementally keeps
-            # that work instead of overwriting it on the next resume.
-            for shard_file in sorted(shard_checkpoint_dir.glob("shard_*.checkpoint.json")):
-                payload = load_json(shard_file)
-                for key, value in (payload.get("predictions") or {}).items():
-                    predictions[key] = value
-                for key, value in (payload.get("scores") or {}).items():
-                    scores[key] = value
-            if predictions:
-                print(f"Resumed {len(predictions)} predictions from shard checkpoints.")
-                # Persist immediately: the workers below overwrite the same
-                # shard files, so without this a second interruption would
-                # lose the progress just recovered.
-                atomic_write_json(
-                    checkpoint_path,
-                    {
-                        "metadata": metadata,
-                        "predictions": predictions,
-                        "scores": scores,
-                    },
-                )
-                if commit_hook is not None:
-                    commit_hook()
+        if predictions:
+            atomic_write_json(
+                checkpoint_path,
+                {"metadata": metadata, "predictions": predictions, "scores": scores,
+                 "assigned_keys": selected_keys},
+            )
+            if commit_hook is not None:
+                commit_hook()
     print(f"Total queries in dataset: {len(items)} | Already finished: {len(predictions)} | Pending: {len(items) - len(predictions)}")
     if args.num_shards > 1:
         shards = assign_pending_shards(
@@ -639,8 +622,12 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
             for shard_id, shard in enumerate(shards)
         ]
         context = multiprocessing.get_context("spawn")
-        with context.Pool(len(shards)) as pool:
-            shard_results = pool.map(_run_shard_worker, worker_payloads)
+        shard_results = []
+        if shards:
+            # Executor workers are not daemon processes: their DataLoaders can
+            # create CPU workers just like the single-shard path.
+            with ProcessPoolExecutor(max_workers=len(shards), mp_context=context) as pool:
+                shard_results = list(pool.map(_run_shard_worker, worker_payloads))
         for _, shard_predictions, shard_scores in shard_results:
             # Recover shard_id and metadata from the result is not necessary;
             # validation is done below against the same shard assignments.
@@ -701,12 +688,17 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
                 checkpoint_metadata=metadata,
                 commit_hook=commit_hook,
             )
+    validate_checkpoint_payload(
+        {"metadata": metadata, "predictions": predictions, "scores": scores},
+        metadata, selected_keys, require_complete=True, label="inference result",
+    )
     atomic_write_json(predictions_path, predictions)
     if scores:
         atomic_write_json(run_dir / "scores.json", scores)
     atomic_write_json(
         checkpoint_path,
-        {"metadata": metadata, "predictions": predictions, "scores": scores},
+        {"metadata": metadata, "predictions": predictions, "scores": scores,
+         "assigned_keys": selected_keys},
     )
     if commit_hook is not None:
         commit_hook()
@@ -730,7 +722,8 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     atomic_write_json(metadata_path, metadata)
     atomic_write_json(
         checkpoint_path,
-        {"metadata": metadata, "predictions": predictions, "scores": scores},
+        {"metadata": metadata, "predictions": predictions, "scores": scores,
+         "assigned_keys": selected_keys},
     )
     if commit_hook is not None:
         commit_hook()

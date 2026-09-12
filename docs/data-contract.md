@@ -1,7 +1,7 @@
 # 数据合同（data/ 布局与派生产物）
 
-`data/` 整体 gitignore，通过魔搭公开数据集分发。任何人克隆仓库后按本合同
-组装数据，不需要记忆任何约定。
+`data/` 整体 gitignore。训练数据包由用户在魔搭分发；官方 Test 由赛事渠道
+单独获取，按下列布局放入本地目录。
 
 ## 目录布局
 
@@ -30,7 +30,8 @@ data/
 
 - 标注生产线分离后，`indexes/` 与 `excluded_overlap.json` 完整收口在 query-foundry
   （训练只消费 `approved.json`，其数据与指纹自包含）；
-  图像不搬运，foundry 经 `data/Train`、`data/Processed` 读本仓。
+  图像仍在主仓，foundry 的 `--data-root` 指向主仓 `data/`，
+  `--index-dir` 指向 foundry 的 `data/indexes/`。
 - 2026-09-08：副仓升级 `prepare_split.py` 支持 Test 图像自动探测并生成
   `data/indexes/excluded_overlap.json`，清理主仓未追踪临时目录 `data/audits_from_foundry`。
 - golden `approved.json` 的 `source_fingerprint` / `preparation_fingerprint`
@@ -52,4 +53,9 @@ rm -rf /root/rgbdt-download
 
 标注生产线预检会比对 `split_manifest.json` 的
 `index_fingerprints[split]`（内容哈希）与 `index_sample_counts[split]`；
-因此索引文件**移动位置不影响指纹**，但内容必须由生成器产出。
+因此索引文件移动位置不影响指纹，但内容必须由生成器产出。协议 2 的既有两种
+JSON 序列化哈希均可读取；生成器继续使用已提交索引的格式，不回写历史文件。
+
+`approved.json` 的 `manifest_` 图像指纹绑定路径和尺寸，不包含图像字节。
+训练的 `--deep-verify-images` 会检查图片文件与尺寸并计算字节哈希；历史图像
+内容版本由数据交付方另外固定。打包后的同帧描述必须唯一，跨 split 检查通过后才发布。

@@ -16,7 +16,7 @@ from typing import Any
 
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "OpenGVLab/InternVL3_5-8B-HF"
@@ -128,17 +128,17 @@ class InternVL35Adapter:
         lora_path: Path | None = None,
         model_path: str | None = None,
     ) -> None:
+        source = require_local_model_path(model_path)
+
         import torch
         from peft import PeftModel
         from transformers import AutoProcessor
 
-        source = model_path or self.model_name
-        from_hub = model_path is None
         # InternVL3.5-HF controls the patch budget in preprocessor_config
         # (`max_patches`); do not pass the legacy InternVL2 max_num_tiles name.
         processor = AutoProcessor.from_pretrained(
             source,
-            **({"revision": self.model_revision} if from_hub else {}),
+            local_files_only=True,
         )
         processor.tokenizer.padding_side = "left"
 
@@ -151,25 +151,24 @@ class InternVL35Adapter:
 
             model_class = AutoModelForImageTextToText
 
-        revision_kwargs = {"revision": self.model_revision} if from_hub else {}
         try:
             model = model_class.from_pretrained(
                 source,
-                **revision_kwargs,
+                local_files_only=True,
                 dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
         except TypeError:
             model = model_class.from_pretrained(
                 source,
-                **revision_kwargs,
+                local_files_only=True,
                 torch_dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
         model = model.to(device)
 
         if lora_path is not None:
-            model = PeftModel.from_pretrained(model, str(lora_path)).to(device)
+            model = PeftModel.from_pretrained(model, str(lora_path), local_files_only=True).to(device)
 
         model.eval()
         self._processor = processor

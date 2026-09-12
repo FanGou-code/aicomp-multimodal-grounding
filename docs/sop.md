@@ -33,6 +33,13 @@ modelscope download --dataset Fang001/rgbdt-grounding-dataset data.tar \
 
 tar -xf /root/rgbdt-download/data.tar -C data --no-same-owner
 rm -rf /root/rgbdt-download
+```
+
+以上为训练数据包。另将赛事渠道取得的 Test 目录放入 `data/Test/`，再生成深度
+伪彩图并检查布局（默认不生成索引，已有深度文件不覆盖）：
+
+```bash
+python scripts/prepare_rgbdt.py --dataset-root data
 
 test -f data/Test/queries/queries.json
 test -d data/Train
@@ -103,6 +110,11 @@ python -c "import fla, causal_conv1d; print(fla.__version__, causal_conv1d.__ver
 
 ## 4. 下载模型（首次执行）
 
+训练和推理不自动下载底座。先完成下载，再传 `--model-path`；缺文件时程序报错。
+下面保留 DSW 的 ModelScope 下载入口。Qwen3.5 和 GLM 使用已记录的 ModelScope
+版本；其余三项代码中的 revision 来自 HF，不能直接作为 ModelScope revision。
+严格按代码版本重建底座时，从对应 HF 快照预下载到同一目录，并记录实际来源版本。
+
 ```bash
 export MODEL_ROOT=/mnt/workspace/models
 mkdir -p "$MODEL_ROOT"
@@ -117,14 +129,16 @@ modelscope download --model AI-ModelScope/grounding-dino-base \
   --local_dir "$MODEL_ROOT/AI-ModelScope/grounding-dino-base"
 
 modelscope download --model Qwen/Qwen3.5-9B \
+  --revision 460979c3d11864dd16408d860ac930a360a2fac2 \
   --local_dir "$MODEL_ROOT/Qwen/Qwen3.5-9B"
 
 modelscope download --model ZhipuAI/GLM-4.6V-Flash \
+  --revision a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41 \
   --local_dir "$MODEL_ROOT/ZhipuAI/GLM-4.6V-Flash"
 ```
 
 > Youtu-VL-4B-Instruct 不在 DSW 下载：需 `transformers>=4.56.0,<=4.57.1` +
-> `trust_remote_code`，与本环境 5.14.1 冲突。由管理员在 Modal 专属 Image 内拉取，
+> `trust_remote_code`，与本环境 5.15.1 的依赖声明不同。其权重同样须预下载，
 > 流程见 `cloud/README.md`；预测文件回流本仓后入 WBF 融合。
 
 下载前检查持久盘空间：
@@ -136,6 +150,8 @@ df -h /mnt/workspace
 ## 5. 训练
 
 训练命令统一使用 `offline/train.py`。先跑 smoke，再启动完整训练。
+仅检查数据合同可使用 `--preflight-only`，不会加载权重或写训练计划。
+更改代码中的目标格式、解析或参数后，下面的示例标签应改为新标签，不混入旧结果。
 
 ### Qwen3-VL-8B
 
@@ -154,7 +170,7 @@ python offline/train.py \
   --model qwen3vl \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
-  --run-tag exp-qwen8-retrain \
+  --run-tag exp-qwen8-retrain-auditfix \
   --num-workers 4 \
   --checkpoint-interval 20
 ```
@@ -176,7 +192,7 @@ python offline/train.py \
   --model qwen3_5 \
   --model-path /mnt/workspace/models/Qwen/Qwen3.5-9B \
   --data-dir data \
-  --run-tag exp-qwen35-9b \
+  --run-tag exp-qwen35-9b-auditfix \
   --num-workers 4 \
   --checkpoint-interval 20
 ```
@@ -198,7 +214,7 @@ python offline/train.py \
   --model glm46v \
   --model-path /mnt/workspace/models/ZhipuAI/GLM-4.6V-Flash \
   --data-dir data \
-  --run-tag exp-glm46v-flash \
+  --run-tag exp-glm46v-flash-auditfix \
   --num-workers 4 \
   --checkpoint-interval 20
 ```
@@ -218,7 +234,7 @@ python offline/train.py \
   --model internvl35 \
   --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --data-dir data \
-  --run-tag exp-internvl-01
+  --run-tag exp-internvl-01-auditfix
 ```
 
 ### GroundingDINO-B
@@ -253,7 +269,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 2 --batch-save 100 --run-tag qwen8-lora-smoke
+  --batch-size 2 --batch-save 100 --run-tag qwen8-lora-smoke-auditfix
 
 python offline/infer.py \
   --model qwen3vl \
@@ -262,7 +278,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
-  --batch-size 2 --batch-save 100 --run-tag qwen8-lora-full
+  --batch-size 2 --batch-save 100 --run-tag qwen8-lora-full-auditfix
 ```
 
 ### Qwen3.5-9B
@@ -277,7 +293,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 2 --batch-save 100 --run-tag qwen35-9b-lora-smoke
+  --batch-size 2 --batch-save 100 --run-tag qwen35-9b-lora-smoke-auditfix
 
 python offline/infer.py \
   --model qwen3_5 \
@@ -286,7 +302,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
-  --batch-size 2 --batch-save 100 --run-tag qwen35-9b-lora-full
+  --batch-size 2 --batch-save 100 --run-tag qwen35-9b-lora-full-auditfix
 ```
 
 ### GLM-4.6V-Flash
@@ -301,7 +317,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 2 --batch-save 100 --run-tag glm46v-lora-smoke
+  --batch-size 2 --batch-save 100 --run-tag glm46v-lora-smoke-auditfix
 
 python offline/infer.py \
   --model glm46v \
@@ -310,7 +326,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
-  --batch-size 2 --batch-save 100 --run-tag glm46v-lora-full
+  --batch-size 2 --batch-save 100 --run-tag glm46v-lora-full-auditfix
 ```
 
 ### InternVL3.5-8B
@@ -325,7 +341,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 2 \
-  --batch-size 2 --batch-save 100 --run-tag internvl-lora-smoke
+  --batch-size 2 --batch-save 100 --run-tag internvl-lora-smoke-auditfix
 
 python offline/infer.py \
   --model internvl35 \
@@ -334,7 +350,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 2 \
-  --batch-size 2 --batch-save 100 --run-tag internvl-lora-full
+  --batch-size 2 --batch-save 100 --run-tag internvl-lora-full-auditfix
 ```
 
 ### GroundingDINO-B（Zero-shot）
@@ -346,7 +362,7 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 4 \
-  --batch-size 8 --batch-save 100 --run-tag dino-smoke
+  --batch-size 8 --batch-save 100 --run-tag dino-smoke-auditfix
 
 python offline/infer.py \
   --model groundingdino \
@@ -354,16 +370,16 @@ python offline/infer.py \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 4 \
-  --batch-size 8 --batch-save 100 --run-tag dino-full
+  --batch-size 8 --batch-save 100 --run-tag dino-full-auditfix
 ```
 
 ### Youtu-VL-4B（Zero-shot，Modal 专属）
 
-Youtu-VL 不走 `offline/infer.py`：需 `transformers<=4.57.1` + `trust_remote_code` +
-`pydensecrf`，与 DSW 5.14.1 冲突。由管理员在 Modal 专属 Image 内执行推理，预测
-文件 `predictions.json` 回流本仓 `outputs/inference/` 后入 WBF 融合。适配层
-`youtu_vl` 已就绪，本地解析单测覆盖；GPU 路径（多图 `img_input` kwarg）在 Modal
-首跑时冒烟验证。
+Youtu-VL 需要匹配原生代码的依赖环境（`transformers<=4.57.1`、
+`trust_remote_code`、`pydensecrf`），不使用 DSW 的公共 5.15.1 环境。
+兼容环境内仍复用 `offline/infer.py --model youtu_vl --model-path ...`。
+公共 Modal 镜像只安装根 `pyproject.toml` 依赖，未提供 Youtu 专属镜像；
+其环境和 GPU 验证状态见 `handoff.md`。
 
 ## 7. 提交包
 
