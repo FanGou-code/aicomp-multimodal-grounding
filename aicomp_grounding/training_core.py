@@ -245,7 +245,7 @@ def prepare_training_plan(
         raise ValueError("smoke_test must be boolean")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id or ""):
         raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
-    if model not in {"qwen3vl", "qwen3_5", "glm46v", "internvl35"}:
+    if model not in {"qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v", "internvl35"}:
         raise ValueError(f"Unsupported training model: {model!r}")
     adapter = get_adapter(model)
     hyperparameters = adapter.training_hyperparameters()
@@ -452,7 +452,7 @@ def run_training(
     weight_decay = hyperparameters["weight_decay"]
     eval_batch_size = hyperparameters["eval_batch_size"]
 
-    if model_name in ("qwen3vl", "qwen3_5"):
+    if model_name in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl"):
         adapter = get_adapter(
             model_name,
             max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),

@@ -133,11 +133,10 @@ modelscope download --model Qwen/Qwen3.5-9B \
 modelscope download --model ZhipuAI/GLM-4.6V-Flash \
   --revision a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41 \
   --local_dir "$MODEL_ROOT/ZhipuAI/GLM-4.6V-Flash"
-```
 
-> Youtu-VL-4B-Instruct 不在 DSW 下载：需 `transformers>=4.56.0,<=4.57.1` +
-> `trust_remote_code`，与本环境 5.15.1 的依赖声明不同。其权重同样须预下载，
-> 流程见 `cloud/README.md`；预测文件回流本仓后入 WBF 融合。
+modelscope download --model XiaomiMiMo/MiMo-VL-7B-RL \
+  --local_dir "$MODEL_ROOT/XiaomiMiMo/MiMo-VL-7B-RL"
+```
 
 下载前检查持久盘空间：
 
@@ -233,6 +232,24 @@ python offline/train.py \
   --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --data-dir data \
   --run-tag exp-internvl-01-auditfix
+```
+
+### MiMo-VL-7B-RL
+
+```bash
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model mimo_vl \
+  --model-path /mnt/workspace/models/XiaomiMiMo/MiMo-VL-7B-RL \
+  --data-dir data \
+  --smoke-test
+
+python offline/train.py \
+  --annotation-run-id YOUR_ANNOTATION_RUN_ID \
+  --model mimo_vl \
+  --model-path /mnt/workspace/models/XiaomiMiMo/MiMo-VL-7B-RL \
+  --data-dir data \
+  --run-tag exp-mimo-vl-auditfix
 ```
 
 ### GroundingDINO-B
@@ -351,6 +368,30 @@ python offline/infer.py \
   --batch-size 2 --batch-save 100 --run-tag internvl-lora-full-auditfix
 ```
 
+### MiMo-VL-7B-RL
+
+微调后：
+
+```bash
+python offline/infer.py \
+  --model mimo_vl \
+  --model-path /mnt/workspace/models/XiaomiMiMo/MiMo-VL-7B-RL \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --limit 100 --num-shards 1 --num-workers 2 \
+  --batch-size 2 --batch-save 100 --run-tag mimo-lora-smoke-auditfix
+
+python offline/infer.py \
+  --model mimo_vl \
+  --model-path /mnt/workspace/models/XiaomiMiMo/MiMo-VL-7B-RL \
+  --lora-path outputs/output_lora/YOUR_RUN_ID/best/epoch_XX \
+  --test-json data/Test/queries/queries.json \
+  --data-dir data \
+  --num-shards 1 --num-workers 2 \
+  --batch-size 2 --batch-save 100 --run-tag mimo-lora-full-auditfix
+```
+
 ### GroundingDINO-B（Zero-shot）
 
 ```bash
@@ -370,14 +411,6 @@ python offline/infer.py \
   --num-shards 1 --num-workers 4 \
   --batch-size 8 --batch-save 100 --run-tag dino-full-auditfix
 ```
-
-### Youtu-VL-4B（Zero-shot，Modal 专属）
-
-Youtu-VL 需要匹配原生代码的依赖环境（`transformers<=4.57.1`、
-`trust_remote_code`、`pydensecrf`），不使用 DSW 的公共 5.15.1 环境。
-兼容环境内仍复用 `offline/infer.py --model youtu_vl --model-path ...`。
-公共 Modal 镜像只安装根 `pyproject.toml` 依赖，未提供 Youtu 专属镜像；
-其环境和 GPU 验证状态见 `handoff.md`。
 
 ## 7. 提交包
 
