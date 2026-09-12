@@ -89,7 +89,7 @@ python offline/infer.py \
 | --- | --- | --- |
 | `data/Train` 原始三模态（400 序列） | 共 ~43G | 由数据提供方另行获取 |
 | `data/Test` 官方测试集 | 单独提供 | 从赛事渠道获取 |
-| `data/Processed`（depth JET 伪彩） | 本地派生 | 使用 `scripts/prepare_rgbdt.py --dataset-root data` 生成 |
+| `data/Processed`（depth JET 伪彩） | 随 data 包提供 | 下载并解压后直接使用 |
 | 基础模型权重 | Qwen-8B 17G / InternVL 17G / DINO 0.7G | 下载到持久目录 |
 
 微调推理需要完整 LoRA 目录；仅进行融合时，只交换各成员预测文件即可。

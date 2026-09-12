@@ -35,12 +35,10 @@ tar -xf /root/rgbdt-download/data.tar -C data --no-same-owner
 rm -rf /root/rgbdt-download
 ```
 
-以上为训练数据包。另将赛事渠道取得的 Test 目录放入 `data/Test/`，再生成深度
-伪彩图并检查布局（默认不生成索引，已有深度文件不覆盖）：
+数据包已包含生成好的 `Processed/`，解压后直接使用。另将赛事渠道取得的
+Test 目录放入 `data/Test/`，检查布局：
 
 ```bash
-python scripts/prepare_rgbdt.py --dataset-root data
-
 test -f data/Test/queries/queries.json
 test -d data/Train
 test -d data/Processed/Train
