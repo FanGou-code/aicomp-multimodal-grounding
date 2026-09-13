@@ -30,7 +30,7 @@ def parse_args():
         "--model",
         type=str,
         default="qwen3vl",
-        choices=["qwen3vl", "qwen3_5", "glm46v", "internvl35"],
+        choices=["qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v", "internvl35"],
         help="Trainable grounding adapter.",
     )
     parser.add_argument(
