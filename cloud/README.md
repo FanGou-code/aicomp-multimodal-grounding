@@ -23,8 +23,13 @@ Volume aicomp 的根目录，运行时挂载到 /mnt/workspace：
 模型下载（需要 HF Token）：
 
 ```bash
-huggingface-cli download Qwen/Qwen3.6-27B --local-dir ./Qwen3.6-27B
+huggingface-cli download Qwen/Qwen3.6-27B \
+  --revision 6a9e13bd6fc8f0983b9b99948120bc37f49c13e9 \
+  --local-dir ./Qwen3.6-27B
 ```
+
+`--revision` 与 `models/qwen36_27b.py` 的 `MODEL_REVISION` 是同一个 commit：
+身份字符串和 Volume 上的字节指向同一份权重。
 
 上传到 Modal Volume：
 

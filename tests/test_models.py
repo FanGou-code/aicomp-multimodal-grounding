@@ -31,11 +31,13 @@ from aicomp_grounding.models.glm46v import (
     GLM_BOX_CLOSE as GLM46V_BOX_CLOSE,
     GLM_BOX_OPEN as GLM46V_BOX_OPEN,
     MAX_PIXELS as GLM46V_MAX_PIXELS,
+    MIN_PIXELS as GLM46V_MIN_PIXELS,
     MODEL_NAME as GLM46V_MODEL_NAME,
     MODEL_REVISION as GLM46V_MODEL_REVISION,
     MODELSCOPE_NAME as GLM46V_MODELSCOPE_NAME,
     format_glm_bbox,
     parse_glm_box,
+    processor_pixel_kwargs,
 )
 from aicomp_grounding.models.qwen3_5 import (
     MAX_PIXELS as QWEN3_5_MAX_PIXELS,
@@ -76,12 +78,40 @@ class RegistryTests(unittest.TestCase):
             self.assertIsInstance(adapter.generation_config, dict, msg=name)
 
 
+#: The snapshot each adapter's weights are downloaded from.  The SOP download
+#: commands pin these same values, so the identity string and the bytes on disk
+#: name the same revision.  A branch name would leave the string unchanged while
+#: the weights underneath move.
+EXPECTED_MODEL_REVISIONS = {
+    "qwen3vl": "5d854aab08710c16b980ec6d603d863b3821b915",
+    "qwen3_5": "460979c3d11864dd16408d860ac930a360a2fac2",
+    "qwen36_27b": "6a9e13bd6fc8f0983b9b99948120bc37f49c13e9",
+    "mimo_vl": "d307865d4a3b6ad9ae35e574bcabaa563038c8fb",
+    "glm46v": "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41",
+    "internvl35": "1c352b29d4066a61b465b5c6d044a1ebec1349ef",
+    "groundingdino": "d06985a44c66b6133c131bd273293be8649cfe3a",
+}
+
+
+class ModelRevisionPinTests(unittest.TestCase):
+    """Every weighted adapter names a snapshot, not a branch."""
+
+    def test_every_adapter_pins_a_snapshot_id(self):
+        for name, revision in EXPECTED_MODEL_REVISIONS.items():
+            with self.subTest(model=name):
+                self.assertEqual(get_adapter(name).model_revision, revision)
+                self.assertRegex(revision, r"^[0-9a-f]{40}$")
+
+    def test_revision_table_covers_every_weighted_adapter(self):
+        self.assertEqual(sorted([*EXPECTED_MODEL_REVISIONS, "mock"]), available_models())
+
+
 class QwenIdentityContinuityTests(unittest.TestCase):
     """Pin the historical identity values so run fingerprints never drift."""
 
     def test_model_constants_match_historical_config(self):
         self.assertEqual(MODEL_NAME, "Qwen/Qwen3-VL-8B-Instruct")
-        self.assertEqual(MODEL_REVISION, "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b")
+        self.assertEqual(MODEL_REVISION, "5d854aab08710c16b980ec6d603d863b3821b915")
         self.assertEqual(MIN_PIXELS, 256 * 28 * 28)
         self.assertEqual(MAX_PIXELS, 3072 * 28 * 28)
 
@@ -172,9 +202,10 @@ class Glm46VContractTests(unittest.TestCase):
 
     def test_default_generation_config_is_backward_compatible(self):
         # GLM-4.6V's identity moved once, deliberately: the adapter now pins the
-        # shared pixel budget instead of inheriting the checkpoint's
+        # shared per-frame pixel budget instead of inheriting the checkpoint's
         # `longest_edge`, so `max_pixels` enters its run identity.  Any run of
-        # this adapter needs a new tag.  At 1920x1080 the grid is unchanged.
+        # this adapter needs a new tag.  Every image in the dataset is
+        # 1920x1080, where the grid is 78x138 under either budget.
         adapter = get_adapter("glm46v")
         self.assertEqual(
             adapter.generation_config,
@@ -185,6 +216,22 @@ class Glm46VContractTests(unittest.TestCase):
         from aicomp_grounding.models import glm46v
 
         self.assertEqual(glm46v.CHAT_TEMPLATE_KWARGS, {"enable_thinking": False})
+
+    def test_processor_budget_converts_from_the_per_frame_unit(self):
+        # Glm46VImageProcessor reads its budget from a `size` dict and compares
+        # `temporal_factor * h * w` against `longest_edge`, so the per-frame
+        # value the roster records is doubled exactly once, here.  Passing
+        # `min_pixels` / `max_pixels` instead is silently dropped by the
+        # processor and would leave the budget unpinned.
+        self.assertEqual(
+            processor_pixel_kwargs(GLM46V_MAX_PIXELS),
+            {
+                "size": {
+                    "shortest_edge": 2 * GLM46V_MIN_PIXELS,
+                    "longest_edge": 2 * GLM46V_MAX_PIXELS,
+                }
+            },
+        )
 
     def test_format_and_parse_round_trip(self):
         text = format_glm_bbox([0.1, 0.2, 0.3, 0.4])
@@ -249,7 +296,9 @@ EXPECTED_LORA_PROJECTIONS["glm46v"] = (
 
 # Vision towers that reuse language-model projection names are the trap: a bare
 # suffix list silently wraps them, which puts the vision encoder through
-# backward plus gradient-checkpoint recomputation.
+# backward plus gradient-checkpoint recomputation.  These are the real module
+# paths of the three affected towers -- note InternViT numbers its block
+# `encoder.layer`, singular, unlike the Qwen-family `layers`.
 FROZEN_VISION_MODULES = (
     "model.visual.blocks.0.mlp.gate_proj",
     "model.visual.blocks.0.mlp.up_proj",
@@ -257,10 +306,23 @@ FROZEN_VISION_MODULES = (
     "model.visual.merger.gate_proj",
     "model.visual.merger.up_proj",
     "model.visual.merger.down_proj",
-    "model.vision_tower.encoder.layers.0.attention.q_proj",
-    "model.vision_tower.encoder.layers.0.attention.k_proj",
-    "model.vision_tower.encoder.layers.0.attention.v_proj",
+    "model.vision_tower.encoder.layer.0.attention.q_proj",
+    "model.vision_tower.encoder.layer.0.attention.k_proj",
+    "model.vision_tower.encoder.layer.0.attention.v_proj",
 )
+
+#: Where each projection lives in a language-model block, for the positive half
+#: of the anchor assertion below.  Every tri-modal language model in the roster
+#: nests attention under `self_attn` and the MLP under `mlp`.
+PROJECTION_PARENT = {
+    "q_proj": "self_attn",
+    "k_proj": "self_attn",
+    "v_proj": "self_attn",
+    "o_proj": "self_attn",
+    "gate_proj": "mlp",
+    "up_proj": "mlp",
+    "down_proj": "mlp",
+}
 
 
 class TrainableAdapterContractTests(unittest.TestCase):
@@ -282,6 +344,26 @@ class TrainableAdapterContractTests(unittest.TestCase):
                 language_model_lora_targets(*EXPECTED_LORA_PROJECTIONS[name]),
                 f"{name} changed its LoRA scope",
             )
+
+    def test_lora_targets_reach_the_language_model(self):
+        """The anchor itself: every declared projection must match.
+
+        The negative assertions below pass whether or not the pattern is
+        anchored -- a bare alternation of projection names does not match a
+        fully qualified path either.  This positive case is what keeps
+        `model.language_model` in the pattern.
+        """
+        for name, projections in EXPECTED_LORA_PROJECTIONS.items():
+            pattern = get_adapter(name).lora_target_modules()
+            for projection in projections:
+                key = (
+                    f"model.language_model.layers.0."
+                    f"{PROJECTION_PARENT[projection]}.{projection}"
+                )
+                with self.subTest(model=name, projection=projection):
+                    self.assertIsNotNone(
+                        re.fullmatch(pattern, key), f"{name} would not train {key}"
+                    )
 
     def test_lora_targets_never_reach_the_vision_tower(self):
         """The encoder stays frozen whichever projections an adapter declares.

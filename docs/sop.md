@@ -109,22 +109,24 @@ python -c "import fla, causal_conv1d; print(fla.__version__, causal_conv1d.__ver
 ## 4. 下载模型（首次执行）
 
 训练和推理不自动下载底座。先完成下载，再传 `--model-path`；缺文件时程序报错。
-下面保留 DSW 的 ModelScope 下载入口。Qwen3.5 和 GLM 使用已记录的 ModelScope
-版本；其余三项代码中的 revision 来自 HF，不能直接作为 ModelScope revision。
-严格按代码版本重建底座时，从对应 HF 快照预下载到同一目录，并记录实际来源版本。
+每条命令都带 `--revision`，取值与适配器里的 `MODEL_REVISION` 相同：身份字符串
+和磁盘上的字节指向同一个快照。`qwen36_27b` 从 HF 下载，见 `cloud/README.md`。
 
 ```bash
 export MODEL_ROOT=/mnt/workspace/models
 mkdir -p "$MODEL_ROOT"
 
 modelscope download --model Qwen/Qwen3-VL-8B-Instruct \
+  --revision 5d854aab08710c16b980ec6d603d863b3821b915 \
   --local_dir "$MODEL_ROOT/Qwen/Qwen3-VL-8B-Instruct"
 
 modelscope download --model OpenGVLab/InternVL3_5-8B-HF \
+  --revision 1c352b29d4066a61b465b5c6d044a1ebec1349ef \
   --local_dir "$MODEL_ROOT/OpenGVLab/InternVL3_5-8B-HF"
 
-modelscope download --model AI-ModelScope/grounding-dino-base \
-  --local_dir "$MODEL_ROOT/AI-ModelScope/grounding-dino-base"
+modelscope download --model IDEA-Research/grounding-dino-base \
+  --revision d06985a44c66b6133c131bd273293be8649cfe3a \
+  --local_dir "$MODEL_ROOT/IDEA-Research/grounding-dino-base"
 
 modelscope download --model Qwen/Qwen3.5-9B \
   --revision 460979c3d11864dd16408d860ac930a360a2fac2 \
@@ -135,6 +137,7 @@ modelscope download --model ZhipuAI/GLM-4.6V-Flash \
   --local_dir "$MODEL_ROOT/ZhipuAI/GLM-4.6V-Flash"
 
 modelscope download --model XiaomiMiMo/MiMo-VL-7B-RL \
+  --revision d307865d4a3b6ad9ae35e574bcabaa563038c8fb \
   --local_dir "$MODEL_ROOT/XiaomiMiMo/MiMo-VL-7B-RL"
 ```
 
@@ -160,7 +163,6 @@ python offline/train.py \
   --model qwen3vl \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
-  --num-workers 4 \
   --checkpoint-interval 20 \
   --smoke-test
 
@@ -182,7 +184,6 @@ python offline/train.py \
   --model qwen3_5 \
   --model-path /mnt/workspace/models/Qwen/Qwen3.5-9B \
   --data-dir data \
-  --num-workers 4 \
   --checkpoint-interval 20 \
   --smoke-test
 
@@ -204,7 +205,6 @@ python offline/train.py \
   --model glm46v \
   --model-path /mnt/workspace/models/ZhipuAI/GLM-4.6V-Flash \
   --data-dir data \
-  --num-workers 4 \
   --checkpoint-interval 20 \
   --smoke-test
 
@@ -226,7 +226,6 @@ python offline/train.py \
   --model internvl35 \
   --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --data-dir data \
-  --num-workers 4 \
   --smoke-test
 
 python offline/train.py \
@@ -246,7 +245,6 @@ python offline/train.py \
   --model mimo_vl \
   --model-path /mnt/workspace/models/XiaomiMiMo/MiMo-VL-7B-RL \
   --data-dir data \
-  --num-workers 4 \
   --smoke-test
 
 python offline/train.py \
@@ -403,7 +401,7 @@ python offline/infer.py \
 ```bash
 python offline/infer.py \
   --model groundingdino \
-  --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base \
+  --model-path /mnt/workspace/models/IDEA-Research/grounding-dino-base \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --limit 100 --num-shards 1 --num-workers 4 \
@@ -411,7 +409,7 @@ python offline/infer.py \
 
 python offline/infer.py \
   --model groundingdino \
-  --model-path /mnt/workspace/models/AI-ModelScope/grounding-dino-base \
+  --model-path /mnt/workspace/models/IDEA-Research/grounding-dino-base \
   --test-json data/Test/queries/queries.json \
   --data-dir data \
   --num-shards 1 --num-workers 4 \

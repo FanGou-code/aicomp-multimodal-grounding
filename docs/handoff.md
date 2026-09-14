@@ -23,17 +23,100 @@
   （锚定共享、名单各自声明），视觉塔恒为冻结；`glm46v` 补齐
   `min_pixels`/`max_pixels`。六个适配器的 run 身份均已变化，新 run 一律换新标签；
   已有 `outputs/` 产物不受影响。
+- 权重版本（2026-09-14 复核）：七个有权重的适配器的 `MODEL_REVISION` 全部改成
+  来源仓库的 commit id（魔搭六个、HF 一个 `qwen36_27b`），`sop.md` 与
+  `cloud/README.md` 的下载命令带同一个 `--revision`。取值日期 2026-09-14，
+  方法 `git ls-remote https://www.modelscope.cn/<repo>.git HEAD`。
+- `glm46v` 像素预算（2026-09-14 复核）：原先传给处理器的
+  `min_pixels`/`max_pixels` 被 `Glm46VImageProcessor` 静默丢弃，预算是空转；
+  现改为经 `size` 传入并按单帧单位换算（`GLM_PIXEL_UNIT_FACTOR = 2`），预算真正
+  生效，`--max-pixels` 对 `glm46v` 可用。当前数据全为 1920×1080，处理结果逐位不变。
 - Modal 专为 Qwen3.6-27B 部署（HF `Qwen/Qwen3.6-27B`，需 `[kernels]` 依赖）。
   其他模型均在魔搭 DSW 本地环境训练。
-- 本地 `qwen_vg`：Python 3.12.13。主仓 198 项测试通过，0 skip；原生 processor
+- 本地 `qwen_vg`：Python 3.12.13。主仓 202 项测试通过，0 skip；原生 processor
   的默认训练输入和四样本推理输入构建通过，没有加载模型权重。
 - 用户提供的实验状态：两个 Qwen 按 SOP 执行，GroundingDINO 官方 Test 为 0.576。
   本轮未读取 DSW 结果或复验榜单成绩；不据代码审查判断模型能力上限。
 - GPU 待验证：所有新接入模型（`mimo_vl`、`qwen36_27b`）需 DSW/Modal 环境冒烟。
-  运行入口存在不等于 GPU 验证通过。
+  运行入口存在不等于 GPU 验证通过。冒烟口径见 SOP 第 5 节：不带 `--num-workers`，
+  权重加载期间无输出属正常，判据是 `trainable params` 与折算 s/step。
+- 序数类 query 的推理侧改法（枚举同类实例 → 代码排序取第 k）已立项，量化依据与
+  脚本在外部私有分析仓 `gt-analysis`（本机），按该仓约定其数字不入本仓。
 - 后续运行：按 SOP 做实际模型冒烟；涉及新解析/参数的实验使用新标签，不混入旧结果。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-14（冒烟口径修正 + 序数类 query 的推理侧改法立项）
+
+- **动因**：上一轮把 `--num-workers 4` 加进了 InternVL/MiMo 的**冒烟**命令，与该
+  flag 自带的说明（"enable only after a smoke benchmark"）矛盾；同时"冒烟十几分钟
+  不出结果"仍未定位，需要给一个可操作的判据而不是干等。
+- **改动（文档，无代码改动）**：
+  1. `docs/sop.md` 的冒烟建议口径：冒烟不带 `--num-workers`（DataLoader 用 fork，
+     在权重加载与 CUDA 上下文初始化**之后**再 fork，冒烟阶段收益为零）；
+     正式训练再带。
+  2. 冒烟判据写清：权重加载期间**没有任何输出**是正常的（10.3B bf16 ≈ 20.6 GB
+     读盘 + 建 PEFT），用 `nvidia-smi` 利用率区分读盘与卡死；冒烟只跑 **1 个
+     micro-batch**，故 `冒烟单步耗时 × gradient_accumulation_steps` 才是 s/step。
+  3. 换名锚点：修复是否生效的直接证据是打印行
+     `trainable params: 27,443,200`（`glm46v`；旧值 `34,785,280`），比看秒表快。
+- **立项（推理侧，不涉训练与数据）**：序数类 query（`first/second/…/farthest`
+  等）的失败形态是"实例定位正确、序号取错"，指向**解码层**而非权重的感知能力。
+  改法为两步解码：先让模型枚举同类全部实例，再按位置用代码排序取第 k 个。
+  属推理侧改动，可用现有 `fusion/wbf.py` 的聚类与 `bbox.compute_iou` 复用。
+- **外部私有分析仓**：`gt-analysis`（本机 `/home/fang0/dev/projects/gt-analysis`）
+  存放该方向的量化依据与脚本；按该仓约定，其结论与数字**不写入本仓任何文件**。
+- **验证**：本轮仅改文档，`git diff --check` 通过；仓库侧无行为变化。
+- **下一步**：DSW 跑 `glm46v` 冒烟，确认 `trainable params: 27,443,200` 与
+  折算 s/step 是否落到 154。
+
+### 2026-09-14（复核修复：权重版本钉死、GLM 像素预算生效、LoRA 守卫补正向断言）
+
+- **动因**：对 `0651ea6` 做独立复核，复算六个适配器的可训练参数逐位吻合（旧名单
+  `mimo_vl` 48,709,632 / `glm46v` 34,785,280 / `internvl35` 46,006,272，三个 Qwen
+  不变），但发现三处与代码声明不符：`glm46v` 的像素预算从未生效、LoRA 视觉侧守卫
+  有三条键不存在且无正向断言、五个适配器的 `MODEL_REVISION` 指认不出实际权重。
+- **改动**：
+  1. `MODEL_REVISION` 全部换成来源仓库的 commit id：`qwen3vl`
+     `5d854aab08710c16b980ec6d603d863b3821b915`、`internvl35`
+     `1c352b29d4066a61b465b5c6d044a1ebec1349ef`、`mimo_vl`
+     `d307865d4a3b6ad9ae35e574bcabaa563038c8fb`、`groundingdino`
+     `d06985a44c66b6133c131bd273293be8649cfe3a`（均为魔搭）、`qwen36_27b`
+     `6a9e13bd6fc8f0983b9b99948120bc37f49c13e9`（HF）。`qwen3_5`、`glm46v` 原值
+     已等于各自魔搭 head，未动。`sop.md` 第 4 节的六条下载命令补 `--revision`；
+     `cloud/README.md` 的 HF 下载命令同步。
+  2. `glm46v` 像素预算改为真正生效：`Glm46VImageProcessor` 不认
+     `min_pixels`/`max_pixels`（传入即丢弃），其 `smart_resize` 又按
+     `temporal_factor × h × w` 比较，故新增 `GLM_PIXEL_UNIT_FACTOR = 2` 与纯函数
+     `processor_pixel_kwargs()`，在传给处理器时把单帧预算翻倍；`max_pixels` 仍按
+     单帧记入 run 身份，与其余五个适配器同单位。
+  3. 测试守卫：`FROZEN_VISION_MODULES` 的三条 InternViT 键路径由
+     `encoder.layers.0` 改为真实的 `encoder.layer.0`；新增
+     `test_lora_targets_reach_the_language_model()` 正向断言每个声明投影必须命中
+     `model.language_model.layers.0.*`；新增 `ModelRevisionPinTests` 钉住七个
+     revision 并断言其为 40 位 commit id。
+  4. `sop.md` 第 4 节的 grounding-dino 下载源由 `AI-ModelScope/grounding-dino-base`
+     （魔搭上不存在，404）改为 `IDEA-Research/grounding-dino-base`，第 6 节两条
+     `--model-path` 同步；`architecture.md` 写入像素预算单位与 revision 约定。
+- **验证**：主仓 202 项单测（原 198 + 新增 4）+ `compileall` + ruff + `git diff
+  --check` 全绿。把 `language_model_lora_targets()` 临时改成不带锚定的裸交替后，
+  新的正向断言在全部六个适配器上失败——旧测试全绿，说明这条断言是承重的。
+  `glm46v` 实测：1920×1080 样本 grid `[[1,78,138]]×3`、seq 8178、
+  `pixel_values` 32292×1176，与改动前逐位相同；每图视觉 token 在 2560×1440 由
+  4641 降到 2993、3840×2160 由 6032 降到 2993、4000×3000 由 6030 降到 3072
+  （即 3072 的预算上限）。R6 数据 train 2730 + val 736 条全为 1920×1080。
+  七个 revision 用 `git ls-remote`/HF API 逐个解析成功。
+- **身份影响**：`qwen3vl`、`internvl35`、`mimo_vl`、`groundingdino`、`qwen36_27b`
+  的 revision 变化，身份随之变化，新 run 换新标签；`qwen3_5`、`glm46v` 的 revision
+  未变（`glm46v` 因上一轮已换）。配方的变化只有 `glm46v` 的处理器预算。
+- **注意**：新钉的是 2026-09-14 各仓库 head，DSW 上现存的底座目录是早前不带
+  `--revision` 拉取的，可能早于这些 id。要让身份字符串与磁盘字节一致，需按
+  `sop.md` 第 4 节重新下载；沿用旧目录则这些 run 的身份只对新下载成立。
+  grounding-dino 的目录名由 `AI-ModelScope/` 改为 `IDEA-Research/`，既有目录
+  可改名或保留，`--model-path` 与之一致即可。
+- **未决**：`glm46v` 的 step 时间（上一轮预期 197 → 154 s/step）仍待 DSW 冒烟复验；
+  「冒烟十几分钟不出结果」仍未定位。
+- **下一步**：DSW 端按新 revision 重下底座后跑 `glm46v` 与 `mimo_vl` 冒烟。
 
 ### 2026-09-14（LoRA 范围统一锚定语言模型：修复 MiMo/GLM/InternVL 训练速度）
 

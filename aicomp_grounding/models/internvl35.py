@@ -26,7 +26,8 @@ from aicomp_grounding.models.base import (
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "OpenGVLab/InternVL3_5-8B-HF"
-MODEL_REVISION = "741a7d03020411e666c6109218ab71e08151ef86"
+# ModelScope snapshot; the SOP download command pins this same revision.
+MODEL_REVISION = "1c352b29d4066a61b465b5c6d044a1ebec1349ef"
 
 # Official grounding evaluation allots 100 tokens; InternVL may prefix prose
 # before the box, so keep the same budget here.

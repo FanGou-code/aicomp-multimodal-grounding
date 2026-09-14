@@ -64,11 +64,18 @@ CLI 相对路径以 `--project-root` 解析。新训练可以使用不同输出�
 Qwen2.5-VL 系视觉 MLP 的 `gate_proj`/`up_proj`/`down_proj`、InternViT 注意力的
 `q_proj`/`k_proj`/`v_proj`。视觉塔一旦进入可训练集，其反向与梯度检查点重算
 即被强制打开，各适配器之间也不再可比。改动构造器或任一适配器的名单，须同步
-`tests/test_models.py` 的强制覆盖项与视觉侧反向断言。
+`tests/test_models.py` 的强制覆盖项、语言模型侧正向断言与视觉侧反向断言。
+
+**像素预算单位**：六个三模态适配器的 `min_pixels`/`max_pixels` 一律按单帧计，
+并进 run 身份。`glm46v` 的处理器按 `temporal_factor × h × w` 比较，适配器在传给
+处理器时统一乘 `GLM_PIXEL_UNIT_FACTOR`；其余五个处理器的 `max_pixels` 本身就是
+单帧单位。改动换算或预算值属配方变更，须换新标签。
 
 底座先下载到本地，通过 `--model-path` 指定。适配器拒绝缺少配置的目录，所有
 `from_pretrained` 调用采用 `local_files_only=True`，执行阶段不下载模型。
-模型名称、revision 和提示词是冻结协议；更改训练目标、解析行为或运行参数时使用新标签。
+模型名称、revision 和提示词是冻结协议；`MODEL_REVISION` 一律填来源仓库（魔搭或
+HF）的 commit id，取值与 `sop.md`、`cloud/README.md` 下载命令的 `--revision`
+相同——分支名会让身份字符串不变而权重移动。更改训练目标、解析行为或运行参数时使用新标签。
 
 ## 身份和恢复
 
