@@ -25,7 +25,12 @@ REPO_MOUNT = "/root/aicomp"
 def _project_dependencies() -> list[str]:
     """Read the single dependency source (pyproject.toml) for the image build."""
     with open(PROJECT_ROOT / "pyproject.toml", "rb") as file:
-        return tomllib.load(file)["project"]["dependencies"]
+        base = tomllib.load(file)["project"]["dependencies"]
+    # The kernels extra backs the GDN linear-attention path; without it the
+    # model silently falls back to a slower torch implementation.
+    with open(PROJECT_ROOT / "pyproject.toml", "rb") as file:
+        base += tomllib.load(file)["project"]["optional-dependencies"]["kernels"]
+    return base
 
 
 # Dependencies come from pyproject.toml (single source). torch is declared as

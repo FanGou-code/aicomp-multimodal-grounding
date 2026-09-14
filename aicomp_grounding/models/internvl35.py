@@ -217,7 +217,15 @@ class InternVL35Adapter:
         # Training backward has no use for the KV cache and transformers would
         # force it off at forward time with a warning.  Setting it here keeps
         # the inference path (which does want the cache) untouched.
-        self._model.config.use_cache = False
+        text_config = getattr(self._model.config, "text_config", None)
+        if text_config is not None and hasattr(text_config, "use_cache"):
+            # Nested multimodal models keep the language model under
+            # text_config; the outer config has no use_cache attribute, so
+            # setting it there is a no-op and generation still builds a KV
+            # cache during training forward passes.
+            text_config.use_cache = False
+        else:
+            self._model.config.use_cache = False
         return self._model, self._processor
 
     def build_training_batch(

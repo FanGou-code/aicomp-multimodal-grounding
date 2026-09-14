@@ -202,7 +202,6 @@ class ApprovedDataGateTests(unittest.TestCase):
                 run_tag="qlora-r1",
                 seed=42,
                 resume=True,
-                verify_images=False,
             )
             self.assertFalse(plan["skip_training"])
             self.assertIsNone(plan["resume_checkpoint"])
@@ -236,7 +235,6 @@ class ApprovedDataGateTests(unittest.TestCase):
                 run_tag="exp-layout",
                 seed=42,
                 resume=True,
-                verify_images=False,
             )
 
             self.assertEqual(
@@ -272,7 +270,6 @@ class ApprovedDataGateTests(unittest.TestCase):
                 seed=42,
                 resume=True,
                 smoke_test=True,
-                verify_images=False,
             )
             self.assertEqual(plan["model"], "internvl35")
             self.assertEqual(
