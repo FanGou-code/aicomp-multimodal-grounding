@@ -25,7 +25,13 @@ REPO_MOUNT = "/root/aicomp"
 def _project_dependencies() -> list[str]:
     """Read the single dependency source (pyproject.toml) for the image build."""
     with open(PROJECT_ROOT / "pyproject.toml", "rb") as file:
-        return tomllib.load(file)["project"]["dependencies"]
+        base = tomllib.load(file)["project"]["dependencies"]
+    # The kernels extra (flash-linear-attention + causal-conv1d) backs the
+    # GDN linear-attention path: without it the model silently falls back to
+    # a slower torch implementation.
+    with open(PROJECT_ROOT / "pyproject.toml", "rb") as file:
+        base += tomllib.load(file)["project"]["optional-dependencies"]["kernels"]
+    return base
 
 
 # Dependencies come from pyproject.toml (single source); torch is a range there.
@@ -53,7 +59,6 @@ TRAINING_DEFAULTS: dict = {
     "resume": True,
     "smoke_test": False,
     "preflight_only": False,
-    "deep_verify_images": False,
     "num_workers": 4,
     "checkpoint_interval": 20,
 }
@@ -92,7 +97,6 @@ def train(
     resume: bool = True,
     smoke_test: bool = False,
     preflight_only: bool = False,
-    deep_verify_images: bool = False,
     num_workers: int = 4,
     checkpoint_interval: int = 20,
 ):

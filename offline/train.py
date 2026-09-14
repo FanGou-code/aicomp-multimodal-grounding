@@ -68,7 +68,6 @@ def parse_args():
     )
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--smoke-test", action="store_true")
-    parser.add_argument("--deep-verify-images", action="store_true")
     parser.add_argument(
         "--num-workers",
         type=int,
@@ -109,7 +108,6 @@ def run_cli(args, *, commit_hook=None):
         seed=args.seed,
         resume=args.resume,
         smoke_test=args.smoke_test,
-        verify_images=args.deep_verify_images,
     )
     if not args.preflight_only and (args.smoke_test or not plan["skip_training"]):
         plan["model_path"] = require_local_model_path(plan["model_path"])

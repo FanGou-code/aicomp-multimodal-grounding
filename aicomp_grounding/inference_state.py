@@ -40,6 +40,7 @@ from aicomp_grounding.config import (
     INFERENCE_COMPUTE_DTYPE,
     INFERENCE_DEFAULT_MAX_PIXELS,
     INFERENCE_DEFAULT_MIN_PIXELS,
+    INFERENCE_SPLITS,
     RUNTIME_PYTHON_VERSION,
 )
 from aicomp_grounding.io import load_json
@@ -167,6 +168,8 @@ def build_run_metadata(
 ) -> dict:
     if mode not in {"base", "retry"}:
         raise ValueError(f"Unsupported inference mode: {mode}")
+    if split not in INFERENCE_SPLITS:
+        raise ValueError(f"Unsupported inference split: {split!r}")
     if not isinstance(annotation_run_id, str):
         raise ValueError("annotation_run_id must be a string")
     if split in {"train", "val"}:

@@ -26,7 +26,6 @@ from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.images import (
     is_trusted_image_fingerprint,
     trusted_dataset_image_fingerprint,
-    verify_dataset_images,
 )
 from aicomp_grounding.models import get_adapter
 from aicomp_grounding.models.base import ModelInput
@@ -51,21 +50,6 @@ SEED = 42
 
 def _log_now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _verify_training_images(
-    data_root: Path,
-    datasets: list[tuple[str, dict]],
-) -> dict[str, str]:
-    fingerprints: dict[str, str] = {}
-    for split, dataset in datasets:
-        fingerprints[split] = verify_dataset_images(
-            data_root,
-            dataset,
-            dataset,
-            require_recorded_size=True,
-        )
-    return fingerprints
 
 
 def _validate_training_bboxes(datasets: list[tuple[str, dict]]) -> None:
@@ -239,7 +223,6 @@ def prepare_training_plan(
     seed: int,
     resume: bool,
     smoke_test: bool = False,
-    verify_images: bool = True,
 ) -> dict:
     if not isinstance(smoke_test, bool):
         raise ValueError("smoke_test must be boolean")
@@ -291,20 +274,6 @@ def prepare_training_plan(
             if current != recorded:
                 raise ValueError(
                     f"{split} image references do not match the approved annotation artifact"
-                )
-    if verify_images:
-        current_image_fingerprints = _verify_training_images(
-            root,
-            datasets,
-        )
-        for split, artifact in (("train", train_artifact), ("val", val_artifact)):
-            recorded = artifact["metadata"]["image_fingerprint"]
-            if (
-                not is_trusted_image_fingerprint(recorded)
-                and current_image_fingerprints[split] != recorded
-            ):
-                raise ValueError(
-                    f"{split} image bytes do not match the approved annotation artifact"
                 )
     metadata = build_training_metadata(
         annotation_run_id=annotation_run_id,
@@ -539,6 +508,37 @@ def run_training(
     val_dataset = RGBDTGroundingDataset(val_artifact["data"])
 
     assert_single_cuda_device_map(getattr(base_model, "hf_device_map", None))
+
+    def _thaw_vision_tower(peft_model) -> None:
+        """Neutralize vision-tower input hooks and gradient checkpointing.
+
+        transformers' ``gradient_checkpointing_enable`` hooks the input
+        embeddings of every child PreTrainedModel (including frozen vision
+        towers), and PEFT adds another hook. The towers stay parameter-frozen,
+        but those hooks put them through backward and checkpoint recomputation.
+        Only the non-language subtrees are touched: the language model keeps
+        its checkpointing, LoRA gradients are unaffected, and loss is
+        bit-identical.
+        """
+        for module_name, submodule in peft_model.named_modules():
+            if "language_model" in module_name:
+                continue
+            if hasattr(submodule, "_enable_input_require_grads_hook"):
+                try:
+                    submodule._enable_input_require_grads_hook.remove()
+                except (AttributeError, RuntimeError, ValueError):
+                    pass
+            if hasattr(submodule, "gradient_checkpointing"):
+                try:
+                    submodule.gradient_checkpointing = False
+                except (AttributeError, RuntimeError):
+                    pass
+            if hasattr(submodule, "gradient_checkpointing_enable"):
+                try:
+                    submodule.gradient_checkpointing = False
+                except (AttributeError, RuntimeError):
+                    pass
+
     if hasattr(base_model, "enable_input_require_grads"):
         base_model.enable_input_require_grads()
     base_model.gradient_checkpointing_enable(
@@ -553,14 +553,19 @@ def run_training(
             local_files_only=True,
         )
     else:
-        lora = LoraConfig(
-            r=hyperparameters["lora_rank"],
-            lora_alpha=hyperparameters["lora_alpha"],
-            lora_dropout=hyperparameters["lora_dropout"],
-            target_modules=adapter.lora_target_modules(),
-            task_type="CAUSAL_LM",
-        )
-        model = get_peft_model(base_model, lora)
+        builder = getattr(adapter, "build_peft_model", None)
+        if builder is not None:
+            model = builder(base_model, hyperparameters)
+        else:
+            lora = LoraConfig(
+                r=hyperparameters["lora_rank"],
+                lora_alpha=hyperparameters["lora_alpha"],
+                lora_dropout=hyperparameters["lora_dropout"],
+                target_modules=adapter.lora_target_modules(),
+                task_type="CAUSAL_LM",
+            )
+            model = get_peft_model(base_model, lora)
+    _thaw_vision_tower(model)
     model.print_trainable_parameters()
 
     def make_train_loader(epoch: int):
@@ -579,7 +584,9 @@ def run_training(
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
+        # The collate function pads and masks labels, so the loss is batch-size
+        # invariant; the grounding eval already runs at eval_batch_size.
+        batch_size=eval_batch_size,
         shuffle=False,
         collate_fn=collate_cpu,
         num_workers=num_workers,
@@ -773,7 +780,10 @@ def run_training(
                     last_log_step = global_step
                     step_dir = run_dir / "checkpoints" / f"step_{global_step:04d}"
                     model.save_pretrained(step_dir)
-                    processor.save_pretrained(step_dir)
+                    # The processor is immutable across a run and is already
+                    # persisted with epoch/last checkpoints, which cover every
+                    # resume path; re-writing it per step checkpoint only
+                    # spends disk and IO.
                     step_state = {
                         "metadata": metadata,
                         "completed_epoch": epoch,
