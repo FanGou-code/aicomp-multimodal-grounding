@@ -29,10 +29,17 @@
    - `data/Test/queries/queries.json`（官方模板，SHA-256 被 `test_data.py` 钉死）
    - 各 adapter 的 `MODEL_NAME` / `MODEL_REVISION` / prompt 常量
      （进 run-id 指纹，`tests/test_models.py` 钉死）
-3. 改任何代码后必须先跑全量测试，绿了才算完成
-4. 训练/推理参数变更一律用新 run-tag，不覆盖旧产物
-5. 不新增顶层目录、不改模块布局；结构约定见 `docs/architecture.md`
-6. 用户宣告「结束这轮工作」时：立即在 `docs/handoff.md` 追加交接日志条目并更新
+3. LoRA 范围锚定语言模型：目标层一律用 `models/base.py` 的
+   `language_model_lora_targets()` 构造（锚定 `model.language_model` 的正则）；
+   锚定共享，名单由各适配器自己声明。视觉塔恒为冻结、只做前向。裸后缀名单被
+   PEFT 按后缀匹配，会误伤复用同名投影的视觉塔（Qwen2.5-VL 系视觉 MLP 的
+   `gate_proj`/`up_proj`/`down_proj`、InternViT 注意力的 `q_proj`/`k_proj`/
+   `v_proj` 都中过）。改动构造器或任一适配器的名单，须同步
+   `tests/test_models.py` 的强制覆盖项与视觉侧反向断言
+4. 改任何代码后必须先跑全量测试，绿了才算完成
+5. 训练/推理参数变更一律用新 run-tag，不覆盖旧产物
+6. 不新增顶层目录、不改模块布局；结构约定见 `docs/architecture.md`
+7. 用户宣告「结束这轮工作」时：立即在 `docs/handoff.md` 追加交接日志条目并更新
    「当前状态」；工作有阶段性完成时，同步更新对应文档（README / architecture /
    sop / data-contract），再提交推送
 

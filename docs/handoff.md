@@ -4,7 +4,7 @@
 数据布局见 `data-contract.md`，赛题说明见 `research.md`。
 较早日志及旧当前状态已移至 `handoff-archive.md`，原文保留。
 
-## 当前状态（2026-09-13）
+## 当前状态（2026-09-14）
 
 - 用户确认魔搭的 `data.tar` 包含已生成的 `Processed/`；SOP 改为解压后直接使用，
   不再将重复预处理列为常规部署步骤。
@@ -18,9 +18,14 @@
 - 模型阵容（8 个注册适配器）：`qwen3vl` (8B)、`qwen3_5` (9B)、`qwen36_27b` (27B, 
   Modal HF 专属)、`mimo_vl` (7B)、`glm46v` (Flash)、`internvl35` (8B)、
   `groundingdino` (Base, 仅推理)、`mock` (测试)。Youtu-VL-4B 已移除。
+- LoRA 范围统一（2026-09-14）：六个可训练适配器均由 `models/base.py` 的
+  `language_model_lora_targets()` 构造目标层，统一锚定 `model.language_model`
+  （锚定共享、名单各自声明），视觉塔恒为冻结；`glm46v` 补齐
+  `min_pixels`/`max_pixels`。六个适配器的 run 身份均已变化，新 run 一律换新标签；
+  已有 `outputs/` 产物不受影响。
 - Modal 专为 Qwen3.6-27B 部署（HF `Qwen/Qwen3.6-27B`，需 `[kernels]` 依赖）。
   其他模型均在魔搭 DSW 本地环境训练。
-- 本地 `qwen_vg`：Python 3.12.13。主仓 196 项测试通过，0 skip；原生 processor 
+- 本地 `qwen_vg`：Python 3.12.13。主仓 198 项测试通过，0 skip；原生 processor
   的默认训练输入和四样本推理输入构建通过，没有加载模型权重。
 - 用户提供的实验状态：两个 Qwen 按 SOP 执行，GroundingDINO 官方 Test 为 0.576。
   本轮未读取 DSW 结果或复验榜单成绩；不据代码审查判断模型能力上限。
@@ -29,6 +34,57 @@
 - 后续运行：按 SOP 做实际模型冒烟；涉及新解析/参数的实验使用新标签，不混入旧结果。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-14（LoRA 范围统一锚定语言模型：修复 MiMo/GLM/InternVL 训练速度）
+
+- **动因**：DSW 上 `glm46v` 稳定 `197.11 s/step`（513 步 → 约 28 h 跑 3 epoch）、
+  `mimo_vl` 约 22 h，而 Qwen 系约 9 h。排查后定位为 LoRA 目标层误伤视觉塔。
+- **根因**：`lora_target_modules()` 返回裸后缀名单，PEFT 对 list 元素按后缀匹配，
+  因而命中复用同名投影的视觉塔——Qwen2.5-VL 系视觉 MLP 的
+  `gate_proj`/`up_proj`/`down_proj`（`mimo_vl` 96 个模块、`glm46v` 72 个 + merger
+  3 个）、InternViT 注意力的 `q_proj`/`k_proj`/`v_proj`（`internvl35` 72 个）。
+  视觉塔进入可训练集后必须反向，并叠加梯度检查点重算。Qwen 系视觉塔命名为
+  `linear_fc1`/`linear_fc2` 与打包 `qkv`，从未命中：**冻结是命名巧合的结果，
+  不是任何一次决策**——该名单自 2026-08-19 引入后改过 6 次，内容一次未动。
+- **改动**：
+  1. `models/base.py` 新增 `language_model_lora_targets()` 构造器（锚定
+     `model.language_model` 的正则）；六个适配器的 `lora_target_modules()` 用
+     各自声明的投影名单调用它——`glm46v` 的 MLP 融合为 `gate_up_proj`，只声明
+     `q/k/v/o/down_proj`；其余五个声明共享的 `DEFAULT_LORA_PROJECTIONS`。
+     GLM 名单是否纳入 `gate_up_proj`（可训练参数 27,443,200 → 47,595,520）
+     属配方变更，本轮未做。
+  2. `glm46v` 补齐 `min_pixels`/`max_pixels`：`__init__` 收参 → `load()` 传入
+     processor → `training_hyperparameters()` 补两键；`training_core` 分派把
+     `glm46v` 移入带 `max_pixels` 的分支；`offline/infer.py` 的透传名单补齐
+     `qwen36_27b`/`mimo_vl`/`glm46v`，`--max-pixels` 默认值改从
+     `config.INFERENCE_DEFAULT_MAX_PIXELS` 取（原先取自 `qwen3vl`）。
+  3. 六个适配器 `load_for_training()` 显式 `config.use_cache = False`。
+  4. `docs/sop.md` 的 InternVL/MiMo 训练命令补 `--num-workers 4`；第 5 节补一行
+     说明 `qwen36_27b` 只在 Modal 运行。
+  5. `docs/architecture.md` 写入 LoRA 范围不变量；`tests/test_models.py` 扩到六个
+     适配器——按适配器钉住各自声明的投影集合（`EXPECTED_LORA_PROJECTIONS`），
+     外加一条与名单无关的视觉侧反向断言。
+- **验证**：主仓 198 项单测 + `compileall` + ruff 全绿。meta device 上按真实
+  config 复算六个适配器：可训练参数 `qwen3vl` 43,646,976、`qwen3_5` 29,097,984、
+  `qwen36_27b` 79,691,776 与改动前逐位相同；`mimo_vl` 48,709,632 → 41,435,136、
+  `glm46v` 34,785,280 → 27,443,200、`internvl35` 46,006,272 → 43,646,976；
+  新增命中 0，视觉塔命中 0。`glm46v` 实测 grid 78×138、seq 8178、
+  `pixel_values` 32292×1176，与补齐像素预算前完全一致。DSW 日志的
+  `trainable params: 34,785,280` 与仓库代码复算逐位吻合（底座 10,292,777,472 +
+  LoRA 34,785,280 = 日志 `all params` 10,327,562,752），确认线上执行的就是仓库代码。
+- **速度**：冻结视觉塔后按含重算的 FLOP 折算，`glm46v` 约 197 → 154 s/step
+  （28 h → 22 h）、`mimo_vl` 约 154 → 135 s/step（22 h → 19 h）；两者仍是
+  `qwen3vl` 的约 1.7 / 1.35 倍，差额来自模型体量（视觉 token 每图 2,691 对 2,040、
+  GLM 视觉塔 MLP 1536→13696、语言侧 40 层 / 10.3B）。DSW 为 80 CU 裁剪版 MI300X
+  （归档 2026-09-01），三模型按步时反推 MFU 均在 21–27%，效率不是瓶颈。
+- **身份影响**：六个适配器的 `lora_targets` 字符串均变化，`glm46v` 另增
+  `min_pixels`/`max_pixels`，因此**所有适配器的新 run 都必须换新标签**。已有
+  `outputs/` 产物不受影响（LoRA 指纹哈希磁盘文件字节，推理侧身份不含
+  `lora_targets`）；未完成的旧训练记录不再支持续跑。
+- **未决**：用户报告的"冒烟十几分钟不出结果"未复现也未定位；按 197 s/step 推算
+  单样本前向+反向约 12 秒，与十几分钟不符，疑为独立问题。
+- **下一步**：DSW 端按 SOP 跑 `glm46v` 与 `mimo_vl` 冒烟，量步时是否落到
+  154 / 135 s/step，并复现或排除冒烟卡死。
 
 ### 2026-09-13（模型阵容调整：移除 Youtu-VL，接入 MiMo-VL 与 Qwen3.6-27B）
 

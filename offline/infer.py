@@ -37,7 +37,7 @@ from aicomp_grounding.inference_state import (
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.models import available_models, get_adapter
 from aicomp_grounding.models.base import ModelInput, require_local_model_path
-from aicomp_grounding.models.qwen3vl import MAX_PIXELS
+from aicomp_grounding.config import INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS
 from aicomp_grounding.paths import ProjectPaths, resolve_from_root
 from aicomp_grounding.submission import build_submission
 
@@ -90,7 +90,8 @@ def parse_args():
         "--max-pixels",
         type=int,
         default=MAX_PIXELS,
-        help="Qwen processor max_pixels override. Training uses 3072 patches "
+        help="Tri-modal processor max_pixels override; this is also the value "
+        "recorded in the inference run identity. Training uses 3072 tokens "
         "(2408448); lower it (e.g. 1920*28*28=1505280) if the inference GPU "
         "is short on VRAM. Lowering hurts grounding accuracy.",
     )
@@ -444,7 +445,7 @@ def _run_shard_worker(
     args_dict, items, shard_id, checkpoint_dir, shard_metadata = payload
     args = argparse.Namespace(**args_dict)
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_5"):
+    if args.model in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v"):
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
     adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
@@ -525,7 +526,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
 
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_5"):
+    if args.model in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v"):
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
 
