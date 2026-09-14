@@ -40,13 +40,29 @@ MODELSCOPE_NAME = "ZhipuAI/GLM-4.6V-Flash"
 
 MAX_NEW_TOKENS = 32
 
-# Pixel budgets, in units of 28x28 pixels per vision token (patch 14 x merge 2).
+# Pixel budgets, in units of 28x28 pixels per vision token (patch 14 x merge 2),
+# stated per frame so that the value recorded in the run identity means the same
+# thing here as it does for the other five tri-modal adapters.
+#
+# Glm46VImageProcessor takes its budget as a `size` dict -- `min_pixels` /
+# `max_pixels` passed to `AutoProcessor.from_pretrained` are dropped without
+# warning -- and its `smart_resize` is called with `num_frames =
+# temporal_factor`, so what it compares against `longest_edge` is `2 * h * w`.
+# `load()` therefore doubles both budgets at the processor boundary
+# (GLM_PIXEL_UNIT_FACTOR).  Handing it the per-frame numbers unmodified would
+# halve the effective budget and shrink every frame: at 1920x1080, 2691 vision
+# tokens down to 1508.
+#
 # The checkpoint's own preprocessor config allows `longest_edge = 28*28*12288`,
-# four times the budget every other tri-modal adapter pins.  Pinning the shared
-# budget keeps GLM-4.6V's run identity comparable to the rest of the roster and
-# bounds the vision-token count: at 1920x1080 the grid is 78x138 either way.
+# which in the doubled unit is a per-frame budget of 4,816,896 -- twice the
+# value below.  Neither the training nor the inference path overrode it, so
+# GLM-4.6V ran on that wider budget until this pin was made to take effect.
 MIN_PIXELS = 256 * 28 * 28
 MAX_PIXELS = 3072 * 28 * 28
+
+#: Glm46VImageProcessor compares `temporal_factor * h * w` against
+#: `size.longest_edge`; a per-frame budget is doubled at the boundary.
+GLM_PIXEL_UNIT_FACTOR = 2
 
 # Tokenizer-added box delimiters (verified from the added vocab): ids
 # 151361 and 151362. Built from chr() so the source carries no raw
@@ -83,6 +99,20 @@ def format_glm_bbox(box) -> str:
     """Format normalized XYXY as GLM integer 0-1000 box tokens."""
     x1, y1, x2, y2 = quantize_bbox_1000(box)
     return f"{GLM_BOX_OPEN}{x1},{y1},{x2},{y2}{GLM_BOX_CLOSE}"
+
+
+def processor_pixel_kwargs(max_pixels: int) -> dict[str, Any]:
+    """Convert a per-frame pixel budget into Glm46V's processor `size` dict.
+
+    The processor counts `temporal_factor * h * w`, so the unit conversion lives
+    here and is doubled once, at the boundary -- see the constants above.
+    """
+    return {
+        "size": {
+            "shortest_edge": GLM_PIXEL_UNIT_FACTOR * MIN_PIXELS,
+            "longest_edge": GLM_PIXEL_UNIT_FACTOR * max_pixels,
+        }
+    }
 
 
 def parse_glm_box(text: str) -> list[float] | None:
@@ -156,6 +186,8 @@ class Glm46VAdapter:
     supports_prepared_inputs = True
 
     def __init__(self, *, max_pixels: int = MAX_PIXELS):
+        # Per frame, i.e. in the same unit the other five adapters record;
+        # `load()` converts it to the processor's doubled unit.
         self.max_pixels = max_pixels
         self.generation_config: dict[str, Any] = {
             "max_new_tokens": MAX_NEW_TOKENS,
@@ -203,8 +235,7 @@ class Glm46VAdapter:
         processor = AutoProcessor.from_pretrained(
             source,
             local_files_only=True,
-            min_pixels=MIN_PIXELS,
-            max_pixels=self.max_pixels,
+            **processor_pixel_kwargs(self.max_pixels),
         )
         processor.tokenizer.padding_side = "left"
         print(

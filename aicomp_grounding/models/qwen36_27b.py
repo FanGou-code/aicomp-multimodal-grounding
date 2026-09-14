@@ -34,9 +34,9 @@ from aicomp_grounding.prompts import (
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "Qwen/Qwen3.6-27B"
-# HuggingFace main branch. This model is downloaded directly from HF (not
-# ModelScope mirror). Modal volume receives the complete HF snapshot.
-MODEL_REVISION = "main"
+# HuggingFace commit; this model is downloaded directly from HF, not from the
+# ModelScope mirror, and the Modal volume receives the complete HF snapshot.
+MODEL_REVISION = "6a9e13bd6fc8f0983b9b99948120bc37f49c13e9"
 
 # Pixel budgets in Qwen processor units (28x28 per patch); 3072 patches
 # covers a lossless 1920x1080 frame at ~2645 patches.

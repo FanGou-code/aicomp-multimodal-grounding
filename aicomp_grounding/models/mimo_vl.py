@@ -31,9 +31,9 @@ from aicomp_grounding.prompts import (
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "XiaomiMiMo/MiMo-VL-7B-RL"
-# ModelScope snapshot recorded at adoption. Download this version before
-# execution; the adapter only reads the explicit local --model-path.
-MODEL_REVISION = "master"
+# ModelScope snapshot; the SOP download command pins this same revision. The
+# adapter only reads the explicit local --model-path.
+MODEL_REVISION = "d307865d4a3b6ad9ae35e574bcabaa563038c8fb"
 
 # Pixel budgets in Qwen processor units (28x28 per patch); 3072 patches
 # covers a lossless 1920x1080 frame at ~2645 patches.

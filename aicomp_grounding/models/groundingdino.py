@@ -22,7 +22,8 @@ from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
 
 MODEL_NAME = "IDEA-Research/grounding-dino-base"
-MODEL_REVISION = "12bdfa3120f3e7ec7b434d90674b3396eccf88eb"
+# ModelScope snapshot; the SOP download command pins this same revision.
+MODEL_REVISION = "d06985a44c66b6133c131bd273293be8649cfe3a"
 
 BOX_THRESHOLD = 0.25
 TEXT_THRESHOLD = 0.30
