@@ -384,5 +384,114 @@ class RunTrainingLoopTests(unittest.TestCase):
             self.assertTrue(replan["skip_training"])
 
 
+class HyperparameterOverrideTests(unittest.TestCase):
+    def test_overrides_update_hyperparameters_and_change_run_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "annot_overrides"
+            _write_fixture_images(root)
+            for split, scene in (("train", "001"), ("val", "002")):
+                atomic_write_json(
+                    root / "outputs" / "annotations" / run_id / split / "approved.json",
+                    _artifact(split, scene, run_id),
+                )
+
+            base_plan = prepare_training_plan(
+                data_root=root,
+                annotation_root=root / "outputs" / "annotations",
+                output_root=root / "outputs",
+                annotation_run_id=run_id,
+                model="mimo_vl",
+                run_tag="override-test",
+                seed=42,
+                resume=True,
+            )
+
+            # None overrides keep exact identity
+            none_plan = prepare_training_plan(
+                data_root=root,
+                annotation_root=root / "outputs" / "annotations",
+                output_root=root / "outputs",
+                annotation_run_id=run_id,
+                model="mimo_vl",
+                run_tag="override-test",
+                seed=42,
+                resume=True,
+                hyperparameter_overrides={
+                    "batch_size": None,
+                    "learning_rate": None,
+                },
+            )
+            self.assertEqual(
+                base_plan["metadata"]["training_run_id"],
+                none_plan["metadata"]["training_run_id"],
+            )
+
+            # Overrides change hyperparameters and drift run identity
+            overridden_plan = prepare_training_plan(
+                data_root=root,
+                annotation_root=root / "outputs" / "annotations",
+                output_root=root / "outputs",
+                annotation_run_id=run_id,
+                model="mimo_vl",
+                run_tag="override-test",
+                seed=42,
+                resume=True,
+                hyperparameter_overrides={
+                    "batch_size": 2,
+                    "gradient_accumulation_steps": 8,
+                    "learning_rate": 5e-5,
+                    "epochs": 5,
+                    "eval_batch_size": 2,
+                    "best_epoch_primary_metric": "mean_iou",
+                },
+            )
+            hp = overridden_plan["metadata"]["hyperparameters"]
+            self.assertEqual(hp["batch_size"], 2)
+            self.assertEqual(hp["gradient_accumulation_steps"], 8)
+            self.assertEqual(hp["learning_rate"], 5e-5)
+            self.assertEqual(hp["epochs"], 5)
+            self.assertEqual(hp["eval_batch_size"], 2)
+            self.assertEqual(hp["best_epoch_primary_metric"], "mean_iou")
+            self.assertNotEqual(
+                base_plan["metadata"]["training_run_id"],
+                overridden_plan["metadata"]["training_run_id"],
+            )
+
+    def test_invalid_overrides_raise_clear_value_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "annot_invalid_override"
+            _write_fixture_images(root)
+            for split, scene in (("train", "001"), ("val", "002")):
+                atomic_write_json(
+                    root / "outputs" / "annotations" / run_id / split / "approved.json",
+                    _artifact(split, scene, run_id),
+                )
+
+            for key, val in [
+                ("batch_size", 0),
+                ("gradient_accumulation_steps", -1),
+                ("learning_rate", -0.01),
+                ("epochs", 0),
+                ("eval_batch_size", 0),
+                ("best_epoch_primary_metric", "invalid_metric"),
+                ("unsupported_key", 123),
+            ]:
+                with self.subTest(key=key, val=val):
+                    with self.assertRaises(ValueError):
+                        prepare_training_plan(
+                            data_root=root,
+                            annotation_root=root / "outputs" / "annotations",
+                            output_root=root / "outputs",
+                            annotation_run_id=run_id,
+                            model="mimo_vl",
+                            run_tag="invalid",
+                            seed=42,
+                            resume=True,
+                            hyperparameter_overrides={key: val},
+                        )
+
+
 if __name__ == "__main__":
     unittest.main()

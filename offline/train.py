@@ -81,6 +81,43 @@ def parse_args():
         default=20,
         help="Save/log step checkpoint every N optimizer steps (default 20).",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Override adapter default training batch size.",
+    )
+    parser.add_argument(
+        "--gradient-accumulation-steps",
+        type=int,
+        default=None,
+        help="Override adapter default gradient accumulation steps.",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help="Override adapter default learning rate.",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Override adapter default training epochs.",
+    )
+    parser.add_argument(
+        "--eval-batch-size",
+        type=int,
+        default=None,
+        help="Override adapter default evaluation batch size.",
+    )
+    parser.add_argument(
+        "--best-metric",
+        type=str,
+        default=None,
+        choices=["acc_at_0_5", "mean_iou", "val_loss"],
+        help="Override adapter default best-epoch primary metric.",
+    )
     return parser.parse_args()
 
 
@@ -97,6 +134,14 @@ def run_cli(args, *, commit_hook=None):
     model_path = (
         str(resolve_from_root(args.model_path, paths.root)) if args.model_path else None
     )
+    hyperparameter_overrides = {
+        "batch_size": args.batch_size,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "learning_rate": args.learning_rate,
+        "epochs": args.epochs,
+        "eval_batch_size": args.eval_batch_size,
+        "best_epoch_primary_metric": args.best_metric,
+    }
     plan = prepare_training_plan(
         data_root=data_root,
         annotation_root=annotation_root,
@@ -108,6 +153,7 @@ def run_cli(args, *, commit_hook=None):
         seed=args.seed,
         resume=args.resume,
         smoke_test=args.smoke_test,
+        hyperparameter_overrides=hyperparameter_overrides,
     )
     if not args.preflight_only and (args.smoke_test or not plan["skip_training"]):
         plan["model_path"] = require_local_model_path(plan["model_path"])

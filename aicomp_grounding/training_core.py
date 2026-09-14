@@ -223,6 +223,7 @@ def prepare_training_plan(
     seed: int,
     resume: bool,
     smoke_test: bool = False,
+    hyperparameter_overrides: dict[str, Any] | None = None,
 ) -> dict:
     if not isinstance(smoke_test, bool):
         raise ValueError("smoke_test must be boolean")
@@ -232,6 +233,30 @@ def prepare_training_plan(
         raise ValueError(f"Unsupported training model: {model!r}")
     adapter = get_adapter(model)
     hyperparameters = adapter.training_hyperparameters()
+    if hyperparameter_overrides:
+        allowed_positive_ints = {
+            "batch_size",
+            "gradient_accumulation_steps",
+            "epochs",
+            "eval_batch_size",
+        }
+        for key, value in hyperparameter_overrides.items():
+            if value is None:
+                continue
+            if key in allowed_positive_ints:
+                if not isinstance(value, int) or value <= 0:
+                    raise ValueError(f"Hyperparameter override {key!r} must be positive int, got {value!r}")
+                hyperparameters[key] = value
+            elif key == "learning_rate":
+                if not isinstance(value, (int, float)) or value <= 0:
+                    raise ValueError(f"Hyperparameter override 'learning_rate' must be positive float, got {value!r}")
+                hyperparameters[key] = float(value)
+            elif key == "best_epoch_primary_metric":
+                if value not in {"acc_at_0_5", "mean_iou", "val_loss"}:
+                    raise ValueError(f"Invalid best_epoch_primary_metric override {value!r}")
+                hyperparameters[key] = value
+            else:
+                raise ValueError(f"Unsupported hyperparameter override: {key!r}")
     hyperparameters["runtime_packages"] = current_runtime_packages()
     root = Path(data_root).resolve()
     # Keep the historical Modal layout as the implicit default.  Portable
@@ -584,9 +609,7 @@ def run_training(
 
     val_loader = DataLoader(
         val_dataset,
-        # The collate function pads and masks labels, so the loss is batch-size
-        # invariant; the grounding eval already runs at eval_batch_size.
-        batch_size=eval_batch_size,
+        batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_cpu,
         num_workers=num_workers,
@@ -686,6 +709,7 @@ def run_training(
         except StopIteration as exc:
             raise ValueError("Training smoke test requires non-empty train and val loaders") from exc
 
+        print(f"[{_log_now()}] [smoke] Running training forward + backward...", flush=True)
         model.train()
         optimizer.zero_grad(set_to_none=True)
         batch = move_batch_to_device(cpu_batch, device)
@@ -698,12 +722,14 @@ def run_training(
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
 
+        print(f"[{_log_now()}] [smoke] Running validation loss forward...", flush=True)
         model.eval()
         validation_batch = move_batch_to_device(validation_cpu_batch, device)
         with torch.no_grad(), torch.autocast(device_type="cuda", dtype=compute_dtype):
             smoke_val_loss = model(**validation_batch).loss
         if not torch.isfinite(smoke_val_loss):
             raise FloatingPointError("Non-finite validation loss in one-batch smoke test")
+        print(f"[{_log_now()}] [smoke] One-batch verification finished.", flush=True)
         return {
             "metadata": metadata,
             "status": "smoke_passed",

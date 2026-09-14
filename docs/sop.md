@@ -155,6 +155,28 @@ df -h /mnt/workspace
 本节覆盖 DSW 上可训练的五个适配器；`qwen36_27b`（Qwen3.6-27B）只在 Modal 上运行，
 镜像、权重与 Volume 布局见 `cloud/README.md`。
 
+### 显式超参数（命令行覆盖）
+
+训练超参数已解耦为显式 CLI 参数，默认值均为 `None`（不传时沿用适配器基准默认值）。
+传参会自动覆盖并计入 `training_run_id` 哈希指纹，天然分流到新 run 目录：
+
+| CLI 参数 | 默认值 | 对应超参键 | 作用说明 |
+| --- | --- | --- | --- |
+| `--batch-size` | `None` (默认 1) | `batch_size` | 训练 micro-batch 样本数（亦作为 val loss 批大小） |
+| `--gradient-accumulation-steps` | `None` (默认 16) | `gradient_accumulation_steps` | 梯度累积步数（等效 batch = batch_size × accum） |
+| `--learning-rate` | `None` (默认 1e-4) | `learning_rate` | 初始学习率 |
+| `--epochs` | `None` (默认 3) | `epochs` | 训练轮数 |
+| `--eval-batch-size` | `None` (默认 4) | `eval_batch_size` | 验证集生成评测（ACC@0.5）批量 |
+| `--best-metric` | `None` (默认 `acc_at_0_5`) | `best_epoch_primary_metric` | 最佳检查点判定指标（可选 `acc_at_0_5` / `mean_iou` / `val_loss`） |
+
+**冒烟口径**：
+- 冒烟测试仅执行 1 个训练样本（前向 + 反向 + 优化器步）与 1 个验证样本（前向 val loss），
+  全程保持单一张量形状（`batch_size=1`），避免多形状重复 JIT 编译；
+- 执行期间有显式阶段日志（`[smoke] Running training forward + backward...`、
+  `[smoke] Running validation loss forward...`、`[smoke] One-batch verification finished.`）；
+- 最终打印 `Training smoke passed: train_loss=..., val_loss=...` 即为成功闭环；
+- 冒烟命令不带 `--num-workers`。
+
 ### Qwen3-VL-8B
 
 ```bash
