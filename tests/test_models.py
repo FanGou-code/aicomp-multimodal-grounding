@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 import zipfile
@@ -11,7 +12,11 @@ from pathlib import Path
 from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.models import ADAPTERS, available_models, get_adapter
-from aicomp_grounding.models.base import ModelInput
+from aicomp_grounding.models.base import (
+    DEFAULT_LORA_PROJECTIONS,
+    ModelInput,
+    language_model_lora_targets,
+)
 from aicomp_grounding.models.groundingdino import (
     normalize_grounding_query,
     select_top_detection,
@@ -25,6 +30,7 @@ from aicomp_grounding.models.mock import _stable_box
 from aicomp_grounding.models.glm46v import (
     GLM_BOX_CLOSE as GLM46V_BOX_CLOSE,
     GLM_BOX_OPEN as GLM46V_BOX_OPEN,
+    MAX_PIXELS as GLM46V_MAX_PIXELS,
     MODEL_NAME as GLM46V_MODEL_NAME,
     MODEL_REVISION as GLM46V_MODEL_REVISION,
     MODELSCOPE_NAME as GLM46V_MODELSCOPE_NAME,
@@ -165,10 +171,14 @@ class Glm46VContractTests(unittest.TestCase):
         self.assertEqual(GLM46V_BOX_CLOSE, chr(0x3C) + "|end_of_box|" + chr(0x3E))
 
     def test_default_generation_config_is_backward_compatible(self):
+        # GLM-4.6V's identity moved once, deliberately: the adapter now pins the
+        # shared pixel budget instead of inheriting the checkpoint's
+        # `longest_edge`, so `max_pixels` enters its run identity.  Any run of
+        # this adapter needs a new tag.  At 1920x1080 the grid is unchanged.
         adapter = get_adapter("glm46v")
         self.assertEqual(
             adapter.generation_config,
-            {"max_new_tokens": 32, "do_sample": False},
+            {"max_new_tokens": 32, "do_sample": False, "max_pixels": GLM46V_MAX_PIXELS},
         )
 
     def test_thinking_disabled_in_chat_template_kwargs(self):
@@ -211,14 +221,79 @@ class Glm46VContractTests(unittest.TestCase):
         self.assertIsNone(parse_glm_box("no box here"))
 
 
+TRAINABLE_ADAPTERS = (
+    "qwen3vl",
+    "qwen3_5",
+    "qwen36_27b",
+    "mimo_vl",
+    "glm46v",
+    "internvl35",
+)
+
+#: Projections each adapter's language model exposes, and therefore the exact
+#: target set it must declare.  `glm46v` fuses the MLP gate and up projections
+#: into `gate_up_proj`, so the split pair does not apply to it and it trains no
+#: up path at all; widening that adapter is a recipe change, so its set is pinned
+#: here rather than assumed.
+EXPECTED_LORA_PROJECTIONS = {
+    name: DEFAULT_LORA_PROJECTIONS
+    for name in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "internvl35")
+}
+EXPECTED_LORA_PROJECTIONS["glm46v"] = (
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "down_proj",
+)
+
+# Vision towers that reuse language-model projection names are the trap: a bare
+# suffix list silently wraps them, which puts the vision encoder through
+# backward plus gradient-checkpoint recomputation.
+FROZEN_VISION_MODULES = (
+    "model.visual.blocks.0.mlp.gate_proj",
+    "model.visual.blocks.0.mlp.up_proj",
+    "model.visual.blocks.0.mlp.down_proj",
+    "model.visual.merger.gate_proj",
+    "model.visual.merger.up_proj",
+    "model.visual.merger.down_proj",
+    "model.vision_tower.encoder.layers.0.attention.q_proj",
+    "model.vision_tower.encoder.layers.0.attention.k_proj",
+    "model.vision_tower.encoder.layers.0.attention.v_proj",
+)
+
+
 class TrainableAdapterContractTests(unittest.TestCase):
     def test_vlm_adapters_expose_training_contract(self):
-        for name in ("qwen3vl", "qwen3_5", "glm46v", "internvl35"):
+        for name in TRAINABLE_ADAPTERS:
             adapter = get_adapter(name)
             hyperparameters = adapter.training_hyperparameters()
             self.assertEqual(hyperparameters["lora_rank"], 16)
             self.assertEqual(hyperparameters["lora_alpha"], 32)
-            self.assertIn("q_proj", adapter.lora_target_modules())
+            self.assertEqual(
+                hyperparameters["lora_targets"], adapter.lora_target_modules()
+            )
+
+    def test_lora_targets_pin_the_declared_projection_set(self):
+        """Anchoring is shared; the projection set is each adapter's own."""
+        for name in TRAINABLE_ADAPTERS:
+            self.assertEqual(
+                get_adapter(name).lora_target_modules(),
+                language_model_lora_targets(*EXPECTED_LORA_PROJECTIONS[name]),
+                f"{name} changed its LoRA scope",
+            )
+
+    def test_lora_targets_never_reach_the_vision_tower(self):
+        """The encoder stays frozen whichever projections an adapter declares.
+
+        PEFT matches a string ``target_modules`` with ``re.fullmatch``, so this is
+        the same test PEFT applies when injecting the adapter.
+        """
+        for name in TRAINABLE_ADAPTERS:
+            pattern = get_adapter(name).lora_target_modules()
+            self.assertIsInstance(pattern, str, f"{name} must return a regex, not a list")
+            for key in FROZEN_VISION_MODULES:
+                self.assertIsNone(re.fullmatch(pattern, key), f"{name} would train {key}")
 
 
 class InternVLContractTests(unittest.TestCase):

@@ -452,12 +452,12 @@ def run_training(
     weight_decay = hyperparameters["weight_decay"]
     eval_batch_size = hyperparameters["eval_batch_size"]
 
-    if model_name in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl"):
+    if model_name in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v"):
         adapter = get_adapter(
             model_name,
             max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
         )
-    elif model_name in ("glm46v", "internvl35"):
+    elif model_name == "internvl35":
         adapter = get_adapter(model_name)
     else:
         raise ValueError(f"Unsupported training model: {model_name!r}")

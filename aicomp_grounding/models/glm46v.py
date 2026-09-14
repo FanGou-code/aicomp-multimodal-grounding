@@ -23,7 +23,12 @@ from typing import Any
 
 from aicomp_grounding.bbox import quantize_bbox_1000, validate_bbox
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
+from aicomp_grounding.models.base import (
+    ModelInput,
+    Prediction,
+    language_model_lora_targets,
+    require_local_model_path,
+)
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "zai-org/GLM-4.6V-Flash"
@@ -34,6 +39,14 @@ MODEL_REVISION = "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
 MODELSCOPE_NAME = "ZhipuAI/GLM-4.6V-Flash"
 
 MAX_NEW_TOKENS = 32
+
+# Pixel budgets, in units of 28x28 pixels per vision token (patch 14 x merge 2).
+# The checkpoint's own preprocessor config allows `longest_edge = 28*28*12288`,
+# four times the budget every other tri-modal adapter pins.  Pinning the shared
+# budget keeps GLM-4.6V's run identity comparable to the rest of the roster and
+# bounds the vision-token count: at 1920x1080 the grid is 78x138 either way.
+MIN_PIXELS = 256 * 28 * 28
+MAX_PIXELS = 3072 * 28 * 28
 
 # Tokenizer-added box delimiters (verified from the added vocab): ids
 # 151361 and 151362. Built from chr() so the source carries no raw
@@ -142,10 +155,12 @@ class Glm46VAdapter:
     supports_lora = True
     supports_prepared_inputs = True
 
-    def __init__(self):
+    def __init__(self, *, max_pixels: int = MAX_PIXELS):
+        self.max_pixels = max_pixels
         self.generation_config: dict[str, Any] = {
             "max_new_tokens": MAX_NEW_TOKENS,
             "do_sample": False,
+            "max_pixels": max_pixels,
         }
         self._processor = None
         self._model = None
@@ -188,6 +203,8 @@ class Glm46VAdapter:
         processor = AutoProcessor.from_pretrained(
             source,
             local_files_only=True,
+            min_pixels=MIN_PIXELS,
+            max_pixels=self.max_pixels,
         )
         processor.tokenizer.padding_side = "left"
         print(
@@ -237,18 +254,18 @@ class Glm46VAdapter:
             "best_epoch_primary_metric": "acc_at_0_5",
             "python_version": RUNTIME_PYTHON_VERSION,
             "lora_targets": self.lora_target_modules(),
+            "min_pixels": MIN_PIXELS,
+            "max_pixels": self.max_pixels,
         }
 
-    def lora_target_modules(self) -> list[str]:
-        return [
-            "q_proj",
-            "k_proj",
-            "v_proj",
-            "o_proj",
-            "gate_proj",
-            "up_proj",
-            "down_proj",
-        ]
+    def lora_target_modules(self) -> str:
+        # GLM-4.6V fuses the MLP gate and up projections into `gate_up_proj`, so
+        # this adapter declares the projections its own language model exposes
+        # instead of the split `gate_proj` / `up_proj` pair the other five use.
+        # Widening it to include `gate_up_proj` is a recipe change, not a fix.
+        return language_model_lora_targets(
+            "q_proj", "k_proj", "v_proj", "o_proj", "down_proj"
+        )
 
     def load_for_training(
         self,
@@ -258,6 +275,10 @@ class Glm46VAdapter:
         model_path: str | None = None,
     ):
         self.load(device=device, lora_path=lora_path, model_path=model_path)
+        # Training backward has no use for the KV cache and transformers would
+        # force it off at forward time with a warning.  Setting it here keeps
+        # the inference path (which does want the cache) untouched.
+        self._model.config.use_cache = False
         return self._model, self._processor
 
     def build_training_batch(

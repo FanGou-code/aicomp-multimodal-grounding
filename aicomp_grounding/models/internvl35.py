@@ -16,7 +16,13 @@ from typing import Any
 
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
+from aicomp_grounding.models.base import (
+    DEFAULT_LORA_PROJECTIONS,
+    ModelInput,
+    Prediction,
+    language_model_lora_targets,
+    require_local_model_path,
+)
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "OpenGVLab/InternVL3_5-8B-HF"
@@ -196,16 +202,8 @@ class InternVL35Adapter:
             "max_patches": MAX_PATCHES,
         }
 
-    def lora_target_modules(self) -> list[str]:
-        return [
-            "q_proj",
-            "k_proj",
-            "v_proj",
-            "o_proj",
-            "gate_proj",
-            "up_proj",
-            "down_proj",
-        ]
+    def lora_target_modules(self) -> str:
+        return language_model_lora_targets(*DEFAULT_LORA_PROJECTIONS)
 
     def load_for_training(
         self,
@@ -215,6 +213,10 @@ class InternVL35Adapter:
         model_path: str | None = None,
     ):
         self.load(device=device, lora_path=lora_path, model_path=model_path)
+        # Training backward has no use for the KV cache and transformers would
+        # force it off at forward time with a warning.  Setting it here keeps
+        # the inference path (which does want the cache) untouched.
+        self._model.config.use_cache = False
         return self._model, self._processor
 
     def build_training_batch(

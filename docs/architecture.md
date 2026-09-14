@@ -41,17 +41,30 @@ CLI 相对路径以 `--project-root` 解析。新训练可以使用不同输出�
 
 | 名称 | 输入 | 训练能力 | 坐标 |
 | --- | --- | --- | --- |
-| `qwen3vl` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
-| `qwen3_5` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
-| `qwen36_27b` | RGB、IR、深度三图 | LoRA（Modal H100 专属） | 0–1000 整数 |
-| `mimo_vl` | RGB、IR、深度三图 | LoRA | JSON bbox 归一化 |
-| `glm46v` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
-| `internvl35` | RGB、IR、深度三图 | LoRA，训练批量为 1 | 0–1000 整数 |
+| `qwen3vl` | RGB、IR、深度三图 | LoRA（仅语言模型） | 0–1000 整数 |
+| `qwen3_5` | RGB、IR、深度三图 | LoRA（仅语言模型） | 0–1000 整数 |
+| `qwen36_27b` | RGB、IR、深度三图 | LoRA（仅语言模型，Modal H100 专属） | 0–1000 整数 |
+| `mimo_vl` | RGB、IR、深度三图 | LoRA（仅语言模型） | JSON bbox 归一化 |
+| `glm46v` | RGB、IR、深度三图 | LoRA（仅语言模型） | 0–1000 整数 |
+| `internvl35` | RGB、IR、深度三图 | LoRA（仅语言模型），训练批量为 1 | 0–1000 整数 |
 | `groundingdino` | RGB | 仅推理，原生置信度 | 归一化 XYXY |
 | `mock` | 测试输入 | CPU 流程测试 | 归一化 XYXY |
 
 所有适配器返回归一化 XYXY 与可选 score。训练接口负责输入、监督掩码、组批、
 验证解码和 LoRA 目标层；普通训练循环不猜测模型协议。
+
+**LoRA 范围不变量**：适配器的目标层一律由 `models/base.py` 的
+`language_model_lora_targets()` 构造，即锚定 `model.language_model` 的正则。
+**锚定是共享的，名单是各适配器自己的**——语言模型暴露哪些投影属于该模型的
+个性（`glm46v` 的 MLP 融合为 `gate_up_proj`，只声明 `q/k/v/o/down_proj`；
+其余五个声明共享的 `DEFAULT_LORA_PROJECTIONS`）。视觉塔（`model.visual.*`、
+`model.vision_tower.*`）恒为冻结，只做前向。
+
+裸后缀名单（`["q_proj", ...]`）由 PEFT 按后缀匹配，会误伤复用同名投影的视觉塔：
+Qwen2.5-VL 系视觉 MLP 的 `gate_proj`/`up_proj`/`down_proj`、InternViT 注意力的
+`q_proj`/`k_proj`/`v_proj`。视觉塔一旦进入可训练集，其反向与梯度检查点重算
+即被强制打开，各适配器之间也不再可比。改动构造器或任一适配器的名单，须同步
+`tests/test_models.py` 的强制覆盖项与视觉侧反向断言。
 
 底座先下载到本地，通过 `--model-path` 指定。适配器拒绝缺少配置的目录，所有
 `from_pretrained` 调用采用 `local_files_only=True`，执行阶段不下载模型。
