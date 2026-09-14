@@ -4,7 +4,7 @@
 数据布局见 `data-contract.md`，赛题说明见 `research.md`。
 较早日志及旧当前状态已移至 `handoff-archive.md`，原文保留。
 
-## 当前状态（2026-09-14）
+## 当前状态（2026-09-15）
 
 - 用户确认魔搭的 `data.tar` 包含已生成的 `Processed/`；SOP 改为解压后直接使用，
   不再将重复预处理列为常规部署步骤。
@@ -23,6 +23,13 @@
   （锚定共享、名单各自声明），视觉塔恒为冻结；`glm46v` 补齐
   `min_pixels`/`max_pixels`。六个适配器的 run 身份均已变化，新 run 一律换新标签；
   已有 `outputs/` 产物不受影响。
+- 训练超参数解耦（2026-09-15）：`offline/train.py` 与 `cloud/train.py` 增加 6 个显式 CLI
+  参数（`--batch-size`、`--gradient-accumulation-steps`、`--learning-rate`、
+  `--epochs`、`--eval-batch-size`、`--best-metric`），默认均为 `None`；传参时覆盖
+  适配器默认值并进入 `training_run_id` 哈希指纹。
+- 验证损失批大小与冒烟日志（2026-09-15）：`training_core.py` 中 `val_loader` 的
+  `batch_size` 恢复为与训练 micro-batch 相同的 `batch_size`（默认 1），消除在 AMD
+  ROCm/MIOpen 平台因多形状触发的二次 JIT 编译；冒烟测试增加显式阶段日志。
 - 权重版本（2026-09-14 复核）：七个有权重的适配器的 `MODEL_REVISION` 全部改成
   来源仓库的 commit id（魔搭六个、HF 一个 `qwen36_27b`），`sop.md` 与
   `cloud/README.md` 的下载命令带同一个 `--revision`。取值日期 2026-09-14，
@@ -33,7 +40,7 @@
   生效，`--max-pixels` 对 `glm46v` 可用。当前数据全为 1920×1080，处理结果逐位不变。
 - Modal 专为 Qwen3.6-27B 部署（HF `Qwen/Qwen3.6-27B`，需 `[kernels]` 依赖）。
   其他模型均在魔搭 DSW 本地环境训练。
-- 本地 `qwen_vg`：Python 3.12.13。主仓 202 项测试通过，0 skip；原生 processor
+- 本地 `qwen_vg`：Python 3.12.13。主仓 206 项测试通过，0 skip；原生 processor
   的默认训练输入和四样本推理输入构建通过，没有加载模型权重。
 - 用户提供的实验状态：两个 Qwen 按 SOP 执行，GroundingDINO 官方 Test 为 0.576。
   本轮未读取 DSW 结果或复验榜单成绩；不据代码审查判断模型能力上限。
@@ -45,6 +52,40 @@
 - 后续运行：按 SOP 做实际模型冒烟；涉及新解析/参数的实验使用新标签，不混入旧结果。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-15（训练超参 CLI 显式解耦 + 冒烟双形状 JIT 编译消除）
+
+- **动因**：
+  1. 训练超参原硬编码在各适配器的 `training_hyperparameters()` 内部，无法通过 CLI
+     显式调整且缺乏自动区分 run 目录的机制；
+  2. 魔搭 DSW（ROCm 7.2.3 / MI300X）上 `glm46v` 训练冒烟耗时 21 分钟，现场堆栈
+     定位卡在 `training_core.py` 验证损失前向（`_conv_forward`）。根因为先前提交
+     将 `val_loader` 批大小由 1 改为 4（12 张大图、32,712 视觉 token），导致 MIOpen
+     在训练步编译 `batch=1` 形状后触发第 2 轮形状 B 全量 JIT 编译，且冒烟过程无进度打印。
+- **改动**：
+  1. `aicomp_grounding/training_core.py`：
+     - `prepare_training_plan` 增加 `hyperparameter_overrides` 参数，支持覆盖
+       `batch_size`、`gradient_accumulation_steps`、`learning_rate`、`epochs`、
+       `eval_batch_size`、`best_epoch_primary_metric` 并作合法性校验，写入
+       `plan["metadata"]["hyperparameters"]` 参与 `training_run_id` 哈希；
+     - 回退验证损失批大小：`val_loader` 的 `batch_size` 恢复为与训练一致的
+       `batch_size`（默认 1），保持单一张量形状；
+     - 冒烟阶段增加 `[smoke] Running training forward + backward...`、
+       `[smoke] Running validation loss forward...`、
+       `[smoke] One-batch verification finished.` 阶段日志。
+  2. `offline/train.py`：`parse_args` 增加 `--batch-size`、`--gradient-accumulation-steps`、
+     `--learning-rate`、`--epochs`、`--eval-batch-size`、`--best-metric` 6 个 CLI
+     参数（默认均 `None`），打包注入 `prepare_training_plan`。
+  3. `cloud/train.py`：`TRAINING_DEFAULTS` 字典补齐 6 个参数（默认 `None`），
+     满足 AST 静态契约。
+  4. `tests/test_run_training_loop.py`：增加 `HyperparameterOverrideTests`，
+     覆盖默认无漂移、传参生成新 run ID、非法参数异常拦截。
+  5. `docs/sop.md`：第 5 节补充 6 项 CLI 超参映射表与更新后的冒烟口径。
+- **验证**：
+  1. 本地全量测试：`python -m unittest discover -s tests`，206 项全部通过（0 skip，耗时 9.5s）；
+  2. 语法检查：`python -m compileall aicomp_grounding scripts offline cloud` 全部通过；
+  3. 指纹契约验证：默认不传参时 `training_run_id` 保持不变；传参时生成新 run ID。
+- **下一步**：魔搭 DSW 执行 `git pull` 后运行 `glm46v` 冒烟，验证阶段进度打印与单形状复用下的执行耗时。
 
 ### 2026-09-14（冒烟口径修正 + 序数类 query 的推理侧改法立项）
 

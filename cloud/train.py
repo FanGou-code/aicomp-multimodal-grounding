@@ -61,6 +61,12 @@ TRAINING_DEFAULTS: dict = {
     "preflight_only": False,
     "num_workers": 4,
     "checkpoint_interval": 20,
+    "batch_size": None,
+    "gradient_accumulation_steps": None,
+    "learning_rate": None,
+    "epochs": None,
+    "eval_batch_size": None,
+    "best_metric": None,
 }
 
 
