@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aicomp-grounding"
 version = "1.0.0"
-description = "RGBDT tri-modal visual grounding experiment unit (competition)"
+description = "RGBDT tri-modal (visible / infrared / depth) visual grounding system"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
@@ -18,7 +18,7 @@ dependencies = [
     "torch>=2.8,<3",
     # torchvision 不锁版本：由 pip 按已安装的 torch 解析配对版本（硬 pin 会与
     # torch 范围冲突）。transformers 图像预处理链路（含 GroundingDINO）需要它；
-    # DSW 镜像自带，Modal 容器必须显式装。
+    # GPU 平台镜像通常自带，纯净容器环境需要显式安装。
     "torchvision",
     # 模型框架层：== 紧 pin，跨平台行为一致
     "transformers==5.15.1",

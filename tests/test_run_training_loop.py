@@ -165,6 +165,7 @@ class _FakeModel(torch.nn.Module):
         )
         self.generation_config = {"use_cache": False}
         self.generate_calls = 0
+        self.eval_forward_calls = 0
 
     def enable_input_require_grads(self):
         pass
@@ -179,6 +180,13 @@ class _FakeModel(torch.nn.Module):
         loss = self.embed(input_ids).sum()
         if labels is not None:
             loss = loss + self.embed(labels.clamp(min=0)).sum() * 0.0
+        if not self.training:
+            # Validation loss rises by 1.0 per eval batch, so every epoch has a
+            # distinct, strictly increasing val_loss.  Best-epoch selection is
+            # then *identifiable* (the winner is a known epoch) instead of only
+            # self-consistent, which is what the val_loss tests assert.
+            self.eval_forward_calls += 1
+            loss = loss + float(self.eval_forward_calls)
         return type("Out", (), {"loss": loss})()
 
     @torch.no_grad()
@@ -563,11 +571,15 @@ class BestMetricTests(unittest.TestCase):
                 completed = run_training(plan, data_root=root)
             self.assertEqual(completed["status"], "completed")
             self.assertEqual(completed["best_metric"], "val_loss")
-            # By construction the selected adapters's val_loss is the winner.
             self.assertEqual(completed["best_metric_value"], completed["best_val_loss"])
             best_dir = Path(completed["best_path"])
             self.assertTrue(best_dir.is_dir(), completed["best_path"])
             self.assertEqual(best_dir.parent.name, "best")
+            # The fake model's val loss rises every eval batch, so epoch 1 holds
+            # the minimum.  Asserting *which* epoch won is what makes this test
+            # sensitive to a broken best-epoch rule (e.g. "always overwrite"):
+            # the consistency assertions above hold for any epoch.
+            self.assertEqual(best_dir.name, "epoch_01", completed["best_path"])
             manifest = load_json(best_dir / "adapter_manifest.json")
             self.assertEqual(manifest["val_loss"], completed["best_val_loss"])
 
