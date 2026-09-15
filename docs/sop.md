@@ -158,7 +158,7 @@ df -h /mnt/workspace
 ### 显式超参数（命令行覆盖）
 
 训练超参数已解耦为显式 CLI 参数，默认值均为 `None`（不传时沿用适配器基准默认值）。
-传参会自动覆盖并计入 `training_run_id` 哈希指纹，天然分流到新 run 目录：
+传参会自动覆盖并计入 `training_run_id` 哈希指纹，写入对应新 run 目录：
 
 | CLI 参数 | 默认值 | 对应超参键 | 作用说明 |
 | --- | --- | --- | --- |
@@ -174,7 +174,7 @@ df -h /mnt/workspace
   全程保持单一张量形状（`batch_size=1`），避免多形状重复 JIT 编译；
 - 执行期间有显式阶段日志（`[smoke] Running training forward + backward...`、
   `[smoke] Running validation loss forward...`、`[smoke] One-batch verification finished.`）；
-- 最终打印 `Training smoke passed: train_loss=..., val_loss=...` 即为成功闭环；
+- 最终打印 `Training smoke passed: train_loss=..., val_loss=...` 判定为通过；
 - 冒烟命令不带 `--num-workers`。
 
 ### Qwen3-VL-8B
