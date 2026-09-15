@@ -43,6 +43,12 @@ from aicomp_grounding.submission import build_submission
 
 CACHE_MAX_SIZE = 32
 
+#: Adapters whose constructor takes the tri-modal pixel budget (``max_pixels``).
+#: GroundingDINO and mock are not in this set: they have no such parameter, and
+#: passing it would raise TypeError.  This is a capability set, not the training
+#: roster — a future inference-only VLM belongs here without being trainable.
+PIXEL_BUDGET_MODELS = ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v")
+
 
 def _now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -445,7 +451,7 @@ def _run_shard_worker(
     args_dict, items, shard_id, checkpoint_dir, shard_metadata = payload
     args = argparse.Namespace(**args_dict)
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v"):
+    if args.model in PIXEL_BUDGET_MODELS:
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
     adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
@@ -526,7 +532,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
 
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v"):
+    if args.model in PIXEL_BUDGET_MODELS:
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
 
