@@ -101,11 +101,12 @@ def _artifact(split: str, scene: str, run_id: str) -> dict:
 
 
 class _CpuTorchShim(types.ModuleType):
-    """Real torch module with cuda mapped off and device() pinned to CPU.
+    """Real torch module with the device probes pinned to CPU.
 
     Subclassing the real module keeps ``from torch import X`` working inside
-    peft/torch's own import chain; only the members run_training touches are
-    overridden.
+    peft/torch's own import chain; the CUDA namespace delegates to the real
+    one except for the three probes that decide whether a GPU is used, so
+    torch internals (``manual_seed`` -> ``cuda._is_in_bad_fork``) keep working.
     """
 
     def __init__(self, real):
@@ -113,19 +114,28 @@ class _CpuTorchShim(types.ModuleType):
         self.__dict__.update(real.__dict__)
         self._real = real
         self.device = lambda spec=None: self._real.device("cpu")
+        real_cuda = real.cuda
 
-    class cuda:  # noqa: N801 - mirrors torch.cuda
-        @staticmethod
-        def is_available():
-            return False
+        class _CpuCuda:
+            def __getattr__(self, name):
+                return getattr(real_cuda, name)
 
-        @staticmethod
-        def is_bf16_supported():
-            return True
+            @staticmethod
+            def is_available():
+                return False
 
-        @staticmethod
-        def manual_seed_all(seed):
-            return None
+            @staticmethod
+            def is_bf16_supported():
+                return True
+
+            @staticmethod
+            def manual_seed_all(seed):
+                return None
+
+        # The update above copies the real module's ``cuda``; re-bind the
+        # stand-in, otherwise is_available() reports the host's GPU and these
+        # CPU tests only pass on machines that happen to have one.
+        self.cuda = _CpuCuda()
 
 
 def _write_fixture_images(root: Path) -> None:
@@ -318,7 +328,11 @@ class RunTrainingLoopTests(unittest.TestCase):
                     smoke_test=True,
                 )
                 self.assertTrue(plan["smoke_test"])
-                result = run_training(plan, data_root=root)
+                result = run_training(plan, data_root=root, allow_cpu=True)
+                # Without the explicit opt-in a CPU-only torch must still be
+                # refused, so production callers cannot silently train on CPU.
+                with self.assertRaisesRegex(RuntimeError, "CUDA/HIP GPU"):
+                    run_training(plan, data_root=root)
             self.assertEqual(result["status"], "smoke_passed")
             self.assertTrue(calls.get("load_for_training"))
             # At least one train micro-batch ran; the smoke path stops after
@@ -365,7 +379,7 @@ class RunTrainingLoopTests(unittest.TestCase):
                     seed=42,
                     resume=True,
                 )
-                result = run_training(plan, data_root=root)
+                result = run_training(plan, data_root=root, allow_cpu=True)
                 # plan.json is persisted by the CLI shell, not run_training.
                 persist_training_plan(plan)
                 replan = prepare_training_plan(
@@ -568,7 +582,7 @@ class BestMetricTests(unittest.TestCase):
                         "best_epoch_primary_metric": "val_loss",
                     },
                 )
-                completed = run_training(plan, data_root=root)
+                completed = run_training(plan, data_root=root, allow_cpu=True)
             self.assertEqual(completed["status"], "completed")
             self.assertEqual(completed["best_metric"], "val_loss")
             self.assertEqual(completed["best_metric_value"], completed["best_val_loss"])
