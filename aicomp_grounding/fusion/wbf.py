@@ -3,8 +3,8 @@
 Design notes
 ------------
 - Input units are per-model ``predictions.json`` files (``{key: bbox|None}``),
-  i.e. exactly what the cloud/offline inference entries emit, so contributors
-  can exchange prediction files without any new contract.
+  i.e. exactly what the inference entrypoint emits, so contributors can
+  exchange prediction files without any new contract.
 - Weights are **model-level** (per input file). VLMs emit no calibrated
   confidence, so equal weights are the honest default; calibrate on val if
   budget allows. DINO's native per-box scores can be supplied via optional
@@ -39,7 +39,7 @@ def fuse_boxes(boxes: list[list[float]], weights: list[float]) -> list[float]:
     """Weighted coordinate average of a cluster of valid XYXY boxes."""
     total = sum(weights)
     return [
-        round(sum(w * box[k] for w, box in zip(weights, boxes)) / total, 6)
+        round(sum(w * box[k] for w, box in zip(weights, boxes, strict=True)) / total, 6)
         for k in range(4)
     ]
 

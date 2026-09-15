@@ -2,10 +2,11 @@
 
 MiMo-VL-7B-RL is Xiaomi's vision-language model fine-tuned with reinforcement
 learning for multimodal grounding. It uses the Qwen2.5-VL architecture
-(model_type ``qwen2_5_vl``) and outputs JSON with normalized bbox coordinates.
-
-The model emits ``{"bbox_2d": [x1, y1, x2, y2]}`` where coordinates are
-normalized 0-1. The adapter parses this JSON format and validates the bbox.
+(model_type ``qwen2_5_vl``). Per the official evaluation protocol
+(XiaomiMiMo/lmms-eval ``mimo_vl_eval`` branch), grounding prompts ask for a
+JSON array of ``{"bbox_2d": [x1, y1, x2, y2]}`` objects whose coordinates are
+in pixel space (after smart_resize); parsing normalizes by the recorded frame
+size.
 """
 
 from __future__ import annotations
@@ -15,9 +16,14 @@ from typing import Any
 
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
+from aicomp_grounding.models.base import (
+    DEFAULT_LORA_PROJECTIONS,
+    ModelInput,
+    Prediction,
+    language_model_lora_targets,
+    require_local_model_path,
+)
 from aicomp_grounding.prompts import (
-    GROUNDING_SYSTEM_PROMPT,
     build_grounding_messages,
     build_training_messages,
     grounding_prompt_hash,
@@ -25,9 +31,10 @@ from aicomp_grounding.prompts import (
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "XiaomiMiMo/MiMo-VL-7B-RL"
-# ModelScope snapshot recorded at adoption. Download this version before
-# execution; the adapter only reads the explicit local --model-path.
-MODEL_REVISION = "master"
+# Weight snapshot recorded at adoption; fetch this revision before execution
+# (repo and revision are listed in the README weight table). The adapter only
+# reads the explicit local --model-path.
+MODEL_REVISION = "d307865d4a3b6ad9ae35e574bcabaa563038c8fb"
 
 # Pixel budgets in Qwen processor units (28x28 per patch); 3072 patches
 # covers a lossless 1920x1080 frame at ~2645 patches.
@@ -35,6 +42,14 @@ MIN_PIXELS = 256 * 28 * 28
 MAX_PIXELS = 3072 * 28 * 28
 
 MAX_NEW_TOKENS = 64
+
+MIMO_GROUNDING_SYSTEM_PROMPT = (
+    "You are a visual grounding assistant. The images are ordered as visible "
+    "RGB, infrared, and depth of the same scene. Locate the object described "
+    'by the query and output only a JSON array: [{"bbox_2d": [x1, y1, x2, y2], '
+    '"label": "<the query>"}]. Coordinates are integer pixel coordinates in '
+    "the images as given, with x1 < x2 and y1 < y2."
+)
 
 
 def _apply_chat_template(
@@ -55,22 +70,38 @@ def _resolve_model_source(model_path: str | None) -> str:
     return require_local_model_path(model_path)
 
 
-def _parse_mimo_bbox(text: str) -> list[float] | None:
-    """Parse MiMo-VL JSON bbox format: {"bbox_2d": [x1, y1, x2, y2]}."""
+def _parse_mimo_bbox(text: str, *, width: int | None = None, height: int | None = None) -> list[float] | None:
+    """Parse MiMo-VL grounding JSON per the official protocol.
+
+    The official prompt asks for a JSON array of ``{"bbox_2d": [...], "label":
+    ...}`` objects in pixel space; a bare object or a bracket array is also
+    accepted. Pixel coordinates are normalized by the recorded frame size when
+    provided; already-normalized values pass through unchanged.
+    """
     import json
     import re
 
-    # Extract JSON object from text
-    match = re.search(r'\{[^}]*"bbox_2d"[^}]*\}', text)
+    match = re.search(r'\[\s*\{[^}]*"bbox_2d"[^}]*\}\s*\]', text)
+    if not match:
+        match = re.search(r'\{[^{}]*"bbox_2d"[^{}]*\}', text)
     if not match:
         return None
 
     try:
         data = json.loads(match.group(0))
-        bbox = data.get("bbox_2d")
+        payload = data[0] if isinstance(data, list) else data
+        if not isinstance(payload, dict):
+            return None
+        bbox = payload.get("bbox_2d")
         if not isinstance(bbox, list) or len(bbox) != 4:
             return None
         coords = [float(c) for c in bbox]
+        if any(not (value == value and -1e9 < value < 1e9) for value in coords):
+            return None
+        if any(value > 1 for value in coords):
+            if not width or not height:
+                return None
+            coords = [coords[0] / width, coords[1] / height, coords[2] / width, coords[3] / height]
         if not validate_bbox(coords):
             return None
         return coords
@@ -78,10 +109,17 @@ def _parse_mimo_bbox(text: str) -> list[float] | None:
         return None
 
 
-def _format_mimo_bbox(bbox: list[float]) -> str:
-    """Format bbox as MiMo-VL expects: {"bbox_2d": [x1, y1, x2, y2]}."""
+def _format_mimo_bbox(bbox: list[float], *, width: int, height: int) -> str:
+    """Format bbox as the official protocol: pixel-space JSON array."""
     import json
-    return json.dumps({"bbox_2d": bbox}, ensure_ascii=False)
+
+    pixel = [
+        round(bbox[0] * width),
+        round(bbox[1] * height),
+        round(bbox[2] * width),
+        round(bbox[3] * height),
+    ]
+    return json.dumps([{"bbox_2d": pixel, "label": ""}], ensure_ascii=False)
 
 
 class MiMoVLAdapter:
@@ -102,7 +140,7 @@ class MiMoVLAdapter:
         self._model = None
 
     def prompt_hash(self) -> str:
-        return grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
+        return grounding_prompt_hash(MIMO_GROUNDING_SYSTEM_PROMPT)
 
     def identity(self) -> dict[str, Any]:
         return {
@@ -175,7 +213,7 @@ class MiMoVLAdapter:
             "lora_dropout": 0.05,
             "compute_dtype": "bfloat16",
             "autocast": True,
-            "eval_batch_size": 4,
+            "eval_batch_size": 1,
             "best_epoch_primary_metric": "acc_at_0_5",
             "python_version": RUNTIME_PYTHON_VERSION,
             "lora_targets": self.lora_target_modules(),
@@ -183,16 +221,8 @@ class MiMoVLAdapter:
             "max_pixels": self.max_pixels,
         }
 
-    def lora_target_modules(self) -> list[str]:
-        return [
-            "q_proj",
-            "k_proj",
-            "v_proj",
-            "o_proj",
-            "gate_proj",
-            "up_proj",
-            "down_proj",
-        ]
+    def lora_target_modules(self) -> str:
+        return language_model_lora_targets(*DEFAULT_LORA_PROJECTIONS)
 
     def load_for_training(
         self,
@@ -202,6 +232,18 @@ class MiMoVLAdapter:
         model_path: str | None = None,
     ):
         self.load(device=device, lora_path=lora_path, model_path=model_path)
+        # Training backward has no use for the KV cache and transformers would
+        # force it off at forward time with a warning.  Setting it here keeps
+        # the inference path (which does want the cache) untouched.
+        text_config = getattr(self._model.config, "text_config", None)
+        if text_config is not None and hasattr(text_config, "use_cache"):
+            # Nested multimodal models keep the language model under
+            # text_config; the outer config has no use_cache attribute, so
+            # setting it there is a no-op and generation still builds a KV
+            # cache during training forward passes.
+            text_config.use_cache = False
+        else:
+            self._model.config.use_cache = False
         return self._model, self._processor
 
     def build_training_batch(
@@ -219,7 +261,11 @@ class MiMoVLAdapter:
             with Image.open(data_root / item[field]) as opened:
                 images.append(opened.convert("RGB"))
         visible, infrared, depth = images
-        bbox_text = _format_mimo_bbox(item["bbox"])
+        bbox_text = _format_mimo_bbox(
+            item["bbox"],
+            width=int(item.get("width", 0)),
+            height=int(item.get("height", 0)),
+        )
         prompt_messages = build_grounding_messages(
             visible, infrared, depth, item["query"]
         )
@@ -356,6 +402,12 @@ class MiMoVLAdapter:
             raise RuntimeError("MiMoVLAdapter.load() must run before predict()")
 
         processor = self._processor
+        # Official protocol emits pixel-space coordinates; record the sampled
+        # frame sizes (all three modality images share one size) so
+        # predict_from_inputs can normalize without seeing the samples.
+        self._pending_sizes = [
+            (sample.visible.size[0], sample.visible.size[1]) for sample in samples
+        ]
         messages_list = [
             build_grounding_messages(
                 sample.visible, sample.infrared, sample.depth, sample.query
@@ -400,9 +452,10 @@ class MiMoVLAdapter:
         text_outputs = processor.batch_decode(
             generated_tokens, skip_special_tokens=False
         )
+        sizes = getattr(self, "_pending_sizes", None) or [(None, None)] * len(text_outputs)
         return [
-            Prediction(bbox=_parse_mimo_bbox(text), score=None)
-            for text in text_outputs
+            Prediction(bbox=_parse_mimo_bbox(text, width=width, height=height), score=None)
+            for text, (width, height) in zip(text_outputs, sizes, strict=True)
         ]
 
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:

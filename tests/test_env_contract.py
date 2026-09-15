@@ -1,7 +1,7 @@
 """Environment declaration contract: pyproject.toml is the single source.
 
 These tests pin the invariant that the model-library versions recorded in
-``config.MODAL_GPU_PACKAGES`` match ``pyproject.toml`` exactly, and that torch
+``config.RUNTIME_PACKAGES`` match ``pyproject.toml`` exactly, and that torch
 is declared as a range (not an exact pin) so platform-provided builds
 (DSW A 卡 2.11 / N 卡 2.10) are reused instead of reinstalled.
 """
@@ -12,7 +12,7 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from aicomp_grounding.config import MODAL_GPU_PACKAGES
+from aicomp_grounding.config import RUNTIME_PACKAGES
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,7 +28,7 @@ class EnvContractTests(unittest.TestCase):
     def test_model_library_pins_match_pyproject(self):
         deps = _load_dependencies()
         pyproject_pins = {d for d in deps if d.split("==")[0] in _MODEL_LIBS}
-        config_pins = {p for p in MODAL_GPU_PACKAGES if p.split("==")[0] in _MODEL_LIBS}
+        config_pins = {p for p in RUNTIME_PACKAGES if p.split("==")[0] in _MODEL_LIBS}
         self.assertEqual(pyproject_pins, config_pins)
 
     def test_torch_is_range_not_exact_pin(self):

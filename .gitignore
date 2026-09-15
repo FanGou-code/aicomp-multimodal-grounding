@@ -48,14 +48,14 @@ checkpoints/
 Thumbs.db
 *:Zone.Identifier
 
-# Outputs: everything is local EXCEPT the golden annotation set, which is the
-# shared training contract and travels with the repository.
-outputs/**
-!outputs/annotations/
-outputs/annotations/**
-!outputs/annotations/annot_asm-r6/
-!outputs/annotations/annot_asm-r6/train/
-!outputs/annotations/annot_asm-r6/val/
-!outputs/annotations/annot_asm-r6/train/approved.json
-!outputs/annotations/annot_asm-r6/val/approved.json
+# Outputs: local only. Every generated artifact (annotations, LoRA adapters,
+# predictions, submissions) stays out of the repository.
+outputs/
+
+# Internal working notes and platform runbook: kept in the local checkout,
+# never published (README + docs/ carry everything an external user needs).
+docs/handoff*.md
+*handoff*.md
+docs/sop*.md
+AGENTS.md
 

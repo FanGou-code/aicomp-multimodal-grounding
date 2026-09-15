@@ -202,7 +202,6 @@ class ApprovedDataGateTests(unittest.TestCase):
                 run_tag="qlora-r1",
                 seed=42,
                 resume=True,
-                verify_images=False,
             )
             self.assertFalse(plan["skip_training"])
             self.assertIsNone(plan["resume_checkpoint"])
@@ -236,7 +235,6 @@ class ApprovedDataGateTests(unittest.TestCase):
                 run_tag="exp-layout",
                 seed=42,
                 resume=True,
-                verify_images=False,
             )
 
             self.assertEqual(
@@ -244,10 +242,10 @@ class ApprovedDataGateTests(unittest.TestCase):
                 root / "data" / "output_lora" / plan["metadata"]["training_run_id"],
             )
 
-    def test_training_plan_accepts_internvl_model(self):
+    def test_training_plan_accepts_a_trainable_model(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            run_id = "annot_internvl"
+            run_id = "annot_qwen3vl"
             for split, scene in (("train", "001"), ("val", "002")):
                 artifact = _artifact(split, scene, run_id)
                 artifact["metadata"]["image_fingerprint"] = (
@@ -267,16 +265,15 @@ class ApprovedDataGateTests(unittest.TestCase):
                 annotation_root=root / "outputs" / "annotations",
                 output_root=root / "outputs",
                 annotation_run_id=run_id,
-                model="internvl35",
-                run_tag="internvl-smoke",
+                model="qwen3vl",
+                run_tag="qwen3vl-smoke",
                 seed=42,
                 resume=True,
                 smoke_test=True,
-                verify_images=False,
             )
-            self.assertEqual(plan["model"], "internvl35")
+            self.assertEqual(plan["model"], "qwen3vl")
             self.assertEqual(
-                plan["metadata"]["model_name"], "OpenGVLab/InternVL3_5-8B-HF"
+                plan["metadata"]["model_name"], "Qwen/Qwen3-VL-8B-Instruct"
             )
 
 

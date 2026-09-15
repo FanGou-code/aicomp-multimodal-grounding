@@ -1,9 +1,8 @@
-"""Repository-relative path policy shared by platform entrypoints.
+"""Repository-relative path policy for the entrypoints.
 
-The repository root is the portable unit copied to a workstation or cloud
+The repository root is the portable unit copied to a workstation or GPU
 environment.  Dataset files, generated annotation artifacts, and run outputs
-live in separate roots below it; Modal's historical ``/data/data`` layout is
-handled only by the Modal adapter.
+live in separate roots below it.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ def resolve_from_root(path: str | Path, root: str | Path) -> Path:
 
 @dataclass(frozen=True)
 class ProjectPaths:
-    """Canonical repository paths for local and non-Modal environments."""
+    """Canonical repository paths used by the entrypoints."""
 
     root: Path
 
