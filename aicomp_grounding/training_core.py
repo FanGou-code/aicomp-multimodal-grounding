@@ -1,11 +1,11 @@
-"""Platform-agnostic LoRA training core shared by cloud and offline entrypoints.
+"""LoRA training core driven by the ``offline/`` entrypoint.
 
 Heavy dependencies (torch / peft / transformers) are imported lazily inside
 ``run_training`` so this module stays importable in torch-free CI environments.
 
-Storage commits after each checkpoint are delegated to an injectable
-``commit_hook`` callback: the cloud shell passes its Modal volume commit, the
-offline shell passes nothing (local filesystem writes are already atomic).
+Durable writes after each checkpoint are delegated to an injectable
+``commit_hook`` callback; the offline shell passes nothing because local
+filesystem writes are already atomic.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from aicomp_grounding.artifacts import require_exact_metadata
 from aicomp_grounding.bbox import compute_iou, validate_bbox
@@ -47,9 +48,42 @@ from aicomp_grounding.training_state import (
 
 SEED = 42
 
+#: Adapters that drive the generic LoRA training loop.  Every one of them takes
+#: the tri-modal pixel budget; ``groundingdino`` and ``mock`` are inference-only.
+TRAINABLE_MODELS = ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v")
+
+#: Supported best-epoch metrics that are minimized; every other supported
+#: metric is maximized.  ``best_epoch_primary_metric`` is validated against
+#: this split in ``prepare_training_plan``.
+MINIMIZED_METRICS = frozenset({"val_loss"})
+
 
 def _log_now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def initial_best_metric_value(metric_name: str) -> float:
+    """Neutral incumbent: ``+inf`` for minimized metrics, ``-1`` for maximized."""
+    return float("inf") if metric_name in MINIMIZED_METRICS else -1.0
+
+
+def candidate_metric_value(metric_name: str, *, epoch_metrics: dict, val_loss: float) -> float:
+    """This epoch's value for the run's best-epoch metric.
+
+    ``val_loss`` comes from the validation forward pass; the grounding metric
+    dict only carries accuracy/IoU counts, so the two sources are not
+    interchangeable.
+    """
+    if metric_name in MINIMIZED_METRICS:
+        return val_loss
+    return epoch_metrics[metric_name]
+
+
+def metric_improved(metric_name: str, candidate: float, incumbent: float) -> bool:
+    """Whether ``candidate`` beats ``incumbent`` under the metric direction."""
+    if metric_name in MINIMIZED_METRICS:
+        return candidate < incumbent
+    return candidate > incumbent
 
 
 def _validate_training_bboxes(datasets: list[tuple[str, dict]]) -> None:
@@ -229,7 +263,7 @@ def prepare_training_plan(
         raise ValueError("smoke_test must be boolean")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id or ""):
         raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
-    if model not in {"qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v", "internvl35"}:
+    if model not in TRAINABLE_MODELS:
         raise ValueError(f"Unsupported training model: {model!r}")
     adapter = get_adapter(model)
     hyperparameters = adapter.training_hyperparameters()
@@ -252,16 +286,16 @@ def prepare_training_plan(
                     raise ValueError(f"Hyperparameter override 'learning_rate' must be positive float, got {value!r}")
                 hyperparameters[key] = float(value)
             elif key == "best_epoch_primary_metric":
-                if value not in {"acc_at_0_5", "mean_iou", "val_loss"}:
+                if value not in {"acc_at_0_5", "mean_iou"} | MINIMIZED_METRICS:
                     raise ValueError(f"Invalid best_epoch_primary_metric override {value!r}")
                 hyperparameters[key] = value
             else:
                 raise ValueError(f"Unsupported hyperparameter override: {key!r}")
     hyperparameters["runtime_packages"] = current_runtime_packages()
     root = Path(data_root).resolve()
-    # Keep the historical Modal layout as the implicit default.  Portable
-    # entrypoints pass the repository-level outputs/annotations explicitly so
-    # data_root remains responsible only for dataset images and indexes.
+    # Default to the dataset-root layout.  The CLI passes the repository-level
+    # outputs/annotations explicitly so data_root stays responsible only for
+    # dataset images and indexes.
     annotation_base = (
         Path(annotation_root).resolve()
         if annotation_root is not None
@@ -311,9 +345,9 @@ def prepare_training_plan(
         seed=seed,
         run_tag=run_tag,
     )
-    # Keep the historical Modal layout as the implicit default.  Portable
-    # entrypoints pass the repository-level outputs directory explicitly so
-    # training artifacts do not get mixed into the dataset tree.
+    # Default to the dataset-root layout.  The CLI passes the repository-level
+    # outputs directory explicitly so training artifacts do not get mixed into
+    # the dataset tree.
     output_base = (
         Path(output_root).resolve()
         if output_root is not None
@@ -417,7 +451,7 @@ def run_training(
 
     ``data_root`` locates the dataset (images and annotation artifacts);
     ``commit_hook`` is invoked after every checkpoint persistence so remote
-    storage (Modal volumes) can snapshot while local runs simply omit it.
+    storage can snapshot; local runs simply omit it.
     """
     import torch
     from peft import LoraConfig, PeftModel, get_peft_model
@@ -446,15 +480,12 @@ def run_training(
     weight_decay = hyperparameters["weight_decay"]
     eval_batch_size = hyperparameters["eval_batch_size"]
 
-    if model_name in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v"):
-        adapter = get_adapter(
-            model_name,
-            max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
-        )
-    elif model_name == "internvl35":
-        adapter = get_adapter(model_name)
-    else:
+    if model_name not in TRAINABLE_MODELS:
         raise ValueError(f"Unsupported training model: {model_name!r}")
+    adapter = get_adapter(
+        model_name,
+        max_pixels=hyperparameters.get("max_pixels", 3072 * 28 * 28),
+    )
     run_dir = Path(training_plan["run_dir"])
     train_artifact = load_json(Path(training_plan["train_artifact_path"]))
     val_artifact = load_json(Path(training_plan["val_artifact_path"]))
@@ -475,10 +506,10 @@ def run_training(
         run_tag=metadata["run_tag"],
     )
     require_exact_metadata(metadata, rebuilt_metadata, label="training plan")
-    # Preempted cloud workers are re-scheduled with the original plan (whose
-    # resume_checkpoint was None at creation time).  Dynamically re-probe the
-    # run directory so a re-scheduled worker picks up any step/epoch
-    # checkpoint written before the preemption.
+    # A worker re-scheduled by the platform starts from the original plan
+    # (whose resume_checkpoint was None at creation time).  Dynamically
+    # re-probe the run directory so it picks up any step/epoch checkpoint
+    # written before the interruption.
     resume_checkpoint = training_plan.get("resume_checkpoint")
     if not resume_checkpoint:
         latest = _latest_resume_checkpoint(run_dir)
@@ -554,11 +585,6 @@ def run_training(
                 except (AttributeError, RuntimeError, ValueError):
                     pass
             if hasattr(submodule, "gradient_checkpointing"):
-                try:
-                    submodule.gradient_checkpointing = False
-                except (AttributeError, RuntimeError):
-                    pass
-            if hasattr(submodule, "gradient_checkpointing_enable"):
                 try:
                     submodule.gradient_checkpointing = False
                 except (AttributeError, RuntimeError):
@@ -663,7 +689,7 @@ def run_training(
     global_step = 0
     best_val_loss = float("inf")
     best_metric_name = hyperparameters["best_epoch_primary_metric"]
-    best_metric_value = -1.0
+    best_metric_value = initial_best_metric_value(best_metric_name)
     best_path = None
     resume_epoch_loss = 0.0
     if resume_checkpoint:
@@ -685,14 +711,20 @@ def run_training(
         resume_batch_index = state.get("batch_index", 0)
         best_val_loss = state["best_val_loss"]
         best_metric_name = state.get("best_metric", best_metric_name)
-        best_metric_value = state.get("best_metric_value", -1.0)
+        best_metric_value = state.get(
+            "best_metric_value", initial_best_metric_value(best_metric_name)
+        )
         best_path = state["best_path"]
         if best_path:
             metrics_path = Path(best_path) / "metrics.json"
             if metrics_path.is_file():
                 best_metrics = validate_epoch_metrics(load_json(metrics_path))
                 best_metric_name = hyperparameters["best_epoch_primary_metric"]
-                best_metric_value = best_metrics[best_metric_name]
+                best_metric_value = candidate_metric_value(
+                    best_metric_name,
+                    epoch_metrics=best_metrics,
+                    val_loss=best_val_loss,
+                )
         # Restore the running epoch-loss accumulator so the per-epoch loss
         # printout stays correct after a mid-epoch resume.  The step
         # checkpoint stored it; the epoch checkpoint stores the completed
@@ -872,7 +904,11 @@ def run_training(
             batch_size=eval_batch_size,
             image_cache=val_image_cache,
         )
-        candidate_metric = epoch_metrics[best_metric_name]
+        candidate_metric = candidate_metric_value(
+            best_metric_name,
+            epoch_metrics=epoch_metrics,
+            val_loss=average_val_loss,
+        )
         print(
             f"[{_log_now()}] Epoch {epoch + 1}: ACC@0.5={epoch_metrics['acc_at_0_5']:.4f}, "
             f"mIoU={epoch_metrics['mean_iou']:.4f}, failures={epoch_metrics['failures']}"
@@ -884,12 +920,11 @@ def run_training(
             val_loss=average_val_loss,
         )
 
-        is_best = (
-            candidate_metric > best_metric_value
-            or (
-                candidate_metric == best_metric_value
-                and average_val_loss < best_val_loss
-            )
+        is_best = metric_improved(
+            best_metric_name, candidate_metric, best_metric_value
+        ) or (
+            candidate_metric == best_metric_value
+            and average_val_loss < best_val_loss
         )
         if is_best:
             best_val_loss = average_val_loss

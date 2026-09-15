@@ -1,4 +1,4 @@
-"""Shared configuration for local checks and Modal jobs.
+"""Shared configuration for local runs and run-metadata recording.
 
 Model-specific identity (model ids, revisions, pixel budgets) lives in
 ``aicomp_grounding.models`` adapters; this module keeps only cross-model
@@ -28,7 +28,7 @@ INFERENCE_DEFAULT_MAX_PIXELS = 3072 * 28 * 28
 # libraries are kept identical to pyproject by tests/test_env_contract.py.
 # current_runtime_packages() overwrites each entry with the actually-installed
 # version, so the pinned values below matter only when a package is absent.
-MODAL_GPU_PACKAGES = (
+RUNTIME_PACKAGES = (
     "transformers==5.15.1",
     "accelerate==1.14.0",
     "peft==0.20.0",
@@ -41,7 +41,7 @@ MODAL_GPU_PACKAGES = (
 
 def current_runtime_packages() -> list[str]:
     """Return installed runtime versions, with pinned fallbacks."""
-    packages = list(MODAL_GPU_PACKAGES)
+    packages = list(RUNTIME_PACKAGES)
 
     for index, package in enumerate(packages):
         distribution, separator, _ = package.partition("==")
@@ -75,6 +75,5 @@ CHECKPOINT_VERSION = 5
 ANNOTATION_PROTOCOL_VERSION = 12
 PREPARATION_PROTOCOL_VERSION = 2
 TRAINING_PROTOCOL_VERSION = 2
-MAX_MODAL_CONTAINERS = 10
 
 INFERENCE_SPLITS = frozenset({"train", "val", "test"})

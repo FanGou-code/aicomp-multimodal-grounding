@@ -42,7 +42,7 @@ MAX_NEW_TOKENS = 32
 
 # Pixel budgets, in units of 28x28 pixels per vision token (patch 14 x merge 2),
 # stated per frame so that the value recorded in the run identity means the same
-# thing here as it does for the other five tri-modal adapters.
+# thing here as it does for the other three tri-modal adapters.
 #
 # Glm46VImageProcessor takes its budget as a `size` dict -- `min_pixels` /
 # `max_pixels` passed to `AutoProcessor.from_pretrained` are dropped without

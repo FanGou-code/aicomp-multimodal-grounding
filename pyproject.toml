@@ -7,7 +7,7 @@ name = "aicomp-grounding"
 version = "1.0.0"
 description = "RGBDT tri-modal visual grounding experiment unit (competition)"
 requires-python = ">=3.12"
-license = { text = "Proprietary" }
+license = { text = "MIT" }
 dependencies = [
     # 基础库：本地 CPU 测试与数据预处理共用
     "numpy>=1.26",
@@ -31,8 +31,8 @@ dependencies = [
 # 仅混合线性注意力架构（Qwen3.5-9B 的 GDN）接入时按需装；
 # A 卡上 causal-conv1d 无 HIP 预编译轮，源码编译步骤见 docs/sop.md 第 3 节
 kernels = ["flash-linear-attention", "causal-conv1d"]
-# 本地开发与运维：代码检查 (ruff) + 云端调度 (modal) + 数据集管理 (modelscope)
-dev = ["ruff", "modal>=0.62", "modelscope>=1.15"]
+# 本地开发与运维：代码检查 (ruff) + 数据集管理 (modelscope)
+dev = ["ruff", "modelscope>=1.15"]
 
 [tool.setuptools.packages.find]
 include = ["aicomp_grounding*"]

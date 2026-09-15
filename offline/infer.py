@@ -1,7 +1,7 @@
 """Standalone single-GPU offline inference and evaluation entry.
 
-Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl /
-internvl35 / groundingdino / mock). Handles both:
+Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl / qwen3_5 /
+mimo_vl / glm46v / groundingdino / mock). Handles both:
 1. Competition Submission Generation (when running on unannotated test queries)
 2. Validation Accuracy & IoU Score Evaluation (when running on annotated val/train queries)
 """
@@ -135,7 +135,7 @@ def parse_args():
         "--run-tag",
         type=str,
         default="",
-        help="Arbitrary experiment tag folded into the run id, matching Modal behavior.",
+        help="Arbitrary experiment tag folded into the run id.",
     )
     parser.add_argument(
         "--limit",
@@ -445,7 +445,7 @@ def _run_shard_worker(
     args_dict, items, shard_id, checkpoint_dir, shard_metadata = payload
     args = argparse.Namespace(**args_dict)
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v"):
+    if args.model in ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v"):
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
     adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
@@ -506,11 +506,11 @@ def _run_shard_worker(
 
 
 def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
-    """Shared orchestration for the offline shell and the Modal cloud shell.
+    """Orchestration shared by ``main()`` and programmatic callers.
 
-    ``commit_hook`` (Modal only) is invoked after every durable checkpoint
-    write so intermediate progress reaches the volume before a preemption can
-    discard it.
+    ``commit_hook`` is invoked after every durable checkpoint write so remote
+    storage can snapshot intermediate progress before an interruption; it
+    defaults to None for local runs.
     """
 
     paths = ProjectPaths.from_root(args.project_root)
@@ -526,7 +526,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
 
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v"):
+    if args.model in ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v"):
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
 
@@ -534,7 +534,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     # index; see the shared inference core for the exact contract.
     items, approved_metadata = load_inference_items(args.test_json, limit=args.limit)
 
-    # ---- Build a Modal-compatible run identity ----------------------------
+    # ---- Build the run identity -------------------------------------------
     selected_keys = [item["key"] for item in items]
     adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
     if adapter_dir is not None and not adapter_dir.exists():
