@@ -28,7 +28,8 @@ from aicomp_grounding.prompts import (
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
-# ModelScope snapshot; the SOP download command pins this same revision.
+# Weight snapshot recorded at adoption; fetch this revision before execution
+# (repo and revision are listed in the README weight table).
 MODEL_REVISION = "5d854aab08710c16b980ec6d603d863b3821b915"
 
 # Pixel budgets in Qwen processor units (28x28 per patch); 3072 patches

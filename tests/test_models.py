@@ -72,10 +72,10 @@ class RegistryTests(unittest.TestCase):
             self.assertIsInstance(adapter.generation_config, dict, msg=name)
 
 
-#: The snapshot each adapter's weights are downloaded from.  The SOP download
-#: commands pin these same values, so the identity string and the bytes on disk
-#: name the same revision.  A branch name would leave the string unchanged while
-#: the weights underneath move.
+#: The snapshot each adapter's weights are downloaded from; the same values are
+#: listed in the README weight table, so the identity string and the bytes on
+#: disk name the same revision.  A branch name would leave the string unchanged
+#: while the weights underneath move.
 EXPECTED_MODEL_REVISIONS = {
     "qwen3vl": "5d854aab08710c16b980ec6d603d863b3821b915",
     "qwen3_5": "460979c3d11864dd16408d860ac930a360a2fac2",

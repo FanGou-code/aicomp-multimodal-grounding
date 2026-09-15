@@ -1,89 +1,122 @@
-# 数据合同（data/ 布局与派生产物）
+# 数据合同
 
-`data/` 整体 gitignore。训练数据包由用户在魔搭分发；官方 Test 由赛事渠道
-单独获取，按下列布局放入本地目录。
-下载的数据包已包含 `Processed/`，常规部署解压后直接使用，不重复生成。
+本文件定义 `data/` 布局、标注产物与提交格式的字段级约定。可执行版本在
+`aicomp_grounding/annotation_state.py`（产物准入）、`test_data.py`（官方模板与
+Test 准备）、`scripts/prepare_rgbdt.py`（预处理）。
 
 ## 目录布局
 
 ```text
-data/
-  Train/<sequence>/            不可变本体：color/ infrared/ depth/ groundtruth.txt
-  Test/                        不可变本体：Images/{visible,infrared,depth}/ + queries/queries.json
-  Processed/                   派生：Train/<seq>/depth_jet/ + Test/depth_jet/（JET 伪彩深度）
+data/                         运行输入，不入库
+  Train/<sequence>/           color/  infrared/  depth/  groundtruth.txt
+  Test/                       Images/{visible,infrared,depth}/  queries/queries.json
+  Processed/                  Train/<seq>/depth_jet/  Test/depth_jet/（JET 伪彩深度）
+outputs/                      运行产物，不入库
+  annotations/<run_id>/       train/approved.json  val/approved.json
+  output_lora/<run_id>/       plan.json  checkpoints/  best/  last/  completed.json
+  inference/<run_id>/         metadata.json  predictions.json  scores.json  checkpoint.json
+  fusion/<run_id>/            融合产物
+  submission/<run_id>/        submission.zip
 ```
 
-**原则**：Train/Test 是不可变本体；`Processed/` 是确定性构建产物。
-派生索引与审计日志自 2026-09-05 起随标注生产线移居伴生仓
-`query-foundry/data/`（见下），本仓不再存放。
+`Train/` 与 `Test/` 是不可变本体；`Processed/` 是 `scripts/prepare_rgbdt.py` 的确定性
+构建产物。除 `data/` 与 `outputs/` 外，上游标注生产线另有索引与查重留痕，见下。
 
 ## 三模态输入格式
 
-| 模态 | 原始格式 | 训练/推理读取方式 |
-| --- | --- | --- |
-| 可见光 `visible` | 三通道 8 位无符号，取值 `[0, 255]` | 直接按 RGB 读入 |
-| 热红外 `infrared` | 三通道 8 位无符号（三个单通道热辐射灰度堆叠，无彩色语义） | 直接按 RGB 读入 |
-| 深度 `depth` | 单通道 16 位无符号，单位毫米，0 表示无效深度；相机量程约 300–20000 mm | 经 `Processed/` 的 JET 伪彩图读入（`depth_scaling=fixed`，`min_depth_mm=300`、`max_depth_mm=20000`） |
+| 模态 | 原始格式 | 读取方式 | 约束 |
+| --- | --- | --- | --- |
+| `visible` | 三通道 8 位无符号 | 按 RGB 读入 | 已时间同步、空间对齐，三路尺寸一致 |
+| `infrared` | 三通道 8 位无符号（单通道热辐射灰度堆叠，无彩色语义） | 按 RGB 读入 | 同上 |
+| `depth` | 单通道 16 位无符号，单位毫米，`0` 为无效读数 | 经 `Processed/*/depth_jet/` 的 JET 伪彩图读入 | 固定标定 `depth_scaling=fixed`、`min_depth_mm=300`、`max_depth_mm=20000` |
 
-三模态图像要求已时间同步、空间对齐，尺寸一致；同一场景的三张图按
-`visible → infrared → depth` 固定顺序送入模型。`Processed/` 缺失时
-`scripts/prepare_rgbdt.py` 可按上述口径重新生成。
+同一场景的三张图按 `visible → infrared → depth` 固定顺序送入模型。`Processed/` 缺失
+或损坏时由 `scripts/prepare_rgbdt.py` 重新生成；深度源已是 8 位三通道伪彩图时按原样
+复制，不做二次着色。
 
-## 标注产物协议（approved.json）
+## 产物与责任边界
 
-训练唯一消费的产物，布局 `outputs/annotations/<run_id>/<split>/approved.json`：
+| 产物 | 生产者 | 消费者 | 交接方式 |
+| --- | --- | --- | --- |
+| `data/Train`、`data/Test`、`data/Processed` | 数据交付方 + `scripts/prepare_rgbdt.py` | 本仓训练/推理；上游标注流水线 | 本地目录 |
+| `query-foundry/data/indexes/{train,val}.json`、`split_manifest.json`、`excluded_overlap.json` | `query-foundry/scripts/prepare_split.py` | 上游标注流水线（本仓不读） | 上游仓内，纳入其 Git |
+| `outputs/annotations/<run_id>/{train,val}/approved.json` | `query-foundry/scripts/package_approved.py` | **本仓训练与验证集推理** | 4 重 SHA-256 指纹（协议 12，见下） |
+| `outputs/inference/<run_id>/predictions.json` | 本仓 `offline/infer.py` | 融合 `fusion.wbf` | `{query_id: bbox|None}` |
+| `submission.zip` | 本仓 `submission.py` / `fusion.wbf` | 赛事提交 | 官方模板 + `bbox` |
 
-```text
-metadata: {status, protocol_version, run_id, split, source_fingerprint,
-           preparation_fingerprint, image_fingerprint, dataset_fingerprint,
-           sample_count, sequence_count, prompt_hash, provenance, qc}
-data:     {sample_id: {visible, infrared, depth, query, bbox, width, height}}
-```
+上游以 `--data-root` 指向本仓 `data/`、以自己的 `--index-dir` 指向
+`query-foundry/data/indexes/`；两侧不建符号链接。本仓训练只消费 `approved.json`，
+不读索引、不导入上游代码。
 
-- `bbox` 为归一化 XYXY，须满足 `0 ≤ x1 < x2 ≤ 1`、`0 ≤ y1 < y2 ≤ 1`；
-  训练前逐样本校验，任一非法即中止。
-- `image_fingerprint` 绑定图像路径与记录尺寸（`manifest_` 前缀），训练前重算比对，
-  不解码图像字节。
-- train/val 必须来自同一 `run_id` 且样本 ID 与序列 ID 均不重叠。
+## 标注产物 `approved.json`
+
+`{metadata, data}` 两个顶层键，缺一或多一即拒收。样本键形如
+`<sequence>_<frame>#<object_index>`（同一帧可有多条描述，序列号取 `_` 之前的前缀）。
+
+### `metadata`
+
+| 字段 | 取值约束 |
+| --- | --- |
+| `status` | 固定 `"approved"` |
+| `protocol_version` | 固定 `12`（`config.ANNOTATION_PROTOCOL_VERSION`） |
+| `run_id` | `annot_<tag>`，须与所在目录名及 `--annotation-run-id` 一致 |
+| `split` | `"train"` 或 `"val"`，须与所在目录一致 |
+| `source_fingerprint` | 64 位十六进制；由三模态路径 + `bbox` + 尺寸复算（忽略 `query`） |
+| `preparation_fingerprint` | 64 位十六进制；划分清单 `split_manifest.json` 的内容哈希 |
+| `image_fingerprint` | `manifest_` 前缀 + 64 位十六进制；图像引用与记录尺寸的清单指纹（不含图像字节） |
+| `dataset_fingerprint` | 64 位十六进制；完整 `data` 字典的内容哈希 |
+| `sample_count` | 正整数，须等于 `len(data)` |
+| `sequence_count` | 正整数，须等于 `data` 中不同序列数 |
+| `prompt_hash` | 非空字符串；上游提示词哈希，进入训练运行身份 |
+| `provenance` | 对象，字段见下 |
+| `qc` | 对象，固定值见下 |
+
+`provenance`（11 个字段，全部必填）：
+
+| 字段 | 取值约束 |
+| --- | --- |
+| `source_type` | 固定 `"hosted_open_weights"` |
+| `provider`、`annotator_model`、`annotator_revision`、`model_license`、`render_protocol` | 非空字符串 |
+| `api_base_url`、`model_weights_url` | 非空字符串且以 `https://` 开头 |
+| `mode` | 固定 `"single_marked_frame_generate"` |
+| `assignment_policy` | 固定 `"single_marked_rgb_query_generate"` |
+| `generation_config` | 非空对象（标注时的生成参数） |
+
+`qc`：必须严格等于
+`{complete: true, failed_sequences: 0, failed_frames: 0, invalid_queries: 0, generated_samples: <sample_count>}`。
+
+### `data`
+
+| 字段 | 取值约束 |
+| --- | --- |
+| `visible`、`infrared`、`depth` | 相对 POSIX 路径字符串；不以 `/` 开头、不含 `.` / `..` 段、三路互不相同 |
+| `query` | 非空单行英文描述（1–55 词），且通过脚手架词、坐标样文本、控制符与模型词表检查 |
+| `bbox` | 归一化 XYXY，`0 ≤ x1 < x2 ≤ 1`、`0 ≤ y1 < y2 ≤ 1` |
+| `width`、`height` | 正整数，为该样本图像的记录尺寸 |
+
+train 与 val 必须来自同一 `run_id`，且两侧 `prompt_hash` 与 `provenance` 一致、
+样本 ID 与序列 ID 均不重叠。
+
+## 校验点
+
+| 校验点 | 位置 | 校验内容 | 失败行为 |
+| --- | --- | --- | --- |
+| 产物准入 | `annotation_state.validate_approved_artifact` | schema、状态与协议、`split`/`run_id`、`provenance`、`qc`、`source`/`dataset` 指纹复算、逐样本 query QC 与 `bbox` 合法性、序列数、结构检查 | 抛 `ValueError`，训练不启动 |
+| train/val 配对 | `training_state.validate_training_artifacts` | 两侧 `prompt_hash` 与 `provenance` 一致；样本 ID 与序列 ID 不重叠 | 抛 `ValueError` |
+| 图像引用 | `training_core.prepare_training_plan` | 记录值为 `manifest_` 前缀时，复算路径与记录尺寸并与产物比对（不解码图像） | 抛 `ValueError` |
+| 官方模板 | `test_data.validate_official_test_template`（由 `submission.build_submission` 调用） | 条数 9555、查询 ID 形态、字段集、路径形态、内容哈希 | 抛 `ValueError`，不出包 |
+| Test 深度引用 | `scripts/prepare_rgbdt.validate_test_depth_references` | 官方模板 → `Processed/Test/depth_jet` 逐条映射、深度文件集合指纹、三模态尺寸一致性 | 返回错误列表，脚本中止 |
+| 推理续跑 | `inference_state.validate_checkpoint_payload`、`load_resume_predictions` | 分片分配与键集合、框与分数合法性、跨来源冲突结果 | 抛 `ValueError`，拒绝合并 |
+| 上游侧 | `query-foundry`：`prepare_split`（测试集同帧哈希去重）、`package_approved`（同帧描述唯一性、QC、双 split 联合） | — | 见上游仓 |
 
 ## 提交格式
 
-预测结果必须是官方模板 JSON 的逐条副本，只替换 `bbox` 字段，其余字段（`visible`、
-`infrared`、`depth`、`query`）逐字节保留；打包为 `submission.zip`，内含单个
-`result.json`。评测按归一化 XYXY 计算 IoU，`IoU ≥ 0.5` 记为命中；反向坐标、越界
-坐标、NaN 与空框直接判为无效预测。官方模板 `data/Test/queries/queries.json` 的
-条数（9555）与内容哈希被 `tests/test_data.py` 钉死，改为其它形状即报错。
+预测必须是官方模板 JSON 的逐条副本：只替换 `bbox` 字段，`visible`、`infrared`、
+`depth`、`query` 逐字节保留；打包为 `submission.zip`，内含单个 `result.json`。
+评测按归一化 XYXY 计算 IoU，`IoU ≥ 0.5` 记为命中；反向坐标、越界坐标、NaN 与空框
+一律判为无效预测。`--allow-fallback` 会把无效框填成占位框，仅用于显式不完整的
+诊断包，正式提交不得使用。
 
-## 派生产物清单（存放于 query-foundry/data/）
+## 数据集来源
 
-| 文件 | 生成器 | 下游依赖 |
-| --- | --- | --- |
-| `indexes/train.json` / `indexes/val.json` | `query-foundry/scripts/prepare_split.py` | 标注生产线（标注源索引；训练不读） |
-| `indexes/split_manifest.json` | `query-foundry/scripts/prepare_split.py` | 标注生产线（预检校验锚） |
-| `indexes/excluded_overlap.json` | `query-foundry/scripts/prepare_split.py` | 查重留痕（防测试集泄漏） |
-
-`query-foundry/scripts/prepare_split.py` 整合了 BBox 异常清洗与测试集 SHA-256 查重，是索引与留痕的唯一生成器。产物位于 `query-foundry/data/indexes/`，纳入 Git 追踪。
-
-图像本体只在主仓：`query-foundry` 以 `--data-root` 指向主仓 `data/`，以自己的
-`--index-dir` 指向 `query-foundry/data/indexes/`，两侧不建符号链接。
-
-## 魔搭数据集
-
-- Dataset Repo：`Fang001/rgbdt-grounding-dataset`，打包 `data.tar`，
-  解压后得到 `Train/`、`Test/`（赛事渠道另给）与 `Processed/`。
-- 下载与解压命令见 `docs/sop.md` 第 2 节。
-
-## 校验锚
-
-标注生产线预检会比对 `split_manifest.json` 的
-`index_fingerprints[split]`（内容哈希）与 `index_sample_counts[split]`，
-索引内容必须由生成器产出。
-
-训练侧在读入 train/val 产物时比对三类指纹：`source_fingerprint` 与
-`dataset_fingerprint` 由数据内容复算（`annotation_state.validate_approved_artifact`），
-`image_fingerprint` 仅在记录值带 `manifest_` 前缀时复算并比对路径与记录尺寸，
-不一致即中止（`training_core.py` 的 `prepare_training_plan`，纯内存、不解码图像）。
-图像字节版本不在校验范围内，由数据交付方固定。
-
-同帧描述必须唯一：`package_approved.py` 拒绝同一帧内重复的描述，train/val
-联合打包时还要求两侧样本 ID 与序列 ID 不重叠。
+数据包与官方 Test 的获取方式、许可与引用见根 `README.md` 的「数据来源」一节。
