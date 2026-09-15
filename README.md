@@ -135,8 +135,7 @@ python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct
   --run-tag test-full
 ```
 
-`--limit 100` 用于小样本试跑。`--num-shards N` 拆分到多卡，每个分片独立落
-checkpoint，中断后用 `--resume`（默认开启）续跑；冲突结果会被拒绝。`groundingdino`
+`--limit 100` 用于小样本试跑。中断后用 `--resume`（默认开启）续跑。`groundingdino`
 输入单张可见光图像，省略 `--lora-path`，用 `--num-workers 4 --batch-size 8`。
 
 ## 融合与提交
