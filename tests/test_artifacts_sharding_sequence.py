@@ -101,6 +101,24 @@ class SequenceAnnotationTests(unittest.TestCase):
                 valid, reason = validate_annotation_query(query)
                 self.assertTrue(valid, reason)
 
+    def test_annotation_scaffolding_is_rejected(self):
+        """Annotation-speak must stay rejected.
+
+        The scaffold word list is data, not code: nothing else in the suite
+        notices if it is emptied or a phrase is dropped, so pin the rejection
+        here as well.
+        """
+        queries = (
+            "The highlighted person on the left",
+            "The person in the current frame",
+            "The object in the visible image",
+        )
+        for query in queries:
+            with self.subTest(query=query):
+                valid, reason = validate_annotation_query(query)
+                self.assertFalse(valid)
+                self.assertIn("scaffolding", reason)
+
 
 
 

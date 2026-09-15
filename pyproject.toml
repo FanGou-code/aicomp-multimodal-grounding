@@ -54,6 +54,12 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
+# 窄规则集：只保留能发现「明显错误」的检查（E4/E7/E9 语法与导入；F 未定义名、
+# 未用导入、重定义）。更宽的类别经审阅后按下列结论不启用（2026-09-15）：
+#   - B905（zip 未声明 strict）：已全部补 strict=True，行为由代码本身保证；
+#   - B023（闭包捕获循环变量）：facts.py 的 anchors() 与 api.py 的回调均在定义后
+#     同一轮内被调用，当前不触发；属「若改为延迟调用会静默算错」的脆弱点，决定不改；
+#   - TRY003/TRY004、ARG、SIM、C4、RET：异常类型约定与写法偏好，不是缺陷。
 select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.lint.per-file-ignores]

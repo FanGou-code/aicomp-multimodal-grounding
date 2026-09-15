@@ -160,7 +160,7 @@ def _evaluate_grounding_metrics(
             generated_ids,
             prompt_len,
         )
-        for sample, text in zip(samples, text_outputs):
+        for sample, text in zip(samples, text_outputs, strict=True):
             item = val_data[sample.key]
             key = sample.key
             ground_truth = validate_bbox(item.get("bbox"))

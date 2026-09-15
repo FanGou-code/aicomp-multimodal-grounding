@@ -455,7 +455,7 @@ class MiMoVLAdapter:
         sizes = getattr(self, "_pending_sizes", None) or [(None, None)] * len(text_outputs)
         return [
             Prediction(bbox=_parse_mimo_bbox(text, width=width, height=height), score=None)
-            for text, (width, height) in zip(text_outputs, sizes)
+            for text, (width, height) in zip(text_outputs, sizes, strict=True)
         ]
 
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:

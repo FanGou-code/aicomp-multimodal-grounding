@@ -251,7 +251,7 @@ def _run_inference_loop(
             if not batch:
                 return
             results = adapter.predict(batch)
-            for sample, result in zip(batch, results):
+            for sample, result in zip(batch, results, strict=True):
                 predictions[sample.key] = result.bbox
                 if scores is not None and result.score is not None:
                     scores[sample.key] = result.score
@@ -407,7 +407,7 @@ def _run_dataloader_inference_loop(
             if use_prepared
             else adapter.predict(payload)
         )
-        for key, result in zip(keys, results):
+        for key, result in zip(keys, results, strict=True):
             predictions[key] = result.bbox
             if scores is not None and result.score is not None:
                 scores[key] = result.score
