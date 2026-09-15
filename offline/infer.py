@@ -1,7 +1,7 @@
 """Standalone single-GPU offline inference and evaluation entry.
 
-Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl /
-internvl35 / groundingdino / mock). Handles both:
+Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl / qwen3_5 /
+mimo_vl / glm46v / groundingdino / mock). Handles both:
 1. Competition Submission Generation (when running on unannotated test queries)
 2. Validation Accuracy & IoU Score Evaluation (when running on annotated val/train queries)
 """
@@ -37,11 +37,17 @@ from aicomp_grounding.inference_state import (
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.models import available_models, get_adapter
 from aicomp_grounding.models.base import ModelInput, require_local_model_path
-from aicomp_grounding.models.qwen3vl import MAX_PIXELS
+from aicomp_grounding.config import INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS
 from aicomp_grounding.paths import ProjectPaths, resolve_from_root
 from aicomp_grounding.submission import build_submission
 
 CACHE_MAX_SIZE = 32
+
+#: Adapters whose constructor takes the tri-modal pixel budget (``max_pixels``).
+#: GroundingDINO and mock are not in this set: they have no such parameter, and
+#: passing it would raise TypeError.  This is a capability set, not the training
+#: roster — a future inference-only VLM belongs here without being trainable.
+PIXEL_BUDGET_MODELS = ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v")
 
 
 def _now_str() -> str:
@@ -90,7 +96,8 @@ def parse_args():
         "--max-pixels",
         type=int,
         default=MAX_PIXELS,
-        help="Qwen processor max_pixels override. Training uses 3072 patches "
+        help="Tri-modal processor max_pixels override; this is also the value "
+        "recorded in the inference run identity. Training uses 3072 tokens "
         "(2408448); lower it (e.g. 1920*28*28=1505280) if the inference GPU "
         "is short on VRAM. Lowering hurts grounding accuracy.",
     )
@@ -134,7 +141,7 @@ def parse_args():
         "--run-tag",
         type=str,
         default="",
-        help="Arbitrary experiment tag folded into the run id, matching Modal behavior.",
+        help="Arbitrary experiment tag folded into the run id.",
     )
     parser.add_argument(
         "--limit",
@@ -244,7 +251,7 @@ def _run_inference_loop(
             if not batch:
                 return
             results = adapter.predict(batch)
-            for sample, result in zip(batch, results):
+            for sample, result in zip(batch, results, strict=True):
                 predictions[sample.key] = result.bbox
                 if scores is not None and result.score is not None:
                     scores[sample.key] = result.score
@@ -400,7 +407,7 @@ def _run_dataloader_inference_loop(
             if use_prepared
             else adapter.predict(payload)
         )
-        for key, result in zip(keys, results):
+        for key, result in zip(keys, results, strict=True):
             predictions[key] = result.bbox
             if scores is not None and result.score is not None:
                 scores[key] = result.score
@@ -444,7 +451,7 @@ def _run_shard_worker(
     args_dict, items, shard_id, checkpoint_dir, shard_metadata = payload
     args = argparse.Namespace(**args_dict)
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_5"):
+    if args.model in PIXEL_BUDGET_MODELS:
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
     adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
@@ -505,11 +512,11 @@ def _run_shard_worker(
 
 
 def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
-    """Shared orchestration for the offline shell and the Modal cloud shell.
+    """Orchestration shared by ``main()`` and programmatic callers.
 
-    ``commit_hook`` (Modal only) is invoked after every durable checkpoint
-    write so intermediate progress reaches the volume before a preemption can
-    discard it.
+    ``commit_hook`` is invoked after every durable checkpoint write so remote
+    storage can snapshot intermediate progress before an interruption; it
+    defaults to None for local runs.
     """
 
     paths = ProjectPaths.from_root(args.project_root)
@@ -525,7 +532,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
         raise FileNotFoundError(f"Dataset JSON index not found: {args.test_json}")
 
     adapter_kwargs = {}
-    if args.model in ("qwen3vl", "qwen3_5"):
+    if args.model in PIXEL_BUDGET_MODELS:
         adapter_kwargs["max_pixels"] = args.max_pixels
     adapter = get_adapter(args.model, **adapter_kwargs)
 
@@ -533,7 +540,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     # index; see the shared inference core for the exact contract.
     items, approved_metadata = load_inference_items(args.test_json, limit=args.limit)
 
-    # ---- Build a Modal-compatible run identity ----------------------------
+    # ---- Build the run identity -------------------------------------------
     selected_keys = [item["key"] for item in items]
     adapter_dir = Path(args.lora_path).resolve() if args.lora_path else None
     if adapter_dir is not None and not adapter_dir.exists():

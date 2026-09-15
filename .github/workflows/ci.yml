@@ -14,6 +14,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e . ruff
-      - run: ruff check aicomp_grounding scripts offline cloud tests
-      - run: python -m compileall -q aicomp_grounding scripts offline cloud
+      - run: ruff check aicomp_grounding scripts offline tests
+      - run: python -m compileall -q aicomp_grounding scripts offline
       - run: python -m unittest discover -s tests -v

@@ -1,79 +1,106 @@
-# 仓库架构与协作接入指南
+# 仓库架构
 
-本文件记录模块与数据边界；运行进度见 `handoff.md`，GPU 操作见 `sop.md`。
+本文件是代码地图与结构不变量；字段与产物格式见 `data-contract.md`。
 
-## 两仓职责
+## 分层
 
-| 位置 | 职责 |
-| --- | --- |
-| `aicomp_grounding/` | 图像、坐标、合同、运行身份、训练核心、模型适配、融合与提交 |
-| `offline/` | 训练/推理 CLI 与共享运行编排 |
-| `cloud/` | Modal 镜像、H100 与 Volume 包装，复用 `offline.run_cli` |
-| `scripts/` | 深度伪彩预处理、数据上传工具 |
-| `query-foundry` | 切分查重、教师普查、描述组装、人审与标注交付 |
+| 层 | 位置 | 职责 | 依赖 |
+| --- | --- | --- | --- |
+| 核心库 | `aicomp_grounding/` | 图像与坐标、合同校验、运行身份、训练核心、推理状态、融合与提交 | 标准库 + `Pillow` / `numpy` |
+| 模型适配 | `aicomp_grounding/models/` | 各底座的协议适配与 LoRA 目标层声明 | 惰性导入 `torch` / `transformers` / `peft` |
+| 入口 | `offline/`、`scripts/` | 训练与推理 CLI、数据预处理 | `aicomp_grounding` |
+| 上游 | `query-foundry`（独立仓库） | 数据划分、标注生产、质检与封包 | 与本仓只通过 `approved.json` 交接 |
 
-依赖方向：`cloud → offline → aicomp_grounding`。主仓训练只消费 `approved.json`，
-不导入数据构建仓代码。两仓不通过复制训练循环适配平台。
+依赖方向单向：`offline/`、`scripts/` → `aicomp_grounding/`。核心库不导入入口代码与
+上游仓库代码；`models/` 中的 `torch` / `transformers` / `peft` 在函数内惰性导入。
 
-数据流：原始图像 → 深度伪彩与索引 → 普查/组装/人审 → `approved.json`
-→ 训练/验证/推理 → `fusion.wbf` → 官方模板 ZIP。
-
-## 路径
+## 数据流
 
 ```text
-PROJECT_ROOT/
-  data/                       Train/、Test/、Processed/
-  outputs/annotations/        标注合同产物
-  outputs/output_lora/        训练记录和 LoRA
-  outputs/inference/          预测与 checkpoint
+原始图像 → scripts/prepare_rgbdt.py（三模态校验 + 深度伪彩）
+        → query-foundry（划分 / 普查 / 组装 / 人审）
+        → outputs/annotations/<run_id>/{train,val}/approved.json
+        → offline/train.py → outputs/output_lora/<run_id>/
+        → offline/infer.py → outputs/inference/<run_id>/predictions.json
+        → aicomp_grounding.fusion.wbf → aicomp_grounding.submission → submission.zip
 ```
 
-标注源索引位于 `query-foundry/data/indexes/`。数据构建入口分别接收图片根
-`--data-root` 和索引目录 `--index-dir`，不依赖跨仓符号链接。
+## 模块地图
 
-CLI 相对路径以 `--project-root` 解析。新训练可以使用不同输出根；恢复已有训练
-记录仍要求保留其记录的绝对路径，不提供跨目录迁移。已训练 LoRA 可单独用于推理。
+核心库（`aicomp_grounding/`）：
 
-官方 `data/Test/queries/queries.json` 在内存中映射图片路径，不另造 `test.json`。
-提交文件仅补 `bbox`，保留官方模板其余字段。
+| 模块 | 职责 |
+| --- | --- |
+| `bbox.py` | 归一化 XYXY 的校验、像素框归一化、0–1000 量化与解析、IoU |
+| `io.py` | JSON 读写（原子替换、拒绝重复键）、输入输出路径互斥检查 |
+| `artifacts.py` | 内容哈希工具（`stable_json_hash` / `key_hash` / `file_set_fingerprint`）与元数据严格比对 |
+| `config.py` | 跨模型常量：检查点版本、协议版本、运行期包清单、推理默认像素预算、split 枚举 |
+| `paths.py` | 仓库相对路径解析与产物路径约定 |
+| `prompts.py` | 三模态提示词协议与提示词哈希 |
+| `query.py` | 查询文本的格式校验与风格门 |
+| `sequence.py` | 序列级输入指纹、标注查询 QC |
+| `sharding.py` | 序列感知的键分组与分片工具（生产推理分片见 `inference_state.assign_pending_shards`；本模块目前仅测试引用） |
+| `images.py` | 图像引用指纹（路径 + 记录尺寸，不解码字节） |
+| `test_data.py` | 官方 Test 模板合同、Test 准备合同（深度集合指纹） |
+| `submission.py` | 由官方模板生成提交包（只补 `bbox`，ZIP 回读校验） |
+| `annotation_state.py` | `approved.json` 产物合同校验（协议 12） |
+| `training_state.py` | 训练身份构成、epoch 指标与 adapter manifest 校验、断点与完成态校验 |
+| `training_core.py` | 训练计划、LoRA 注入与视觉塔中和、训练/验证循环、检查点持久化 |
+| `inference_core.py` | 推理条目加载（三种输入形态）与 ACC@0.5 / mIoU 计算 |
+| `inference_state.py` | 推理运行身份、分片分配、检查点校验与恢复 |
+| `models/__init__.py` | 适配器注册表 |
+| `models/base.py` | 适配器协议、输入/输出类型、LoRA 目标层构造、本地模型路径策略 |
+| `models/qwen3vl.py` `models/qwen3_5.py` `models/mimo_vl.py` `models/glm46v.py` | 四个可训练 VLM 适配器（各自的提示词、坐标协议与超参默认值） |
+| `models/groundingdino.py` | 零样本检测基线：单图输入、原生置信度 |
+| `models/mock.py` | CPU 契约测试用的最小适配器（无权重、确定性输出） |
+| `fusion/wbf.py` | 多模型预测的加权框融合与融合身份 |
 
-## 模型适配
+入口与工具：
 
-| 名称 | 输入 | 训练能力 | 坐标 |
-| --- | --- | --- | --- |
-| `qwen3vl` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
-| `qwen3_5` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
-| `qwen36_27b` | RGB、IR、深度三图 | LoRA（Modal H100 专属） | 0–1000 整数 |
-| `mimo_vl` | RGB、IR、深度三图 | LoRA | JSON bbox 归一化 |
-| `glm46v` | RGB、IR、深度三图 | LoRA | 0–1000 整数 |
-| `internvl35` | RGB、IR、深度三图 | LoRA，训练批量为 1 | 0–1000 整数 |
-| `groundingdino` | RGB | 仅推理，原生置信度 | 归一化 XYXY |
-| `mock` | 测试输入 | CPU 流程测试 | 归一化 XYXY |
+| 模块 | 职责 |
+| --- | --- |
+| `offline/train.py` | 训练 CLI：参数解析 → 训练计划 → 训练循环 → 产物交接 |
+| `offline/infer.py` | 推理/评测 CLI：分片、断点续跑、指标与提交包判定 |
+| `offline/rocm_env.sh` | ROCm 性能环境变量（BLAS 后端、硬件队列、缓存目录） |
+| `scripts/prepare_rgbdt.py` | 三模态校验、深度伪彩生成、Test 引用与深度集合校验 |
+| `scripts/upload_dataset.py` | 数据集发布工具（维护者用，需 `modelscope`） |
+| `tests/` | CPU 单元测试：合同、身份、训练/推理状态机、mock 端到端链路 |
 
-所有适配器返回归一化 XYXY 与可选 score。训练接口负责输入、监督掩码、组批、
-验证解码和 LoRA 目标层；普通训练循环不猜测模型协议。
+## 不变量
 
-底座先下载到本地，通过 `--model-path` 指定。适配器拒绝缺少配置的目录，所有
-`from_pretrained` 调用采用 `local_files_only=True`，执行阶段不下载模型。
-模型名称、revision 和提示词是冻结协议；更改训练目标、解析行为或运行参数时使用新标签。
+1. **冻结标识**：各适配器的 `MODEL_NAME` / `MODEL_REVISION` / 提示词常量、官方
+   `data/Test/queries/queries.json`、golden `approved.json` 均不得改动。它们进入运行
+   身份，改动会使既有 run 不再可复现、历史产物不可复算。
+2. **LoRA 范围**：目标层一律经 `models/base.py:language_model_lora_targets()` 构造
+   （锚定 `model.language_model` 的正则）；锚定共享，投影名单由各适配器自己声明。
+   视觉塔恒为冻结、只做前向。裸后缀名单会被 PEFT 按后缀匹配而命中视觉塔。
+3. **像素预算**：四个三模态适配器的 `min_pixels` / `max_pixels` 一律按单帧计并进入
+   运行身份；处理器单位与单帧单位不一致的适配器在处理器边界换算。
+4. **运行身份**：训练 id 由模型 revision、提示词哈希、数据与图像指纹、超参、种子与
+   run-tag 哈希得出；推理 id 另含像素预算、分片数、limit 等。任何参数变更必须换新
+   tag，不覆盖既有产物。
+5. **坐标与提交**：解析器只接受各模型协议的 0–1000 或像素坐标，越界即判失败（不裁剪）；
+   提交包只补 `bbox`，官方模板其余字段逐字节保留。
+6. **单张量形状**：验证损失与训练共用同一 micro-batch 大小（默认 1）。
+7. **离线加载**：所有 `from_pretrained` 使用 `local_files_only=True`；底座目录由调用者
+   提供，本仓库不校验该目录与声明 revision 的对应关系。
+8. **产物自洽**：`approved.json` 的 `source_fingerprint` 与 `dataset_fingerprint` 在
+   读入时复算比对；`image_fingerprint` 在记录值带 `manifest_` 前缀时复算比对。
 
-## 身份和恢复
+## 不提供
 
-训练/推理身份绑定模型版本、提示词、数据与参数。LoRA 指纹读取配置、清单和权重；
-底座目录使用调用者预下载的快照，不自动核验该目录与声明 revision 的对应关系。
-当前 `manifest_` 图像指纹绑定路径与尺寸；图像字节版本须单独固定，深检查见数据合同。
+数据集、模型权重、标注产物与运行结果不在本仓库。平台相关差异集中在
+`offline/rocm_env.sh`；`cloud/`、`internvl35`、`qwen36_27b` 不在本仓库（git 历史可溯）。
 
-推理恢复先验证 checkpoint、预测文件和各分片的运行身份、框、分数与键集合，
-冲突结果拒绝合并。仅有预测文件时必须同时有记录元数据。新分片保存完整分配列表；
-旧分片缺少列表时校验运行身份及结果键，保留原分配哈希，不伪造旧分配记录。
-LoRA 的机器路径只用于追溯，内容指纹一致时允许推理端重新定位它。
+## 契约边界
 
-单卡使用一个分片。单机多卡可用 `--num-shards`；分片进程使用 spawn，CPU 数据
-加载使用 Linux fork，数据加载子进程不访问 GPU。没有剩余工作时直接汇总。
+| 方向 | 内容 | 定义位置 |
+| --- | --- | --- |
+| 上游 → 本仓 | `outputs/annotations/<run_id>/{train,val}/approved.json`（协议 12） | `data-contract.md` |
+| 本仓 → 提交 | `submission.zip`（官方模板 + `bbox`） | `data-contract.md` |
+| 官方 → 本仓 | `data/Test/queries/queries.json`（条数与内容哈希被测试钉死） | `test_data.py` |
 
-## 协作
+## 测试
 
-特性分支 → PR，由仓库管理员审核合并。
-
-特性分支提交修改；CPU 全量测试和静态检查通过后，再按 SOP 做实际模型的 GPU
-小样本验证。模型和大数据不入 Git，冻结标注与历史产物不覆盖。
+`python -m unittest discover -s tests`：208 项，纯 CPU、不加载权重。真实权重加载、
+生成质量、步时与显存不在覆盖内。

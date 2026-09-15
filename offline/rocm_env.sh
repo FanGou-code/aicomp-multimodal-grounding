@@ -6,11 +6,12 @@
 
 export TORCH_BLAS_PREFER_HIPBLASLT=1
 export GPU_MAX_HW_QUEUES=2
-# Persistent caches: Triton JIT kernels and pip downloads survive instance
-# restarts. The venv itself may still need rebuilding when the base python
-# path moves (see docs/sop.md section 3).
-export TRITON_CACHE_DIR=/mnt/workspace/.triton_cache
-export PIP_CACHE_DIR=/mnt/workspace/.pip_cache
+# Cache root for Triton JIT kernels and pip downloads. Override with
+# AICOMP_CACHE_ROOT to put them on a persistent disk; the default keeps them in
+# the user cache directory.
+: "${AICOMP_CACHE_ROOT:=$HOME/.cache}"
+export TRITON_CACHE_DIR="$AICOMP_CACHE_ROOT/.triton_cache"
+export PIP_CACHE_DIR="$AICOMP_CACHE_ROOT/.pip_cache"
 # TunableOp is intentionally disabled for this torch/ROCm stack: recent MI300X
 # torch builds have reported memory-leak/OOM behavior when it is enabled at
 # runtime. Re-enable only after an offline tuning run with a persistent result

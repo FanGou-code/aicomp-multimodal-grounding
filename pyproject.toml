@@ -5,9 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aicomp-grounding"
 version = "1.0.0"
-description = "RGBDT tri-modal visual grounding experiment unit (competition)"
+description = "RGBDT tri-modal (visible / infrared / depth) visual grounding system"
+readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Proprietary" }
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: POSIX :: Linux",
+]
 dependencies = [
     # 基础库：本地 CPU 测试与数据预处理共用
     "numpy>=1.26",
@@ -18,7 +25,7 @@ dependencies = [
     "torch>=2.8,<3",
     # torchvision 不锁版本：由 pip 按已安装的 torch 解析配对版本（硬 pin 会与
     # torch 范围冲突）。transformers 图像预处理链路（含 GroundingDINO）需要它；
-    # DSW 镜像自带，Modal 容器必须显式装。
+    # GPU 平台镜像通常自带，纯净容器环境需要显式安装。
     "torchvision",
     # 模型框架层：== 紧 pin，跨平台行为一致
     "transformers==5.15.1",
@@ -29,10 +36,15 @@ dependencies = [
 
 [project.optional-dependencies]
 # 仅混合线性注意力架构（Qwen3.5-9B 的 GDN）接入时按需装；
-# A 卡上 causal-conv1d 无 HIP 预编译轮，源码编译步骤见 docs/sop.md 第 3 节
+# A 卡上 causal-conv1d 无 HIP 预编译轮，需源码编译（见 README 安装一节）
 kernels = ["flash-linear-attention", "causal-conv1d"]
-# 本地开发与运维：代码检查 (ruff) + 云端调度 (modal) + 数据集管理 (modelscope)
-dev = ["ruff", "modal>=0.62", "modelscope>=1.15"]
+# 本地开发与运维：代码检查 (ruff) + 数据集管理 (modelscope)
+dev = ["ruff", "modelscope>=1.15"]
+
+[project.urls]
+Homepage = "https://github.com/FanGou-code/aicomp-multimodal-grounding"
+Repository = "https://github.com/FanGou-code/aicomp-multimodal-grounding"
+Issues = "https://github.com/FanGou-code/aicomp-multimodal-grounding/issues"
 
 [tool.setuptools.packages.find]
 include = ["aicomp_grounding*"]
@@ -42,6 +54,12 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
+# 窄规则集：只保留能发现「明显错误」的检查（E4/E7/E9 语法与导入；F 未定义名、
+# 未用导入、重定义）。更宽的类别经审阅后按下列结论不启用（2026-09-15）：
+#   - B905（zip 未声明 strict）：已全部补 strict=True，行为由代码本身保证；
+#   - B023（闭包捕获循环变量）：facts.py 的 anchors() 与 api.py 的回调均在定义后
+#     同一轮内被调用，当前不触发；属「若改为延迟调用会静默算错」的脆弱点，决定不改；
+#   - TRY003/TRY004、ARG、SIM、C4、RET：异常类型约定与写法偏好，不是缺陷。
 select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.lint.per-file-ignores]

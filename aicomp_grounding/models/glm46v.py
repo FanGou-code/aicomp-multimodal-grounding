@@ -23,7 +23,12 @@ from typing import Any
 
 from aicomp_grounding.bbox import quantize_bbox_1000, validate_bbox
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
+from aicomp_grounding.models.base import (
+    ModelInput,
+    Prediction,
+    language_model_lora_targets,
+    require_local_model_path,
+)
 from aicomp_grounding.training_state import validated_prompt_length
 
 MODEL_NAME = "zai-org/GLM-4.6V-Flash"
@@ -34,6 +39,30 @@ MODEL_REVISION = "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
 MODELSCOPE_NAME = "ZhipuAI/GLM-4.6V-Flash"
 
 MAX_NEW_TOKENS = 32
+
+# Pixel budgets, in units of 28x28 pixels per vision token (patch 14 x merge 2),
+# stated per frame so that the value recorded in the run identity means the same
+# thing here as it does for the other three tri-modal adapters.
+#
+# Glm46VImageProcessor takes its budget as a `size` dict -- `min_pixels` /
+# `max_pixels` passed to `AutoProcessor.from_pretrained` are dropped without
+# warning -- and its `smart_resize` is called with `num_frames =
+# temporal_factor`, so what it compares against `longest_edge` is `2 * h * w`.
+# `load()` therefore doubles both budgets at the processor boundary
+# (GLM_PIXEL_UNIT_FACTOR).  Handing it the per-frame numbers unmodified would
+# halve the effective budget and shrink every frame: at 1920x1080, 2691 vision
+# tokens down to 1508.
+#
+# The checkpoint's own preprocessor config allows `longest_edge = 28*28*12288`,
+# which in the doubled unit is a per-frame budget of 4,816,896 -- twice the
+# value below.  Neither the training nor the inference path overrode it, so
+# GLM-4.6V ran on that wider budget until this pin was made to take effect.
+MIN_PIXELS = 256 * 28 * 28
+MAX_PIXELS = 3072 * 28 * 28
+
+#: Glm46VImageProcessor compares `temporal_factor * h * w` against
+#: `size.longest_edge`; a per-frame budget is doubled at the boundary.
+GLM_PIXEL_UNIT_FACTOR = 2
 
 # Tokenizer-added box delimiters (verified from the added vocab): ids
 # 151361 and 151362. Built from chr() so the source carries no raw
@@ -70,6 +99,20 @@ def format_glm_bbox(box) -> str:
     """Format normalized XYXY as GLM integer 0-1000 box tokens."""
     x1, y1, x2, y2 = quantize_bbox_1000(box)
     return f"{GLM_BOX_OPEN}{x1},{y1},{x2},{y2}{GLM_BOX_CLOSE}"
+
+
+def processor_pixel_kwargs(max_pixels: int) -> dict[str, Any]:
+    """Convert a per-frame pixel budget into Glm46V's processor `size` dict.
+
+    The processor counts `temporal_factor * h * w`, so the unit conversion lives
+    here and is doubled once, at the boundary -- see the constants above.
+    """
+    return {
+        "size": {
+            "shortest_edge": GLM_PIXEL_UNIT_FACTOR * MIN_PIXELS,
+            "longest_edge": GLM_PIXEL_UNIT_FACTOR * max_pixels,
+        }
+    }
 
 
 def parse_glm_box(text: str) -> list[float] | None:
@@ -142,10 +185,14 @@ class Glm46VAdapter:
     supports_lora = True
     supports_prepared_inputs = True
 
-    def __init__(self):
+    def __init__(self, *, max_pixels: int = MAX_PIXELS):
+        # Per frame, i.e. in the same unit the other five adapters record;
+        # `load()` converts it to the processor's doubled unit.
+        self.max_pixels = max_pixels
         self.generation_config: dict[str, Any] = {
             "max_new_tokens": MAX_NEW_TOKENS,
             "do_sample": False,
+            "max_pixels": max_pixels,
         }
         self._processor = None
         self._model = None
@@ -188,6 +235,7 @@ class Glm46VAdapter:
         processor = AutoProcessor.from_pretrained(
             source,
             local_files_only=True,
+            **processor_pixel_kwargs(self.max_pixels),
         )
         processor.tokenizer.padding_side = "left"
         print(
@@ -233,22 +281,22 @@ class Glm46VAdapter:
             "lora_dropout": 0.05,
             "compute_dtype": "bfloat16",
             "autocast": True,
-            "eval_batch_size": 4,
+            "eval_batch_size": 1,
             "best_epoch_primary_metric": "acc_at_0_5",
             "python_version": RUNTIME_PYTHON_VERSION,
             "lora_targets": self.lora_target_modules(),
+            "min_pixels": MIN_PIXELS,
+            "max_pixels": self.max_pixels,
         }
 
-    def lora_target_modules(self) -> list[str]:
-        return [
-            "q_proj",
-            "k_proj",
-            "v_proj",
-            "o_proj",
-            "gate_proj",
-            "up_proj",
-            "down_proj",
-        ]
+    def lora_target_modules(self) -> str:
+        # GLM-4.6V fuses the MLP gate and up projections into `gate_up_proj`, so
+        # this adapter declares the projections its own language model exposes
+        # instead of the split `gate_proj` / `up_proj` pair the other five use.
+        # Widening it to include `gate_up_proj` is a recipe change, not a fix.
+        return language_model_lora_targets(
+            "q_proj", "k_proj", "v_proj", "o_proj", "down_proj"
+        )
 
     def load_for_training(
         self,
@@ -258,6 +306,18 @@ class Glm46VAdapter:
         model_path: str | None = None,
     ):
         self.load(device=device, lora_path=lora_path, model_path=model_path)
+        # Training backward has no use for the KV cache and transformers would
+        # force it off at forward time with a warning.  Setting it here keeps
+        # the inference path (which does want the cache) untouched.
+        text_config = getattr(self._model.config, "text_config", None)
+        if text_config is not None and hasattr(text_config, "use_cache"):
+            # Nested multimodal models keep the language model under
+            # text_config; the outer config has no use_cache attribute, so
+            # setting it there is a no-op and generation still builds a KV
+            # cache during training forward passes.
+            text_config.use_cache = False
+        else:
+            self._model.config.use_cache = False
         return self._model, self._processor
 
     def build_training_batch(

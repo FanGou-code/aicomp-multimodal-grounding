@@ -20,7 +20,13 @@ from typing import Any
 
 from aicomp_grounding.bbox import format_qwen_bbox, parse_bbox_from_text
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import ModelInput, Prediction, require_local_model_path
+from aicomp_grounding.models.base import (
+    DEFAULT_LORA_PROJECTIONS,
+    ModelInput,
+    Prediction,
+    language_model_lora_targets,
+    require_local_model_path,
+)
 from aicomp_grounding.prompts import (
     GROUNDING_SYSTEM_PROMPT,
     build_grounding_messages,
@@ -157,7 +163,7 @@ class Qwen3_5Adapter:
             "lora_dropout": 0.05,
             "compute_dtype": "bfloat16",
             "autocast": True,
-            "eval_batch_size": 4,
+            "eval_batch_size": 1,
             "best_epoch_primary_metric": "acc_at_0_5",
             "python_version": RUNTIME_PYTHON_VERSION,
             "lora_targets": self.lora_target_modules(),
@@ -165,16 +171,8 @@ class Qwen3_5Adapter:
             "max_pixels": self.max_pixels,
         }
 
-    def lora_target_modules(self) -> list[str]:
-        return [
-            "q_proj",
-            "k_proj",
-            "v_proj",
-            "o_proj",
-            "gate_proj",
-            "up_proj",
-            "down_proj",
-        ]
+    def lora_target_modules(self) -> str:
+        return language_model_lora_targets(*DEFAULT_LORA_PROJECTIONS)
 
     def load_for_training(
         self,
@@ -184,6 +182,18 @@ class Qwen3_5Adapter:
         model_path: str | None = None,
     ):
         self.load(device=device, lora_path=lora_path, model_path=model_path)
+        # Training backward has no use for the KV cache and transformers would
+        # force it off at forward time with a warning.  Setting it here keeps
+        # the inference path (which does want the cache) untouched.
+        text_config = getattr(self._model.config, "text_config", None)
+        if text_config is not None and hasattr(text_config, "use_cache"):
+            # Nested multimodal models keep the language model under
+            # text_config; the outer config has no use_cache attribute, so
+            # setting it there is a no-op and generation still builds a KV
+            # cache during training forward passes.
+            text_config.use_cache = False
+        else:
+            self._model.config.use_cache = False
         return self._model, self._processor
 
     def build_training_batch(

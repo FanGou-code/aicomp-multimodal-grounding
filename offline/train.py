@@ -1,12 +1,11 @@
-"""Offline single-machine LoRA training shell around the shared training core.
+"""Single-machine LoRA training entrypoint around the shared training core.
 
-Runs the exact shared training pipeline on a local CUDA/HIP GPU. Practical uses:
-cheap QLoRA-style experiments on 24GB cards (with a reduced pixel budget),
+Runs the training pipeline on a local CUDA/HIP GPU. Practical uses: cheap
+QLoRA-style experiments on 24GB cards (with a reduced pixel budget),
 GroundingDINO-scale fine-tuning, or full runs on >=48GB local hardware.
 
-The portable repository layout keeps approved annotations and training outputs
-under repository-level ``outputs/``. ``cloud/train.py`` remains a Modal-only
-adapter for the historical volume layout.
+The repository layout keeps approved annotations and training outputs under
+repository-level ``outputs/``.
 """
 
 from __future__ import annotations
@@ -18,7 +17,13 @@ from pathlib import Path
 # This entrypoint lives in offline/; make the repository root importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aicomp_grounding.training_core import SEED, persist_training_plan, prepare_training_plan, run_training
+from aicomp_grounding.training_core import (
+    SEED,
+    TRAINABLE_MODELS,
+    persist_training_plan,
+    prepare_training_plan,
+    run_training,
+)
 from aicomp_grounding.paths import ProjectPaths, resolve_from_root
 from aicomp_grounding.models.base import require_local_model_path
 
@@ -30,7 +35,7 @@ def parse_args():
         "--model",
         type=str,
         default="qwen3vl",
-        choices=["qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v", "internvl35"],
+        choices=list(TRAINABLE_MODELS),
         help="Trainable grounding adapter.",
     )
     parser.add_argument(
@@ -68,7 +73,6 @@ def parse_args():
     )
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--smoke-test", action="store_true")
-    parser.add_argument("--deep-verify-images", action="store_true")
     parser.add_argument(
         "--num-workers",
         type=int,
@@ -82,14 +86,52 @@ def parse_args():
         default=20,
         help="Save/log step checkpoint every N optimizer steps (default 20).",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Override adapter default training batch size.",
+    )
+    parser.add_argument(
+        "--gradient-accumulation-steps",
+        type=int,
+        default=None,
+        help="Override adapter default gradient accumulation steps.",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help="Override adapter default learning rate.",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Override adapter default training epochs.",
+    )
+    parser.add_argument(
+        "--eval-batch-size",
+        type=int,
+        default=None,
+        help="Override adapter default evaluation batch size.",
+    )
+    parser.add_argument(
+        "--best-metric",
+        type=str,
+        default=None,
+        choices=["acc_at_0_5", "mean_iou", "val_loss"],
+        help="Override adapter default best-epoch primary metric.",
+    )
     return parser.parse_args()
 
 
 def run_cli(args, *, commit_hook=None):
-    """Shared orchestration for the offline shell and the Modal cloud shell.
+    """Orchestration shared by ``main()`` and programmatic callers.
 
     ``commit_hook`` is invoked after every durable write (run plan, training
-    checkpoints); the Modal shell passes its volume commit, offline omits it.
+    checkpoints); it defaults to None because local filesystem writes are
+    already atomic.
     """
     paths = ProjectPaths.from_root(args.project_root)
     data_root = resolve_from_root(args.data_dir, paths.root)
@@ -98,6 +140,14 @@ def run_cli(args, *, commit_hook=None):
     model_path = (
         str(resolve_from_root(args.model_path, paths.root)) if args.model_path else None
     )
+    hyperparameter_overrides = {
+        "batch_size": args.batch_size,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "learning_rate": args.learning_rate,
+        "epochs": args.epochs,
+        "eval_batch_size": args.eval_batch_size,
+        "best_epoch_primary_metric": args.best_metric,
+    }
     plan = prepare_training_plan(
         data_root=data_root,
         annotation_root=annotation_root,
@@ -109,7 +159,7 @@ def run_cli(args, *, commit_hook=None):
         seed=args.seed,
         resume=args.resume,
         smoke_test=args.smoke_test,
-        verify_images=args.deep_verify_images,
+        hyperparameter_overrides=hyperparameter_overrides,
     )
     if not args.preflight_only and (args.smoke_test or not plan["skip_training"]):
         plan["model_path"] = require_local_model_path(plan["model_path"])

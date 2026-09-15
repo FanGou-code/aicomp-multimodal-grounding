@@ -14,11 +14,48 @@ torch-free CI; only ``load``/``predict`` require a GPU.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 from PIL.Image import Image
+
+
+#: Language-model projection names for adapters whose model exposes the standard
+#: split MLP.  An adapter whose model fuses or renames projections declares its
+#: own set rather than inheriting this one.
+DEFAULT_LORA_PROJECTIONS = (
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
+)
+
+
+def language_model_lora_targets(*projections: str) -> str:
+    """Build this adapter's PEFT target regex from its own projection names.
+
+    The anchoring is the load-bearing part, and it is why this is a shared
+    builder rather than a shared value: which projections a model exposes is a
+    per-architecture fact, but *where* they live is the recipe.
+
+    PEFT matches a list of target names by module suffix, so a bare
+    ``["q_proj", ...]`` list also matches any vision-tower projection that reuses
+    a language-model name -- the Qwen2.5-VL-style vision MLP (``gate_proj`` /
+    ``up_proj`` / ``down_proj``) and the InternViT attention (``q_proj`` /
+    ``k_proj`` / ``v_proj``).  A trainable vision tower is not part of this
+    recipe: it puts the vision encoder through backward plus gradient-checkpoint
+    recomputation and leaves adapters mutually incomparable.  PEFT matches a
+    *string* ``target_modules`` with ``re.fullmatch``, so the
+    ``model.language_model`` prefix and the trailing ``$`` keep the encoder
+    frozen whichever names an adapter declares.
+    """
+    alternation = "|".join(re.escape(name) for name in projections)
+    return rf"model\.language_model\..*\.(?:{alternation})$"
 
 
 def require_local_model_path(model_path: str | Path | None) -> str:
@@ -121,8 +158,9 @@ class TrainableGroundingAdapter(Protocol):
         """Return the model-specific training hyperparameters."""
         ...
 
-    def lora_target_modules(self) -> list[str]:
-        """Return PEFT target module names for this model."""
+    def lora_target_modules(self) -> str:
+        """Return this adapter's PEFT target regex; build it with
+        :func:`language_model_lora_targets` so the vision tower stays frozen."""
         ...
 
     def load_for_training(

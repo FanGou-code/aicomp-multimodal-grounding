@@ -1,4 +1,4 @@
-"""Platform-agnostic inference core shared by cloud and offline entrypoints.
+"""Platform-agnostic inference core for the offline entrypoint.
 
 Pure, torch-free helpers for: loading inference items from the supported
 JSON shapes (approved annotation artifact, flat query index, or plain list),
@@ -86,7 +86,8 @@ def evaluate_predictions(
     Driven by the dataset: every evaluated item counts toward the denominator,
     so a partial prediction set is scored as failures instead of silently
     shrinking the denominator. Unparsable (None/invalid) predictions count as
-    failures; mean IoU only accumulates for items with a valid GT bbox.
+    failures; every evaluated item must carry a valid ground-truth bbox
+    (invalid GT raises ValueError).
     """
     if not items or "bbox" not in items[0]:
         return None
