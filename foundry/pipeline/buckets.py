@@ -8,7 +8,6 @@ is ordinal > distance > spatial > attribute_action.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 RE_ORD = re.compile(
     r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|last|leftmost|"

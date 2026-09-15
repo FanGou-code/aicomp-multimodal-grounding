@@ -52,12 +52,6 @@ from foundry.utils import (
     ANNOTATION_REQUESTS_PER_MINUTE,
     ANNOTATION_TEMPERATURE,
     ANNOTATION_TOKENS_PER_MINUTE,
-    PREPARATION_PROTOCOL_VERSION,
-)
-from foundry.pipeline.views import (
-    is_trusted_image_fingerprint,
-    trusted_dataset_image_fingerprint,
-    verify_dataset_images,
 )
 from foundry.utils import atomic_write_json, load_json
 from foundry.pipeline.api import (
@@ -67,7 +61,7 @@ from foundry.pipeline.api import (
     comment_out_key,
     load_api_keys,
 )
-from foundry.pipeline.sharding import source_fingerprint
+from foundry.pipeline.contract import source_fingerprint
 from foundry.pipeline.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
 from foundry.pipeline.source import image_fingerprint, load_annotation_source, preparation_fingerprint
 

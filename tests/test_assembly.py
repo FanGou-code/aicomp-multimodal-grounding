@@ -281,7 +281,7 @@ def make_merged(frames_spec):
 
 def make_index(frames_spec):
     return {
-        sample_id: {"bbox": objects[0]["bbox"], "visible": f"Train/x/color.png"}
+        sample_id: {"bbox": objects[0]["bbox"], "visible": "Train/x/color.png"}
         for sample_id, (objects, _) in frames_spec.items()
     }
 

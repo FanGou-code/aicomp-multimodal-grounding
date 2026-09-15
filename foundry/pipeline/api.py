@@ -273,7 +273,7 @@ class OpenAIProtocolClient:
                 if transport_failures == self.transport_attempts:
                     raise APIError(f"API request failed: {exc}") from exc
                 delay = 2 ** (transport_failures - 1)
-            except APIError as exc:
+            except APIError:
                 # Deliberately retried: transient empty-content responses from
                 # the annotation model are recovered by re-asking (2026-08-23 fix).
                 transport_failures += 1
@@ -314,10 +314,8 @@ class OpenAIProtocolClient:
 
 import os
 import tempfile
-import threading
 import time
 from pathlib import Path
-from typing import Callable
 
 
 

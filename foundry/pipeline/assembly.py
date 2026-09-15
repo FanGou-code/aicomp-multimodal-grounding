@@ -31,7 +31,6 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field, replace
 
-from foundry.bbox import compute_iou
 from foundry.pipeline.census import trusted_objects
 from foundry.pipeline.facts import (
     ANCHOR_GAP,
@@ -197,7 +196,7 @@ def realization_is_unique(
     family = realization.family
     if family == "ordinal_direction":
         return target.rank_left is not None or target.rank_right is not None
-    if family == "plain_attribute" and "area-comparative" in realization.facts or "area-superlative" in realization.facts:
+    if family == "plain_attribute" and ("area-comparative" in realization.facts or "area-superlative" in realization.facts):
         return True  # strict area ratio holds for at most one object per head group
     if family == "superlative_camera":
         if realization.facts[0] in ("foreground", "background"):

@@ -8,12 +8,10 @@ Zero pip dependencies required.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
-from pathlib import Path, PurePosixPath
-from typing import Any
 
 from foundry.bbox import validate_bbox
 from foundry.pipeline.sharding import group_keys_by_scene
+from foundry.pipeline.views import is_trusted_image_fingerprint, trusted_dataset_image_fingerprint  # noqa: F401
 from foundry.utils import stable_json_hash
 
 ANNOTATION_PROTOCOL_VERSION = 12
@@ -21,8 +19,6 @@ ANNOTATION_MODE = "single_marked_frame_generate"
 ASSIGNMENT_POLICY = "single_marked_rgb_query_generate"
 RENDER_PROTOCOL = "single-marked-full-rgb-v8"
 APPROVED_FIELDS = ("visible", "infrared", "depth", "query", "bbox", "width", "height")
-MODALITY_FIELDS = ("visible", "infrared", "depth")
-TRUSTED_IMAGE_FINGERPRINT_PREFIX = "manifest_"
 
 _WORD = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)?")
 _COORDINATES = re.compile(r"[\[(]\s*[+-]?\d+(?:\.\d+)?\s*,\s*[+-]?\d+(?:\.\d+)?")
@@ -151,65 +147,6 @@ def approved_dataset_fingerprint(data: dict) -> str:
     return stable_json_hash(data)
 
 
-def trusted_dataset_image_fingerprint(
-    dataset: dict,
-    sample_ids: Iterable[str],
-    *,
-    require_recorded_size: bool,
-) -> str:
-    """Bind a committed index's image references without reading image bytes."""
-    selected = list(sample_ids)
-    if len(selected) != len(set(selected)):
-        raise ValueError("Image verification sample IDs must be unique")
-
-    references: dict[str, dict[str, object]] = {}
-    for sample_id in selected:
-        if sample_id not in dataset or not isinstance(dataset[sample_id], dict):
-            raise ValueError(f"Image verification dataset has no valid sample {sample_id!r}")
-        item = dataset[sample_id]
-        record: dict[str, object] = {}
-        relative_paths: list[str] = []
-        for field in MODALITY_FIELDS:
-            relative = item.get(field)
-            if not isinstance(relative, str) or not relative or "\\" in relative:
-                raise ValueError(f"Sample {sample_id!r} has invalid {field} path")
-            posix = PurePosixPath(relative)
-            if (
-                posix.is_absolute()
-                or ".." in posix.parts
-                or "." in posix.parts
-                or posix.as_posix() != relative
-            ):
-                raise ValueError(f"Sample {sample_id!r} has non-canonical {field} path")
-            record[field] = relative
-            relative_paths.append(relative)
-
-        if len(set(relative_paths)) != len(MODALITY_FIELDS):
-            raise ValueError(f"Sample {sample_id!r} modality paths must be distinct")
-        if require_recorded_size:
-            for field in ("width", "height"):
-                value = item.get(field)
-                if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                    raise ValueError(f"Sample {sample_id!r} has invalid recorded {field}")
-                record[field] = value
-        references[sample_id] = record
-
-    digest = stable_json_hash(
-        {
-            "policy": "committed-volume-manifest-v1",
-            "references": references,
-        }
-    )
-    return f"{TRUSTED_IMAGE_FINGERPRINT_PREFIX}{digest}"
-
-
-def is_trusted_image_fingerprint(value: object) -> bool:
-    if not isinstance(value, str) or not value.startswith(TRUSTED_IMAGE_FINGERPRINT_PREFIX):
-        return False
-    digest = value[len(TRUSTED_IMAGE_FINGERPRINT_PREFIX) :]
-    return len(digest) == 64 and all(character in "0123456789abcdef" for character in digest)
-
-
 def preflight_check_dataset(data: dict, *, split_name: str = "dataset") -> list[str]:
     """Validate a dataset dict structurally before training."""
     errors: list[str] = []
@@ -274,7 +211,7 @@ def validate_approved_artifact(
         "qc",
     }
     if not isinstance(metadata, dict) or set(metadata) != required:
-        raise ValueError(f"Approved annotation metadata schema is invalid")
+        raise ValueError("Approved annotation metadata schema is invalid")
     if (
         metadata["status"] != "approved"
         or metadata["protocol_version"] != ANNOTATION_PROTOCOL_VERSION
@@ -309,7 +246,7 @@ def validate_approved_artifact(
         "generation_config",
     }
     if not isinstance(provenance, dict) or set(provenance) != provenance_fields:
-        raise ValueError(f"Approved annotation provenance schema is invalid")
+        raise ValueError("Approved annotation provenance schema is invalid")
     if provenance["source_type"] != "hosted_open_weights":
         raise ValueError("Approved annotation provenance is not an open-weights API")
     for field in (
