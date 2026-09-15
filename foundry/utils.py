@@ -58,9 +58,7 @@ def require_distinct_paths(input_path: Path, output_path: Path) -> None:
 
 
 import hashlib
-import json
 from collections.abc import Iterable, Mapping
-from pathlib import Path
 
 
 def stable_json_hash(value: object, *, length: int | None = None) -> str:

@@ -151,7 +151,6 @@ class ReviewServerTest(unittest.TestCase):
 
 class ReviewReportTest(unittest.TestCase):
     def test_report_counts_adjustments_and_iou(self):
-        import json as _json
         import tempfile as _tempfile
         from pathlib import Path as _Path
 

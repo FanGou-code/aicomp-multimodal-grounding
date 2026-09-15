@@ -4,7 +4,7 @@ import unittest
 
 from foundry.pipeline.assembly import extract_frame_facts, realizations_for
 from foundry.pipeline.facts import ObjectFacts
-from foundry.pipeline.planner import Allocation, TargetSupply, plan
+from foundry.pipeline.planner import TargetSupply, plan
 
 
 SPEC = {

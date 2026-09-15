@@ -190,7 +190,7 @@ def package_single(
     # Determine split
     resolved_split = split or assembly_meta.get("split")
     if not resolved_split or resolved_split not in ("train", "val"):
-        raise ValueError(f"Unable to determine split (train/val) from assembly metadata; specify --split explicitly")
+        raise ValueError("Unable to determine split (train/val) from assembly metadata; specify --split explicitly")
 
     # Locate index file
     if index_path is None:

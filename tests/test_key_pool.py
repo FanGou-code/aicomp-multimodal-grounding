@@ -16,7 +16,6 @@ from foundry.pipeline.api import (
     APIKeyPool,
     APIKeyPoolExhausted,
     RATE_LIMIT_STRIKES_BEFORE_RETIRE,
-    TRANSPORT_FAILURES_BEFORE_SUSPEND,
     comment_out_key,
     load_api_keys,
 )
