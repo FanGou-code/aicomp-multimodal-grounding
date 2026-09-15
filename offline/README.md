@@ -1,8 +1,8 @@
 # Offline End — 离线端
 
 离线端提供平台无关的训练与推理入口。`offline/infer.py` 调用推理核心，
-`offline/train.py` 与云端共用 `aicomp_grounding/training_core`。
-本目录**不特指任何平台**（DSW / Modal / 实验室 GPU 机通用）。
+`offline/train.py` 驱动 `aicomp_grounding/training_core`。
+本目录**不特指任何平台**（DSW A 卡 / 本地或集群 N 卡通用）。
 
 数据索引与查重审计已随标注生产线迁入伴生仓 `query-foundry/data/`，
 本仓不存放；训练只读 `outputs/annotations/` 下的 `approved.json`。
@@ -80,8 +80,7 @@ python offline/infer.py \
 
 ## 仓库内容与外部数据清单
 
-**仓库自带**：全部代码 / 测试 / 黄金标注集
-（`outputs/annotations/<approved_annotation_id>/{train,val}/approved.json`）。
+**仓库自带**：全部代码与测试。
 
 **需要另外获取**：
 
@@ -90,7 +89,8 @@ python offline/infer.py \
 | `data/Train` 原始三模态（400 序列） | 共 ~43G | 由数据提供方另行获取 |
 | `data/Test` 官方测试集 | 单独提供 | 从赛事渠道获取 |
 | `data/Processed`（depth JET 伪彩） | 随 data 包提供 | 下载并解压后直接使用 |
-| 基础模型权重 | Qwen-8B 17G / InternVL 17G / DINO 0.7G | 下载到持久目录 |
+| 标注产物 `outputs/annotations/<run_id>/{train,val}/approved.json` | 数 MB | 由标注生产线交付，合同见 `docs/data-contract.md` |
+| 基础模型权重 | 单个 VLM 权重 bf16 约 15–21 GB（`glm46v` 10.3B 记录值 20.6 GB）；DINO-Base 约 0.7 GB | 见 `docs/sop.md` 第 4 节，逐模型 `--revision` 钉死 |
 
 微调推理需要完整 LoRA 目录；仅进行融合时，只交换各成员预测文件即可。
 

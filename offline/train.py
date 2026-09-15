@@ -1,12 +1,11 @@
-"""Offline single-machine LoRA training shell around the shared training core.
+"""Single-machine LoRA training entrypoint around the shared training core.
 
-Runs the exact shared training pipeline on a local CUDA/HIP GPU. Practical uses:
-cheap QLoRA-style experiments on 24GB cards (with a reduced pixel budget),
+Runs the training pipeline on a local CUDA/HIP GPU. Practical uses: cheap
+QLoRA-style experiments on 24GB cards (with a reduced pixel budget),
 GroundingDINO-scale fine-tuning, or full runs on >=48GB local hardware.
 
-The portable repository layout keeps approved annotations and training outputs
-under repository-level ``outputs/``. ``cloud/train.py`` remains a Modal-only
-adapter for the historical volume layout.
+The repository layout keeps approved annotations and training outputs under
+repository-level ``outputs/``.
 """
 
 from __future__ import annotations
@@ -18,7 +17,13 @@ from pathlib import Path
 # This entrypoint lives in offline/; make the repository root importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aicomp_grounding.training_core import SEED, persist_training_plan, prepare_training_plan, run_training
+from aicomp_grounding.training_core import (
+    SEED,
+    TRAINABLE_MODELS,
+    persist_training_plan,
+    prepare_training_plan,
+    run_training,
+)
 from aicomp_grounding.paths import ProjectPaths, resolve_from_root
 from aicomp_grounding.models.base import require_local_model_path
 
@@ -30,7 +35,7 @@ def parse_args():
         "--model",
         type=str,
         default="qwen3vl",
-        choices=["qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "glm46v", "internvl35"],
+        choices=list(TRAINABLE_MODELS),
         help="Trainable grounding adapter.",
     )
     parser.add_argument(
@@ -122,10 +127,11 @@ def parse_args():
 
 
 def run_cli(args, *, commit_hook=None):
-    """Shared orchestration for the offline shell and the Modal cloud shell.
+    """Orchestration shared by ``main()`` and programmatic callers.
 
     ``commit_hook`` is invoked after every durable write (run plan, training
-    checkpoints); the Modal shell passes its volume commit, offline omits it.
+    checkpoints); it defaults to None because local filesystem writes are
+    already atomic.
     """
     paths = ProjectPaths.from_root(args.project_root)
     data_root = resolve_from_root(args.data_dir, paths.root)

@@ -13,18 +13,12 @@ from aicomp_grounding.inference_core import evaluate_predictions, load_inference
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.models import ADAPTERS, available_models, get_adapter
 from aicomp_grounding.models.base import (
-    DEFAULT_LORA_PROJECTIONS,
     ModelInput,
     language_model_lora_targets,
 )
 from aicomp_grounding.models.groundingdino import (
     normalize_grounding_query,
     select_top_detection,
-)
-from aicomp_grounding.models.internvl35 import (
-    INTERNVL_IMAGE_TOKEN,
-    build_grounding_question,
-    parse_internvl_box,
 )
 from aicomp_grounding.models.mock import _stable_box
 from aicomp_grounding.models.glm46v import (
@@ -59,7 +53,7 @@ class RegistryTests(unittest.TestCase):
     def test_registry_exposes_expected_models(self):
         self.assertEqual(
             available_models(),
-            ["glm46v", "groundingdino", "internvl35", "mimo_vl", "mock", "qwen36_27b", "qwen3_5", "qwen3vl"],
+            ["glm46v", "groundingdino", "mimo_vl", "mock", "qwen3_5", "qwen3vl"],
         )
 
     def test_unknown_model_raises_with_valid_options(self):
@@ -85,10 +79,8 @@ class RegistryTests(unittest.TestCase):
 EXPECTED_MODEL_REVISIONS = {
     "qwen3vl": "5d854aab08710c16b980ec6d603d863b3821b915",
     "qwen3_5": "460979c3d11864dd16408d860ac930a360a2fac2",
-    "qwen36_27b": "6a9e13bd6fc8f0983b9b99948120bc37f49c13e9",
     "mimo_vl": "d307865d4a3b6ad9ae35e574bcabaa563038c8fb",
     "glm46v": "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41",
-    "internvl35": "1c352b29d4066a61b465b5c6d044a1ebec1349ef",
     "groundingdino": "d06985a44c66b6133c131bd273293be8649cfe3a",
 }
 
@@ -271,34 +263,28 @@ class Glm46VContractTests(unittest.TestCase):
 TRAINABLE_ADAPTERS = (
     "qwen3vl",
     "qwen3_5",
-    "qwen36_27b",
     "mimo_vl",
     "glm46v",
-    "internvl35",
 )
 
-#: Projections each adapter's language model exposes, and therefore the exact
-#: target set it must declare.  `glm46v` fuses the MLP gate and up projections
-#: into `gate_up_proj`, so the split pair does not apply to it and it trains no
-#: up path at all; widening that adapter is a recipe change, so its set is pinned
-#: here rather than assumed.
+#: Language-model projection names each adapter must declare, spelled out
+#: literally.  Referring to the production constant here would move both sides
+#: of the assertion at once, so deleting a projection from the shared default
+#: would keep this test green -- the list is duplicated on purpose.
+#: `glm46v` fuses the MLP gate and up projections into `gate_up_proj`, so the
+#: split pair does not apply to it and it trains no up path at all; widening
+#: that adapter is a recipe change, not a fix.
 EXPECTED_LORA_PROJECTIONS = {
-    name: DEFAULT_LORA_PROJECTIONS
-    for name in ("qwen3vl", "qwen3_5", "qwen36_27b", "mimo_vl", "internvl35")
+    "qwen3vl": ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"),
+    "qwen3_5": ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"),
+    "mimo_vl": ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"),
+    "glm46v": ("q_proj", "k_proj", "v_proj", "o_proj", "down_proj"),
 }
-EXPECTED_LORA_PROJECTIONS["glm46v"] = (
-    "q_proj",
-    "k_proj",
-    "v_proj",
-    "o_proj",
-    "down_proj",
-)
 
 # Vision towers that reuse language-model projection names are the trap: a bare
 # suffix list silently wraps them, which puts the vision encoder through
 # backward plus gradient-checkpoint recomputation.  These are the real module
-# paths of the three affected towers -- note InternViT numbers its block
-# `encoder.layer`, singular, unlike the Qwen-family `layers`.
+# paths of the Qwen2.5-VL tower used by `mimo_vl`.
 FROZEN_VISION_MODULES = (
     "model.visual.blocks.0.mlp.gate_proj",
     "model.visual.blocks.0.mlp.up_proj",
@@ -306,9 +292,6 @@ FROZEN_VISION_MODULES = (
     "model.visual.merger.gate_proj",
     "model.visual.merger.up_proj",
     "model.visual.merger.down_proj",
-    "model.vision_tower.encoder.layer.0.attention.q_proj",
-    "model.vision_tower.encoder.layer.0.attention.k_proj",
-    "model.vision_tower.encoder.layer.0.attention.v_proj",
 )
 
 #: Where each projection lives in a language-model block, for the positive half
@@ -378,44 +361,6 @@ class TrainableAdapterContractTests(unittest.TestCase):
                 self.assertIsNone(re.fullmatch(pattern, key), f"{name} would train {key}")
 
 
-class InternVLContractTests(unittest.TestCase):
-    def test_uses_real_max_patches_budget(self):
-        adapter = get_adapter("internvl35")
-        self.assertEqual(adapter.generation_config["max_patches"], 12)
-        self.assertNotIn("max_num_tiles", adapter.generation_config)
-        self.assertEqual(adapter.training_hyperparameters()["max_patches"], 12)
-        with self.assertRaises(TypeError):
-            get_adapter("internvl35", max_num_tiles=6)
-
-    def test_question_has_numbered_context_image_slots_and_official_prompt(self):
-        question = build_grounding_question("the red car")
-        self.assertEqual(question.count(INTERNVL_IMAGE_TOKEN), 3)
-        self.assertIn("Image-1: " + INTERNVL_IMAGE_TOKEN, question)
-        self.assertIn("Image-3: " + INTERNVL_IMAGE_TOKEN, question)
-        self.assertNotIn("<image>", question)
-        self.assertIn("<ref>the red car</ref>", question)
-        self.assertIn("visible RGB, infrared, and depth", question)
-
-    def test_parse_box_with_tags_scales_from_1000(self):
-        text = 'The target is <ref>the car</ref><box>[[100,200,300,400]]</box>.'
-        self.assertEqual(
-            parse_internvl_box(text), [0.1, 0.2, 0.3, 0.4]
-        )
-
-    def test_parse_bare_double_bracket_output(self):
-        self.assertEqual(
-            parse_internvl_box("[[250,250,750,750]]"), [0.25, 0.25, 0.75, 0.75]
-        )
-
-    def test_parse_rejects_ambiguous_or_invalid(self):
-        self.assertIsNone(parse_internvl_box("no boxes here"))
-        self.assertIsNone(
-            parse_internvl_box("[[1,2,3,4]] and [[5,6,7,8]]")  # ambiguous
-        )
-        self.assertIsNone(parse_internvl_box("<box>[[900,0,100,100]]</box>"))  # x1>x2
-        self.assertIsNone(parse_internvl_box("<box>[[500,500,500,900]]</box>"))  # zero width
-
-
 class GroundingDINOContractTests(unittest.TestCase):
     def test_normalize_grounding_query_matches_official_demo(self):
         self.assertEqual(
@@ -453,7 +398,7 @@ class GroundingDINOContractTests(unittest.TestCase):
 
 class LocalModelPolicyTests(unittest.TestCase):
     def test_real_adapters_reject_missing_directory_before_loading(self):
-        for name in ("qwen3vl", "qwen3_5", "glm46v", "internvl35", "groundingdino"):
+        for name in ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v", "groundingdino"):
             with self.subTest(model=name):
                 with self.assertRaisesRegex(ValueError, "--model-path"):
                     get_adapter(name).load()
@@ -464,7 +409,7 @@ class LocalModelPolicyTests(unittest.TestCase):
     def test_loaders_explicitly_forbid_network_fallback(self):
         import ast
         import inspect
-        for name in ("qwen3vl", "qwen3_5", "glm46v", "internvl35", "groundingdino"):
+        for name in ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v", "groundingdino"):
             module = inspect.getmodule(type(get_adapter(name)))
             calls = [n for n in ast.walk(ast.parse(inspect.getsource(module)))
                      if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)

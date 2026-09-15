@@ -1,4 +1,4 @@
-"""Platform-agnostic inference core shared by cloud and offline entrypoints.
+"""Platform-agnostic inference core for the offline entrypoint.
 
 Pure, torch-free helpers for: loading inference items from the supported
 JSON shapes (approved annotation artifact, flat query index, or plain list),

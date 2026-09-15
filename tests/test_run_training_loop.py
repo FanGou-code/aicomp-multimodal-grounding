@@ -24,10 +24,13 @@ from aicomp_grounding.annotation_state import (
     approved_dataset_fingerprint,
 )
 from aicomp_grounding.config import ANNOTATION_PROTOCOL_VERSION
-from aicomp_grounding.io import atomic_write_json
+from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.sequence import source_fingerprint
 from aicomp_grounding.sharding import group_keys_by_scene
 from aicomp_grounding.training_core import (
+    candidate_metric_value,
+    initial_best_metric_value,
+    metric_improved,
     persist_training_plan,
     prepare_training_plan,
     run_training,
@@ -491,6 +494,82 @@ class HyperparameterOverrideTests(unittest.TestCase):
                             resume=True,
                             hyperparameter_overrides={key: val},
                         )
+
+
+class BestMetricTests(unittest.TestCase):
+    """``--best-metric`` may be a minimized metric (``val_loss``) as well as a
+    maximized one (accuracy / IoU); the two differ in source and direction."""
+
+    def test_metric_direction_and_source(self):
+        self.assertTrue(metric_improved("val_loss", 1.0, 2.0))
+        self.assertFalse(metric_improved("val_loss", 2.0, 1.0))
+        self.assertTrue(metric_improved("acc_at_0_5", 0.6, 0.5))
+        self.assertFalse(metric_improved("acc_at_0_5", 0.4, 0.5))
+        self.assertTrue(metric_improved("mean_iou", 0.4, 0.3))
+        self.assertFalse(metric_improved("mean_iou", 0.3, 0.4))
+        # A neutral incumbent must be worse than any real value in each direction.
+        self.assertEqual(initial_best_metric_value("val_loss"), float("inf"))
+        self.assertEqual(initial_best_metric_value("acc_at_0_5"), -1.0)
+        self.assertEqual(initial_best_metric_value("mean_iou"), -1.0)
+        epoch_metrics = {"acc_at_0_5": 0.5, "mean_iou": 0.3}
+        self.assertEqual(
+            candidate_metric_value("val_loss", epoch_metrics=epoch_metrics, val_loss=1.25),
+            1.25,
+        )
+        self.assertEqual(
+            candidate_metric_value("mean_iou", epoch_metrics=epoch_metrics, val_loss=1.25),
+            0.3,
+        )
+
+    def test_val_loss_best_metric_runs_every_epoch_and_selects_a_best_adapter(self):
+        """The grounding metric dict has no ``val_loss`` key, so this path used
+        to raise KeyError once the first epoch finished."""
+        calls: dict = {}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "annot_best_metric"
+            _write_fixture_images(root)
+            for split, scene in (("train", "001"), ("val", "002")):
+                atomic_write_json(
+                    root / "outputs" / "annotations" / run_id / split / "approved.json",
+                    _artifact(split, scene, run_id),
+                )
+            import sys as _sys
+            import peft as _peft  # noqa: F401 - import before the torch shim
+            import transformers as _transformers  # noqa: F401
+
+            with mock.patch(
+                "aicomp_grounding.training_core.get_adapter",
+                return_value=_fake_adapter(calls),
+            ) as adapter_patch, mock.patch(
+                "aicomp_grounding.models.get_adapter", adapter_patch
+            ), mock.patch.dict(
+                _sys.modules, {"torch": _CpuTorchShim(torch)}
+            ):
+                plan = prepare_training_plan(
+                    data_root=root,
+                    annotation_root=root / "outputs" / "annotations",
+                    output_root=root / "outputs",
+                    annotation_run_id=run_id,
+                    model="mimo_vl",
+                    run_tag="best-metric-val-loss",
+                    seed=42,
+                    resume=True,
+                    hyperparameter_overrides={
+                        "epochs": 2,
+                        "best_epoch_primary_metric": "val_loss",
+                    },
+                )
+                completed = run_training(plan, data_root=root)
+            self.assertEqual(completed["status"], "completed")
+            self.assertEqual(completed["best_metric"], "val_loss")
+            # By construction the selected adapters's val_loss is the winner.
+            self.assertEqual(completed["best_metric_value"], completed["best_val_loss"])
+            best_dir = Path(completed["best_path"])
+            self.assertTrue(best_dir.is_dir(), completed["best_path"])
+            self.assertEqual(best_dir.parent.name, "best")
+            manifest = load_json(best_dir / "adapter_manifest.json")
+            self.assertEqual(manifest["val_loss"], completed["best_val_loss"])
 
 
 if __name__ == "__main__":

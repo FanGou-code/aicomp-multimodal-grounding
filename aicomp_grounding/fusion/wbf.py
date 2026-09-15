@@ -3,8 +3,8 @@
 Design notes
 ------------
 - Input units are per-model ``predictions.json`` files (``{key: bbox|None}``),
-  i.e. exactly what the cloud/offline inference entries emit, so contributors
-  can exchange prediction files without any new contract.
+  i.e. exactly what the inference entrypoint emits, so contributors can
+  exchange prediction files without any new contract.
 - Weights are **model-level** (per input file). VLMs emit no calibrated
   confidence, so equal weights are the honest default; calibrate on val if
   budget allows. DINO's native per-box scores can be supplied via optional

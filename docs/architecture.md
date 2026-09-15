@@ -1,19 +1,18 @@
 # 仓库架构与协作接入指南
 
-本文件记录模块与数据边界；运行进度见 `handoff.md`，GPU 操作见 `sop.md`。
+本文件记录模块与数据边界；GPU 操作见 `sop.md`，数据布局见 `data-contract.md`。
 
-## 两仓职责
+## 模块职责
 
 | 位置 | 职责 |
 | --- | --- |
 | `aicomp_grounding/` | 图像、坐标、合同、运行身份、训练核心、模型适配、融合与提交 |
-| `offline/` | 训练/推理 CLI 与共享运行编排 |
-| `cloud/` | Modal 镜像、H100 与 Volume 包装，复用 `offline.run_cli` |
+| `offline/` | 训练/推理 CLI 与运行编排、ROCm 环境脚本 |
 | `scripts/` | 深度伪彩预处理、数据上传工具 |
-| `query-foundry` | 切分查重、教师普查、描述组装、人审与标注交付 |
+| `query-foundry` | 切分查重、教师普查、描述组装、人审与标注交付（独立仓库） |
 
-依赖方向：`cloud → offline → aicomp_grounding`。主仓训练只消费 `approved.json`，
-不导入数据构建仓代码。两仓不通过复制训练循环适配平台。
+依赖方向：`offline → aicomp_grounding`。主仓训练只消费 `approved.json`，
+不导入数据构建仓代码。
 
 数据流：原始图像 → 深度伪彩与索引 → 普查/组装/人审 → `approved.json`
 → 训练/验证/推理 → `fusion.wbf` → 官方模板 ZIP。
@@ -43,10 +42,8 @@ CLI 相对路径以 `--project-root` 解析。新训练可以使用不同输出�
 | --- | --- | --- | --- |
 | `qwen3vl` | RGB、IR、深度三图 | LoRA（仅语言模型） | 0–1000 整数 |
 | `qwen3_5` | RGB、IR、深度三图 | LoRA（仅语言模型） | 0–1000 整数 |
-| `qwen36_27b` | RGB、IR、深度三图 | LoRA（仅语言模型，Modal H100 专属） | 0–1000 整数 |
 | `mimo_vl` | RGB、IR、深度三图 | LoRA（仅语言模型） | JSON bbox 归一化 |
 | `glm46v` | RGB、IR、深度三图 | LoRA（仅语言模型） | 0–1000 整数 |
-| `internvl35` | RGB、IR、深度三图 | LoRA（仅语言模型），训练批量为 1 | 0–1000 整数 |
 | `groundingdino` | RGB | 仅推理，原生置信度 | 归一化 XYXY |
 | `mock` | 测试输入 | CPU 流程测试 | 归一化 XYXY |
 
@@ -57,25 +54,25 @@ CLI 相对路径以 `--project-root` 解析。新训练可以使用不同输出�
 `language_model_lora_targets()` 构造，即锚定 `model.language_model` 的正则。
 **锚定是共享的，名单是各适配器自己的**——语言模型暴露哪些投影属于该模型的
 个性（`glm46v` 的 MLP 融合为 `gate_up_proj`，只声明 `q/k/v/o/down_proj`；
-其余五个声明共享的 `DEFAULT_LORA_PROJECTIONS`）。视觉塔（`model.visual.*`、
+其余三个声明共享的 `DEFAULT_LORA_PROJECTIONS`）。视觉塔（`model.visual.*`、
 `model.vision_tower.*`）恒为冻结，只做前向。
 
 裸后缀名单（`["q_proj", ...]`）由 PEFT 按后缀匹配，会误伤复用同名投影的视觉塔：
-Qwen2.5-VL 系视觉 MLP 的 `gate_proj`/`up_proj`/`down_proj`、InternViT 注意力的
-`q_proj`/`k_proj`/`v_proj`。视觉塔一旦进入可训练集，其反向与梯度检查点重算
-即被强制打开，各适配器之间也不再可比。改动构造器或任一适配器的名单，须同步
-`tests/test_models.py` 的强制覆盖项、语言模型侧正向断言与视觉侧反向断言。
+Qwen2.5-VL 系视觉 MLP 的 `gate_proj`/`up_proj`/`down_proj` 会随 `mimo_vl` 被命中。
+视觉塔一旦进入可训练集，其反向与梯度检查点重算即被强制打开，各适配器之间也不再
+可比。改动构造器或任一适配器的名单，须同步 `tests/test_models.py` 的强制覆盖项、
+语言模型侧正向断言与视觉侧反向断言。
 
-**像素预算单位**：六个三模态适配器的 `min_pixels`/`max_pixels` 一律按单帧计，
+**像素预算单位**：四个三模态适配器的 `min_pixels`/`max_pixels` 一律按单帧计，
 并进 run 身份。`glm46v` 的处理器按 `temporal_factor × h × w` 比较，适配器在传给
-处理器时统一乘 `GLM_PIXEL_UNIT_FACTOR`；其余五个处理器的 `max_pixels` 本身就是
+处理器时统一乘 `GLM_PIXEL_UNIT_FACTOR`；其余三个处理器的 `max_pixels` 本身就是
 单帧单位。改动换算或预算值属配方变更，须换新标签。
 
 底座先下载到本地，通过 `--model-path` 指定。适配器拒绝缺少配置的目录，所有
 `from_pretrained` 调用采用 `local_files_only=True`，执行阶段不下载模型。
 模型名称、revision 和提示词是冻结协议；`MODEL_REVISION` 一律填来源仓库（魔搭或
-HF）的 commit id，取值与 `sop.md`、`cloud/README.md` 下载命令的 `--revision`
-相同——分支名会让身份字符串不变而权重移动。更改训练目标、解析行为或运行参数时使用新标签。
+HF）的 commit id，取值与 `sop.md` 下载命令的 `--revision` 相同——分支名会让身份
+字符串不变而权重移动。更改训练目标、解析行为或运行参数时使用新标签。
 
 ## 身份和恢复
 
