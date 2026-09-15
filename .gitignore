@@ -52,8 +52,10 @@ Thumbs.db
 # predictions, submissions) stays out of the repository.
 outputs/
 
-# Internal working notes: kept in the local checkout, never published.
+# Internal working notes and platform runbook: kept in the local checkout,
+# never published (README + docs/ carry everything an external user needs).
 docs/handoff*.md
 *handoff*.md
+docs/sop*.md
 AGENTS.md
 
