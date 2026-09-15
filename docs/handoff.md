@@ -23,10 +23,11 @@
   （锚定共享、名单各自声明），视觉塔恒为冻结；`glm46v` 补齐
   `min_pixels`/`max_pixels`。六个适配器的 run 身份均已变化，新 run 一律换新标签；
   已有 `outputs/` 产物不受影响。
-- 训练超参数解耦（2026-09-15）：`offline/train.py` 与 `cloud/train.py` 增加 6 个显式 CLI
+- 训练超参数解耦与评测批大小归一（2026-09-15）：`offline/train.py` 与 `cloud/train.py` 增加 6 个显式 CLI
   参数（`--batch-size`、`--gradient-accumulation-steps`、`--learning-rate`、
   `--epochs`、`--eval-batch-size`、`--best-metric`），默认均为 `None`；传参时覆盖
-  适配器默认值并进入 `training_run_id` 哈希指纹。
+  适配器默认值并进入 `training_run_id` 哈希指纹；六个可训练适配器的 `eval_batch_size`
+  默认值全部由 4 修正为 1，`sop.md` 与 `cloud/README.md` 中所有模型的训练指令均显式写出对应参数。
 - 验证损失批大小与冒烟日志（2026-09-15）：`training_core.py` 中 `val_loader` 的
   `batch_size` 恢复为与训练 micro-batch 相同的 `batch_size`（默认 1），消除在 AMD
   ROCm/MIOpen 平台因多形状触发的二次 JIT 编译；冒烟测试增加显式阶段日志。
@@ -52,6 +53,19 @@
 - 后续运行：按 SOP 做实际模型冒烟；涉及新解析/参数的实验使用新标签，不混入旧结果。
 
 ## 交接日志（追加式，新的写最上面）
+
+### 2026-09-15（评测批大小归一为 1 + SOP 指令显式补全训练超参）
+
+- **动因**：
+  1. 六个适配器的 `training_hyperparameters()` 内部仍残留历史默认值 `"eval_batch_size": 4`，与实际显存预算及单形状编译要求矛盾；
+  2. `docs/sop.md` 与 `cloud/README.md` 中的模型训练命令仅展示了基础参数，未显式列出解耦后的默认超参数，缺乏直观调用参考。
+- **改动**：
+  1. 六个可训练适配器（`qwen3vl`、`qwen3_5`、`glm46v`、`internvl35`、`mimo_vl`、`qwen36_27b`）及测试伪适配器中，`"eval_batch_size"` 默认值全部由 4 修正为 1。
+  2. `cloud/train.py`：`train()` 本地入口点补齐 `batch_size`、`gradient_accumulation_steps`、`learning_rate`、`epochs`、`eval_batch_size`、`best_metric` 6 个关键字参数，对齐 Modal CLI。
+  3. `docs/sop.md`：参数映射表中 `--eval-batch-size` 默认值更新为 `1`；各适配器的冒烟命令显式加入 `--batch-size 1 --eval-batch-size 1`，正式训练命令显式加入 `--batch-size 1 --gradient-accumulation-steps 16 --learning-rate 1e-4 --epochs 3 --eval-batch-size 1`。
+  4. `cloud/README.md`：Qwen3.6-27B 的 Modal 冒烟与正式训练命令同步显式补齐对应超参数。
+- **验证**：本地全量测试 `python -m unittest discover -s tests`，206 项单测通过（0 fail, 0 skip，耗时 6.75s）；`compileall` 全通过。
+- **下一步**：魔搭 DSW 执行 `git pull` 后运行冒烟，验证阶段进度打印与单形状复用下的执行耗时。
 
 ### 2026-09-15（训练超参 CLI 显式解耦 + 冒烟双形状 JIT 编译消除）
 

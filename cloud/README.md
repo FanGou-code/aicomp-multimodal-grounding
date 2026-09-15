@@ -46,11 +46,19 @@ modal volume put aicomp ./Qwen3.6-27B /models/Qwen/Qwen3.6-27B
 ```bash
 modal run cloud/train.py --model qwen36_27b \
   --annotation-run-id YOUR_ANNOTATION_RUN_ID \
-  --model-path /mnt/workspace/models/Qwen/Qwen3.6-27B --smoke-test
+  --model-path /mnt/workspace/models/Qwen/Qwen3.6-27B \
+  --batch-size 1 \
+  --eval-batch-size 1 \
+  --smoke-test
 
 modal run cloud/train.py --model qwen36_27b \
   --annotation-run-id YOUR_ANNOTATION_RUN_ID \
   --model-path /mnt/workspace/models/Qwen/Qwen3.6-27B \
+  --batch-size 1 \
+  --gradient-accumulation-steps 16 \
+  --learning-rate 1e-4 \
+  --epochs 3 \
+  --eval-batch-size 1 \
   --run-tag modal-qwen36-train-auditfix
 ```
 
