@@ -137,9 +137,9 @@ SHA-256，与测试集图像哈希集合比对，命中即从 train/val 候选�
 （跨集样本 ID 与序列不重叠、prompt 一致）。所有目标路径先整体检查再逐文件原子
 写入，默认不覆盖既有文件；校验失败时不产生任何交付文件。
 
-## 全链路数据工程流水线
+## 数据生产流水线
 
-```
+```text
 [主仓] prepare_rgbdt.py ──▶ data/{Train,Test,Processed}（三模态校验 + Depth-JET 伪彩）
         │
         ▼
@@ -162,14 +162,16 @@ SHA-256，与测试集图像哈希集合比对，命中即从 train/val 候选�
                           （4 重指纹 + 契约自校验；--export-to-main 直交主仓）
 ```
 
-各阶段产物与命令：
+`--data-root` 指图片目录，`--index-dir` 指索引目录；索引默认取本仓 `data/indexes/`，
+仍兼容旧的图片根下 `indexes/` 布局。
 
 ```bash
 # [1] 划分与去重（seed / 比例可调，默认 42 / 0.8）
 python scripts/prepare_split.py --raw-root /path/to/dataset \
     --seed 42 --train-ratio 0.8 --out-dir data/indexes
 
-# [2] 普查（API 调用；支持分片、断点续跑、失败重试）
+# [2] 普查（API 调用；--resume 断点续跑、--retry-failed 重试失败项、
+#     --preflight-only 只做计划与校验、--deep-verify-images 额外校验图像字节）
 python scripts/run_census.py --split train --limit-sequences 320 \
     --concurrency 48 --num-shards 16 --run-tag census-full-1 \
     --data-root /path/to/dataset --index-dir data/indexes
@@ -190,7 +192,13 @@ python scripts/package_approved.py \
              outputs/assembly/asm-val-r6/assembly.json \
     --run-id annot_r6 \
     --export-to-main ../aicomp-multimodal-grounding
+
+# 辅助入口
+python scripts/check_keys.py --data-root /path/to/dataset --index-dir data/indexes
+python scripts/review_report.py --census-run outputs/census/census_<id>
 ```
+
+真实 API 调用不属于单元测试范围。
 
 ## 与下游训练系统的生态联动
 
@@ -325,54 +333,6 @@ GLM-4.6V，经 OpenAI 协议端点调用，account 级并发受服务方限制�
 变更配方使用新的运行标签，不覆盖已有标注。
 
 密钥只走环境变量或 `keys/`（已 ignore），仓库内不含任何凭据。
-
-## 完整数据生产管线（Pipeline）
-
-以下为内部生产入口。`--data-root` 指图片目录，`--index-dir` 指索引目录；
-索引默认取本仓 `data/indexes/`，仍兼容旧的图片根下 `indexes/` 布局。
-
-### 数据准备与划分
-
-```bash
-python scripts/prepare_split.py --raw-root /path/to/dataset \
-    --seed 42 --train-ratio 0.8 --out-dir data/indexes
-```
-
-### Phase 1 普查（API 调用）
-
-```bash
-python scripts/run_census.py --split train --limit-sequences 320 \
-    --concurrency 48 --num-shards 16 --run-tag census-full-1 \
-    --data-root /path/to/dataset --index-dir data/indexes
-```
-
-支持 `--resume` 断点续跑（进行中序列与已完成帧复用）、`--retry-failed` 重试失败项、
-`--preflight-only` 只做计划与校验、`--deep-verify-images` 额外校验图像字节。
-真实 API 调用不属于单元测试范围。
-
-### Phase 2 组装（纯本地）
-
-```bash
-python scripts/assemble_queries.py --census-run outputs/census/census_<id> \
-    --run-tag asm-<tag> --data-root /path/to/dataset --index-dir data/indexes
-```
-
-### 烘焙与打包
-
-```bash
-python scripts/apply_review.py --assembly outputs/assembly/asm-train-r5/assembly.json \
-    --review-queries outputs/review/asm-train-r5/annotations.queries.json
-
-python scripts/package_approved.py --assembly outputs/assembly/asm-train-r6/assembly.json \
-    --run-id annot_r6 --export-to-main ../aicomp-multimodal-grounding
-```
-
-### Key 测活与审查报告
-
-```bash
-python scripts/check_keys.py --data-root /path/to/dataset --index-dir data/indexes
-python scripts/review_report.py --census-run outputs/census/census_<id>
-```
 
 ## 合并与交付
 
