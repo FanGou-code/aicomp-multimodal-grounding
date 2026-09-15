@@ -62,7 +62,7 @@
 - **改动**：
   1. 六个可训练适配器（`qwen3vl`、`qwen3_5`、`glm46v`、`internvl35`、`mimo_vl`、`qwen36_27b`）及测试伪适配器中，`"eval_batch_size"` 默认值全部由 4 修正为 1。
   2. `cloud/train.py`：`train()` 本地入口点补齐 `batch_size`、`gradient_accumulation_steps`、`learning_rate`、`epochs`、`eval_batch_size`、`best_metric` 6 个关键字参数，对齐 Modal CLI。
-  3. `docs/sop.md`：参数映射表中 `--eval-batch-size` 默认值更新为 `1`；各适配器的冒烟命令显式加入 `--batch-size 1 --eval-batch-size 1`，正式训练命令显式加入 `--batch-size 1 --gradient-accumulation-steps 16 --learning-rate 1e-4 --epochs 3 --eval-batch-size 1`。
+  3. `docs/sop.md`：移除冗余解释表格，保持纯指令 SOP 形式；各适配器的冒烟命令显式加入 `--batch-size 1 --eval-batch-size 1`，正式训练命令显式加入 `--batch-size 1 --gradient-accumulation-steps 16 --learning-rate 1e-4 --epochs 3 --eval-batch-size 1`。
   4. `cloud/README.md`：Qwen3.6-27B 的 Modal 冒烟与正式训练命令同步显式补齐对应超参数。
 - **验证**：本地全量测试 `python -m unittest discover -s tests`，206 项单测通过（0 fail, 0 skip，耗时 6.75s）；`compileall` 全通过。
 - **下一步**：魔搭 DSW 执行 `git pull` 后运行冒烟，验证阶段进度打印与单形状复用下的执行耗时。
