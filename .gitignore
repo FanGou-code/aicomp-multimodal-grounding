@@ -18,6 +18,7 @@ keys/
 # Internal handoff & private docs
 docs/handoff*.md
 *handoff*.md
+AGENTS.md
 
 # Intermediate pipeline outputs & caches
 outputs/
