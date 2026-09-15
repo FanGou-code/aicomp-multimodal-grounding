@@ -49,10 +49,6 @@ test -f outputs/annotations/<run_id>/train/approved.json
 
 ## 3. 创建并激活环境
 
-依赖唯一声明源是根 `pyproject.toml`（`dependencies` + extras）。torch 为范围
-（`>=2.8,<3`），平台镜像自带版本落在范围内即被 pip 判定已满足、自动跳过；
-其余四件套 `==` 紧 pin，跨平台一致。
-
 **首次执行（建一次）**：
 
 ```bash
@@ -106,15 +102,7 @@ pip install -e ".[kernels]" \
 python -c "import fla, causal_conv1d; print(fla.__version__, causal_conv1d.__version__)"
 ```
 
-**venv 在持久盘 `/mnt/workspace` 上，同镜像代际的实例间直接复用，无需重建。**
-仅当持久盘被清空、或镜像大版本更换导致底座 python 路径变化时，按「首次执行」
-重走一遍即可（pip 与 Triton 缓存持久，重装为秒级）。
-
 ## 4. 下载模型（首次执行）
-
-训练和推理不自动下载底座。先完成下载，再传 `--model-path`；缺文件时程序报错。
-每条命令都带 `--revision`，取值与适配器里的 `MODEL_REVISION` 相同：身份字符串
-和磁盘上的字节指向同一个快照（`tests/test_models.py` 逐个钉死）。
 
 ```bash
 export MODEL_ROOT=/mnt/workspace/models
@@ -149,32 +137,17 @@ df -h /mnt/workspace
 
 ## 5. 训练
 
-训练命令统一使用 `offline/train.py`。先跑 smoke，再启动完整训练。更改代码中的
-目标格式、解析或参数后，下面的示例标签应改为新标签，不混入旧结果。
+### 冒烟
 
-### 冒烟口径
+冒烟只跑 1 个 micro-batch；权重加载期间没有输出属正常，用 `rocm-smi` 看利用率。
+通过时打印 `Training smoke passed` 与 `trainable params: <N>`，`<N>` 期望值：
 
-- 冒烟**不带** `--num-workers`：DataLoader 用 fork，权重加载与加速器上下文初始化
-  之后再 fork 在冒烟阶段没有收益；正式训练再带。
-- 权重加载期间**没有任何输出是正常的**（8B bf16 权重读盘 + 建 PEFT 需要分钟级），
-  用 `nvidia-smi` / `rocm-smi` 的利用率区分读盘与卡死。
-- 冒烟只跑 **1 个 micro-batch**，所以 `冒烟单步耗时 × gradient_accumulation_steps`
-  才是等效的 s/step。
-- 最快的通过判据是打印行 `trainable params: <N>`，各模型期望值：
-
-| 模型 | 冒烟应打印的 `trainable params` |
+| 模型 | `trainable params` |
 | --- | --- |
 | `qwen3vl` | 43,646,976 |
 | `qwen3_5` | 29,097,984 |
 | `mimo_vl` | 41,435,136 |
 | `glm46v` | 27,443,200 |
-
-期望值由适配器声明的 LoRA 投影集合与语言模型隐层尺寸决定，可在有模型 config 的
-机器上按 meta device 复算；数值与一次 `glm46v` 冒烟日志逐位吻合。
-打印值与上表不符时，先确认 `--model-path` 指向的 revision 与适配器声明的
-`MODEL_REVISION` 一致、且 LoRA 名单未被改动。
-
-冒烟通过会打印 `Training smoke passed`。
 
 ### Qwen3-VL-8B
 
@@ -288,17 +261,17 @@ python offline/train.py \
   --checkpoint-interval 20
 ```
 
-### 显存配置说明
+### 训练参数
 
-- 四个可训练模型的训练 micro-batch 固定为 1，等效批大小由
-  `--gradient-accumulation-steps 16` 提供；`--eval-batch-size` 保持 1，使训练与
-  验证只存在一种张量形状，避免 ROCm / MIOpen 上的第二轮 JIT 编译。
-- 显存不足时优先下调 `--max-pixels`（单帧视觉 token 预算），代价是定位精度；
-  它不是身份里的默认值，改动会生成新的 run id。
-- 上述四个模型的训练超参默认值相同（lr 1e-4 / 3 epoch / LoRA r16 α32），
-  可用 6 个 CLI 参数逐个覆盖：`--batch-size`、`--gradient-accumulation-steps`、
-  `--learning-rate`、`--epochs`、`--eval-batch-size`、`--best-metric`
-  （`acc_at_0_5` / `mean_iou` / `val_loss`；前两者越大越好，`val_loss` 越小越好）。
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `--batch-size` | 1 | micro-batch |
+| `--gradient-accumulation-steps` | 16 | 等效批大小 = `--batch-size` × 本值 |
+| `--learning-rate` | 1e-4 | |
+| `--epochs` | 3 | |
+| `--eval-batch-size` | 1 | 与 `--batch-size` 保持一致：训练与验证共用一种张量形状 |
+| `--best-metric` | `acc_at_0_5` | `acc_at_0_5` / `mean_iou` 越大越好，`val_loss` 越小越好 |
+| `--max-pixels` | 3072×28×28 | 单帧视觉 token 预算；显存不足时优先下调，会改变 run id |
 
 ### GroundingDINO-B
 
@@ -306,10 +279,7 @@ GroundingDINO 走零样本推理，不执行 `offline/train.py`，也不需要 L
 
 ## 6. 推理
 
-VLM 三图模型统一使用：
-
 ```text
---test-json data/Test/queries/queries.json
 --data-dir data
 --num-shards 1
 --num-workers 2
@@ -317,10 +287,11 @@ VLM 三图模型统一使用：
 --batch-save 100
 ```
 
-每个 VLM 按微调后（带 LoRA）执行。GroundingDINO 使用 `--num-workers 4
---batch-size 8` 且不传 `--lora-path`。每类先 smoke（加 `--limit 100`），再全量。
-验证集评测把 `--test-json` 指向 `outputs/annotations/<run_id>/val/approved.json`
-并加 `--annotation-run-id <run_id>`，程序会打印 ACC@0.5、平均 IoU 与解析失败数。
+加 `--limit 100` 先冒烟，再去掉全量。验证集评测把 `--test-json` 指向
+`outputs/annotations/<run_id>/val/approved.json` 并加 `--annotation-run-id <run_id>`，
+会打印 ACC@0.5 / 平均 IoU / 解析失败数；测试集用官方模板
+`data/Test/queries/queries.json`。GroundingDINO 用 `--num-workers 4 --batch-size 8`
+且不传 `--lora-path`。
 
 ### Qwen3-VL-8B
 
@@ -409,8 +380,6 @@ python offline/infer.py \
   --num-shards 1 --num-workers 2 \
   --batch-size 2 --batch-save 100 --run-tag glm46v-full
 ```
-
-零样本探针可省略 `--lora-path`。
 
 ### GroundingDINO-B（Zero-shot）
 

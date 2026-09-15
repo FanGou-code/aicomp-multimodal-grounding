@@ -64,36 +64,26 @@ data:     {sample_id: {visible, infrared, depth, query, bbox, width, height}}
 
 `query-foundry/scripts/prepare_split.py` 整合了 BBox 异常清洗与测试集 SHA-256 查重，是索引与留痕的唯一生成器。产物位于 `query-foundry/data/indexes/`，纳入 Git 追踪。
 
-## 迁移说明（2026-09-05 至 2026-09-08）
-
-- 标注生产线分离后，`indexes/` 与 `excluded_overlap.json` 完整收口在 query-foundry
-  （训练只消费 `approved.json`，其数据与指纹自包含）；
-  图像仍在主仓，foundry 的 `--data-root` 指向主仓 `data/`，
-  `--index-dir` 指向 foundry 的 `data/indexes/`。
-- 2026-09-08：副仓升级 `prepare_split.py` 支持 Test 图像自动探测并生成
-  `data/indexes/excluded_overlap.json`，清理主仓未追踪临时目录 `data/audits_from_foundry`。
-- golden `approved.json` 的 `source_fingerprint` / `preparation_fingerprint`
-  是内容哈希，文件迁移不影响校验（preflight 复算 run-id 逐字节一致）。
+图像本体只在主仓：`query-foundry` 以 `--data-root` 指向主仓 `data/`，以自己的
+`--index-dir` 指向 `query-foundry/data/indexes/`，两侧不建符号链接。
 
 ## 魔搭数据集
 
-- Dataset Repo：`Fang001/rgbdt-grounding-dataset`（打包 `data.tar`）
-- 组装命令（首次，见 `docs/sop.md` 第 2 节）：
-
-```bash
-modelscope download --dataset Fang001/rgbdt-grounding-dataset data.tar \
-  --local_dir /root/rgbdt-download
-tar -xf /root/rgbdt-download/data.tar -C data --no-same-owner
-rm -rf /root/rgbdt-download
-```
+- Dataset Repo：`Fang001/rgbdt-grounding-dataset`，打包 `data.tar`，
+  解压后得到 `Train/`、`Test/`（赛事渠道另给）与 `Processed/`。
+- 下载与解压命令见 `docs/sop.md` 第 2 节。
 
 ## 校验锚
 
 标注生产线预检会比对 `split_manifest.json` 的
-`index_fingerprints[split]`（内容哈希）与 `index_sample_counts[split]`；
-因此索引文件移动位置不影响指纹，但内容必须由生成器产出。协议 2 的既有两种
-JSON 序列化哈希均可读取；生成器继续使用已提交索引的格式，不回写历史文件。
+`index_fingerprints[split]`（内容哈希）与 `index_sample_counts[split]`，
+索引内容必须由生成器产出。
 
-`approved.json` 的 `manifest_` 图像指纹绑定路径和尺寸，不包含图像字节。
-训练前会重算该指纹并与审批产物比对（纯内存校验，不解码图像）；历史图像
-内容版本由数据交付方另外固定。打包后的同帧描述必须唯一，跨 split 检查通过后才发布。
+训练侧在读入 train/val 产物时比对三类指纹：`source_fingerprint` 与
+`dataset_fingerprint` 由数据内容复算（`annotation_state.validate_approved_artifact`），
+`image_fingerprint` 仅在记录值带 `manifest_` 前缀时复算并比对路径与记录尺寸，
+不一致即中止（`training_core.py` 的 `prepare_training_plan`，纯内存、不解码图像）。
+图像字节版本不在校验范围内，由数据交付方固定。
+
+同帧描述必须唯一：`package_approved.py` 拒绝同一帧内重复的描述，train/val
+联合打包时还要求两侧样本 ID 与序列 ID 不重叠。
