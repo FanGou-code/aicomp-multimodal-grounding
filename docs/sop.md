@@ -18,7 +18,7 @@
 
 ```bash
 cd /mnt/workspace
-git clone <REPOSITORY_URL> aicomp-multimodal-grounding
+git clone https://github.com/FanGou-code/aicomp-multimodal-grounding.git
 cd aicomp-multimodal-grounding
 ```
 
