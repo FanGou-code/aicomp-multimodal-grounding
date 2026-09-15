@@ -11,14 +11,14 @@ RGB-D-T（可见光、热红外、深度）三模态目标视觉定位的微调�
 
 ## 模型支持
 
-| `--model` | 底座 | 模态 | 坐标协议 | 训练 |
-| --- | --- | --- | --- | --- |
-| `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | RGB + 红外 + 深度 | `<|box_start|>(x1,y1),(x2,y2)<|box_end|>`，整数 0–1000 | LoRA |
-| `qwen3_5` | `Qwen/Qwen3.5-9B` | RGB + 红外 + 深度 | 同上 | LoRA |
-| `mimo_vl` | `XiaomiMiMo/MiMo-VL-7B-RL` | RGB + 红外 + 深度 | JSON `[{"bbox_2d": [x1,y1,x2,y2]}]`，像素坐标按帧尺寸归一 | LoRA |
-| `glm46v` | `zai-org/GLM-4.6V-Flash` | RGB + 红外 + 深度 | `|begin_of_box|x1,y1,x2,y2|end_of_box|`，整数 0–1000 | LoRA |
-| `groundingdino` | `IDEA-Research/grounding-dino-base` | 仅 RGB | 归一化 XYXY + 原生置信度 | 仅推理（零样本） |
-| `mock` | — | 接口占位 | 归一化 XYXY | 仅测试 |
+| `--model` | 底座 | 模态 | 训练 |
+| --- | --- | --- | --- |
+| `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | RGB + 红外 + 深度 | LoRA |
+| `qwen3_5` | `Qwen/Qwen3.5-9B` | RGB + 红外 + 深度 | LoRA |
+| `mimo_vl` | `XiaomiMiMo/MiMo-VL-7B-RL` | RGB + 红外 + 深度 | LoRA |
+| `glm46v` | `zai-org/GLM-4.6V-Flash` | RGB + 红外 + 深度 | LoRA |
+| `groundingdino` | `IDEA-Research/grounding-dino-base` | 仅 RGB | 仅推理（零样本） |
+| `mock` | — | 接口占位 | 仅测试 |
 
 ## 安装
 
@@ -111,12 +111,6 @@ python offline/train.py --annotation-run-id <run_id> --model qwen3vl \
 | `--best-metric` | `acc_at_0_5` | `acc_at_0_5` / `mean_iou` 越大越好，`val_loss` 越小越好 |
 | `--max-pixels` | 3072×28×28 | 单帧视觉 token 预算；显存不足时优先下调，会改变运行身份 |
 
-冒烟通过时打印 `Training smoke passed`；`trainable params` 为：
-
-| `qwen3vl` | `qwen3_5` | `mimo_vl` | `glm46v` |
-| --- | --- | --- | --- |
-| 43,646,976 | 29,097,984 | 41,435,136 | 27,443,200 |
-
 ## 推理与评测
 
 ```bash
@@ -135,8 +129,7 @@ python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct
   --run-tag test-full
 ```
 
-`--limit 100` 用于小样本试跑。中断后用 `--resume`（默认开启）续跑。`groundingdino`
-输入单张可见光图像，省略 `--lora-path`，用 `--num-workers 4 --batch-size 8`。
+`--limit 100` 用于小样本试跑。中断后用 `--resume`（默认开启）续跑。
 
 ## 融合与提交
 
