@@ -10,6 +10,7 @@ filesystem writes are already atomic.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import re
@@ -95,6 +96,15 @@ def _validate_training_bboxes(datasets: list[tuple[str, dict]]) -> None:
                 )
 
 
+def _autocast(device, dtype):
+    """Autocast on CUDA; on CPU the step runs in the requested dtype as-is."""
+    if getattr(device, "type", "cpu") == "cuda":
+        import torch
+
+        return torch.autocast(device_type="cuda", dtype=dtype)
+    return contextlib.nullcontext()
+
+
 def _evaluate_grounding_metrics(
     *,
     adapter,
@@ -145,9 +155,7 @@ def _evaluate_grounding_metrics(
         inputs = adapter.build_grounding_batch(samples, processor=processor)
         inputs = {key: value.to(device) for key, value in inputs.items()}
 
-        with torch.no_grad(), torch.autocast(
-            device_type="cuda", dtype=torch.bfloat16
-        ):
+        with torch.no_grad(), _autocast(device, torch.bfloat16):
             generated_ids = model.generate(
                 **inputs,
                 max_new_tokens=adapter.generation_config["max_new_tokens"],
@@ -446,12 +454,15 @@ def run_training(
     commit_hook=None,
     num_workers: int = 0,
     checkpoint_interval: int = 20,
+    allow_cpu: bool = False,
 ) -> dict:
     """Execute the LoRA training run described by ``training_plan``.
 
     ``data_root`` locates the dataset (images and annotation artifacts);
     ``commit_hook`` is invoked after every checkpoint persistence so remote
-    storage can snapshot; local runs simply omit it.
+    storage can snapshot; local runs simply omit it. ``allow_cpu`` permits a
+    CPU run when no CUDA/HIP device is visible; production callers leave it
+    False so a missing GPU still fails loudly.
     """
     import torch
     from peft import LoraConfig, PeftModel, get_peft_model
@@ -528,14 +539,15 @@ def run_training(
     seed = metadata["seed"]
     random_seed = int(seed)
     torch.manual_seed(random_seed)
-    if torch.cuda.is_available():
+    use_cuda = torch.cuda.is_available()
+    if use_cuda:
         torch.cuda.manual_seed_all(random_seed)
-    if not torch.cuda.is_available():
+    elif not allow_cpu:
         raise RuntimeError("LoRA training requires the requested CUDA/HIP GPU")
-    if not torch.cuda.is_bf16_supported():
+    if use_cuda and not torch.cuda.is_bf16_supported():
         raise RuntimeError("This training configuration requires CUDA bfloat16 support")
-    device = torch.device("cuda:0")
-    compute_dtype = torch.bfloat16
+    device = torch.device("cuda:0" if use_cuda else "cpu")
+    compute_dtype = torch.bfloat16 if use_cuda else torch.float32
 
     base_model, processor = adapter.load_for_training(
         device=device, model_path=training_plan.get("model_path")
@@ -745,7 +757,7 @@ def run_training(
         model.train()
         optimizer.zero_grad(set_to_none=True)
         batch = move_batch_to_device(cpu_batch, device)
-        with torch.autocast(device_type="cuda", dtype=compute_dtype):
+        with _autocast(device, compute_dtype):
             smoke_train_loss = model(**batch).loss
         if not torch.isfinite(smoke_train_loss):
             raise FloatingPointError("Non-finite training loss in one-batch smoke test")
@@ -757,7 +769,7 @@ def run_training(
         print(f"[{_log_now()}] [smoke] Running validation loss forward...", flush=True)
         model.eval()
         validation_batch = move_batch_to_device(validation_cpu_batch, device)
-        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=compute_dtype):
+        with torch.no_grad(), _autocast(device, compute_dtype):
             smoke_val_loss = model(**validation_batch).loss
         if not torch.isfinite(smoke_val_loss):
             raise FloatingPointError("Non-finite validation loss in one-batch smoke test")
@@ -798,7 +810,7 @@ def run_training(
         last_log_step = global_step
         for batch_index, cpu_batch in enumerate(train_iter, start=skip_batches):
             batch = move_batch_to_device(cpu_batch, device)
-            with torch.autocast(device_type="cuda", dtype=compute_dtype):
+            with _autocast(device, compute_dtype):
                 outputs = model(**batch)
             raw_loss = outputs.loss
             if not torch.isfinite(raw_loss):
@@ -881,7 +893,7 @@ def run_training(
         with torch.no_grad():
             for cpu_batch in val_loader:
                 batch = move_batch_to_device(cpu_batch, device)
-                with torch.autocast(device_type="cuda", dtype=compute_dtype):
+                with _autocast(device, compute_dtype):
                     loss = model(**batch).loss
                 if not torch.isfinite(loss):
                     raise FloatingPointError(f"Non-finite validation loss at epoch {epoch + 1}")
