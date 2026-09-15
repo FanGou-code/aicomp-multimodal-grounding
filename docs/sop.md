@@ -150,7 +150,6 @@ df -h /mnt/workspace
 ## 5. 训练
 
 训练命令统一使用 `offline/train.py`。先跑 smoke，再启动完整训练。
-仅检查数据合同可使用 `--preflight-only`，不会加载权重或写训练计划。
 更改代码中的目标格式、解析或参数后，下面的示例标签应改为新标签，不混入旧结果。
 本节覆盖 DSW 上可训练的五个适配器；`qwen36_27b`（Qwen3.6-27B）只在 Modal 上运行，
 镜像、权重与 Volume 布局见 `cloud/README.md`。
