@@ -85,14 +85,14 @@
 6. **单张量形状**：验证损失与训练共用同一 micro-batch 大小（默认 1），避免多形状触发
    算子二次编译。
 7. **离线加载**：所有 `from_pretrained` 使用 `local_files_only=True`；底座目录由调用者
-   提供，本单元不校验该目录与声明 revision 的对应关系。
+   提供，本仓库不校验该目录与声明 revision 的对应关系。
 8. **产物自洽**：`approved.json` 的 `source_fingerprint` 与 `dataset_fingerprint` 在
    读入时复算比对；`image_fingerprint` 在记录值带 `manifest_` 前缀时复算比对。
 
 ## 不提供
 
 `cloud/`（云端调度壳）、`internvl35`、`qwen36_27b` 已移除；平台相关差异只保留
-`offline/rocm_env.sh` 一处。本单元不提供数据集、模型权重、标注产物与运行结果。
+`offline/rocm_env.sh` 一处。本仓库不提供数据集、模型权重、标注产物与运行结果。
 
 ## 契约边界
 

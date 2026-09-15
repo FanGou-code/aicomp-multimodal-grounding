@@ -1,17 +1,13 @@
 # RGBDT-Grounding
 
-离线、平台无关的 RGB-D-T（可见光 / 热红外 / 深度）三模态目标视觉定位实验单元。
+RGB-D-T（可见光、热红外、深度）三模态目标视觉定位的微调与评测代码。
 
 输入同一场景已对齐的三张图像与一句英文目标描述（query），输出目标在可见光图像中的
-归一化边界框 `[x1, y1, x2, y2]`。唯一评测指标 `ACC@0.5`：与真值框 IoU ≥ 0.5 记为
-命中，命中数 / 查询总数。支持 4 款开源视觉大模型（LoRA 微调）与 1 个零样本检测基线，
-统一 adapter 协议，用于在一致口径下做底座对比实验。
+归一化边界框 `[x1, y1, x2, y2]`。指标为 `ACC@0.5`：与真值框 IoU ≥ 0.5 记为命中，
+命中数 / 查询总数。支持四款视觉大模型的 LoRA 微调与一个零样本检测基线，统一 adapter
+协议。
 
-**运行契约**：所有模型加载走 `local_files_only=True`，训练与推理入口在运行期不访问
-网络、不自动下载。权重、数据与标注产物全部由调用者以本地目录提供，可复现性不依赖
-任何平台或镜像。
-
-**本仓库不包含**：数据集与图像、模型权重、标注产物、运行结果与榜单成绩。
+仓库只提供代码，不含数据集、模型权重与标注产物。
 
 ## 模型支持
 
@@ -26,7 +22,7 @@
 
 ## 安装
 
-Python 3.12；依赖的唯一声明源是根 `pyproject.toml`。
+Python 3.12；依赖在根 `pyproject.toml` 声明。
 
 ```bash
 pip install -e .             # 运行依赖（torch 声明为范围，平台已装版本自动跳过）
@@ -50,9 +46,9 @@ pip install -e ".[kernels]"
 
 ## 准备权重
 
-底座权重需自行下载到本地目录，再用 `--model-path` 指给入口。适配器按下表记录来源
-快照（`tests/test_models.py` 逐值钉死）；执行时**不校验**目录与 revision 是否对应——
-目录内容即事实，revision 只用于追溯与运行身份。
+权重需自行下载到本地目录，用 `--model-path` 指给入口；训练与推理不下载文件。下表是
+各适配器记录的来源快照（`tests/test_models.py` 逐值钉死）；执行时不校验目录与
+revision 是否对应，revision 只用于追溯与运行身份。
 
 | `--model` | 权重仓库 | revision |
 | --- | --- | --- |
@@ -63,7 +59,7 @@ pip install -e ".[kernels]"
 | `groundingdino` | `IDEA-Research/grounding-dino-base` | `d06985a44c66b6133c131bd273293be8649cfe3a` |
 
 ```bash
-# 以 Hugging Face CLI 为例；其它镜像取到同版本目录即可
+# 以 Hugging Face CLI 为例
 huggingface-cli download Qwen/Qwen3-VL-8B-Instruct \
   --revision 5d854aab08710c16b980ec6d603d863b3821b915 \
   --local-dir models/Qwen3-VL-8B-Instruct
@@ -102,8 +98,8 @@ python offline/train.py --annotation-run-id <run_id> --model qwen3vl \
   --eval-batch-size 1 --num-workers 4 --checkpoint-interval 20 --run-tag qwen3vl-r1
 ```
 
-换 `--model`（`qwen3vl` / `qwen3_5` / `mimo_vl` / `glm46v`）与对应的 `--model-path`
-即可训练其它底座。
+训练其它模型时替换 `--model`（`qwen3vl` / `qwen3_5` / `mimo_vl` / `glm46v`）与
+`--model-path`。
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
@@ -115,10 +111,11 @@ python offline/train.py --annotation-run-id <run_id> --model qwen3vl \
 | `--best-metric` | `acc_at_0_5` | `acc_at_0_5` / `mean_iou` 越大越好，`val_loss` 越小越好 |
 | `--max-pixels` | 3072×28×28 | 单帧视觉 token 预算；显存不足时优先下调，会改变运行身份 |
 
-**冒烟自检**：通过时打印 `Training smoke passed` 与 `trainable params: <N>`，
-`<N>` 应为 43,646,976（`qwen3vl`）/ 29,097,984（`qwen3_5`）/ 41,435,136（`mimo_vl`）/
-27,443,200（`glm46v`）；数值不符通常意味着 `--model-path` 指向了别的 revision，
-或 LoRA 目标层被改动。
+冒烟通过时打印 `Training smoke passed`；`trainable params` 为：
+
+| `qwen3vl` | `qwen3_5` | `mimo_vl` | `glm46v` |
+| --- | --- | --- | --- |
+| 43,646,976 | 29,097,984 | 41,435,136 | 27,443,200 |
 
 ## 推理与评测
 
@@ -138,9 +135,9 @@ python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct
   --run-tag test-full
 ```
 
-加 `--limit 100` 先小样本试跑。`--num-shards N` 在本机多卡上拆分推理，每个分片独立
-落 checkpoint，中断后加 `--resume`（默认开启）继续；结果冲突会被拒绝而不是静默覆盖。
-`groundingdino` 为单图零样本，不传 `--lora-path`，用 `--num-workers 4 --batch-size 8`。
+`--limit 100` 用于小样本试跑。`--num-shards N` 拆分到多卡，每个分片独立落
+checkpoint，中断后用 `--resume`（默认开启）续跑；冲突结果会被拒绝。`groundingdino`
+输入单张可见光图像，省略 `--lora-path`，用 `--num-workers 4 --batch-size 8`。
 
 ## 融合与提交
 
@@ -162,11 +159,11 @@ python -m aicomp_grounding.submission \
 
 ## 运行身份与产物
 
-训练与推理的产物目录名即运行身份：由模型 revision、提示词哈希、数据与图像指纹、
-像素预算、超参、种子与 `--run-tag` 共同哈希得出。因此：
+产物目录名即运行身份，由模型 revision、提示词哈希、数据与图像指纹、像素预算、超参、
+种子与 `--run-tag` 共同哈希得出：
 
-- 同一份输入与参数会命中同一个 run id，可安全重跑（默认 `--resume` 续跑）；
-- 任何参数或数据变更都会分流到新目录，**不覆盖**既有产物；
+- 同一份输入与参数命中同一个 run id（默认 `--resume` 续跑）；
+- 参数或数据变更分流到新目录，不覆盖既有产物；
 - 训练产物在 `outputs/output_lora/<run_id>/`（`plan.json`、`checkpoints/`、`best/`、
   `last/`、`completed.json`），推理产物在 `outputs/inference/<run_id>/`。
 
@@ -190,13 +187,12 @@ python -m aicomp_grounding.submission \
 ## 测试
 
 ```bash
-python -m unittest discover -s tests                      # 约 200 项，纯 CPU
+python -m unittest discover -s tests                      # 208 项，纯 CPU
 python -m compileall aicomp_grounding scripts offline      # 语法检查
 ```
 
-覆盖：坐标与解析、产物合同与指纹、训练/推理身份与状态机、断点恢复、融合与提交包、
-mock 端到端链路。**不覆盖**：真实权重加载、生成质量、步时与显存——这些需在 GPU 上
-用冒烟与真实评测验证。
+覆盖坐标与解析、产物合同与指纹、训练/推理身份与状态机、断点恢复、融合与提交包、
+mock 端到端链路；不覆盖真实权重加载、生成质量、步时与显存（需 GPU）。
 
 ## 目录结构
 
@@ -226,8 +222,8 @@ docs/                      架构、数据合同、赛题说明
 - 训练与推理需自备 GPU（CUDA 或 ROCm）；CPU 只能跑契约测试与 `mock` 链路。
 - `qwen3_5` 依赖 GDN 加速内核（`pip install -e ".[kernels]"`），未安装时静默回退到
   较慢的 torch 实现。
-- 三模态输入须已时间同步与空间对齐；本单元不做配准与同步。
-- 本单元不校验 `--model-path` 目录与声明 revision 的对应关系，也不校验图像字节版本。
+- 三模态输入须已时间同步与空间对齐；本仓库不做配准与同步。
+- 本仓库不校验 `--model-path` 目录与声明 revision 的对应关系，也不校验图像字节版本。
 - 恢复已有训练记录时，产物目录必须原地保留（记录里保存的是绝对路径，不提供跨目录
   迁移）；新训练可以用不同的 `--output-root`。
 
