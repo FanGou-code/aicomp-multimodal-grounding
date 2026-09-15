@@ -40,7 +40,7 @@ _DEFAULT_KEEP = {
     "antlers", "smaller antlers", "metal railing with vertical bars", "metal railing with blue accents",
     "broken log segments", "grass on sloped bank", "grass on sloped area", "dark pants",
     "trees behind bridge", "trees and foliage", "small narrow leaves", "branches",
-    "tall trees with pink blossoms", "bushes near water", "white text and symbols",
+    "tall trees with pink blossoms", "bushes near water",
     "gray leggings", "shorts", "pants and white shoes", "wooden slats", "long hair, carrying a bag",
     "dark pants on person",
 }

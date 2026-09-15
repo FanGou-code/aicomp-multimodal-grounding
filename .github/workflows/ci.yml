@@ -15,5 +15,6 @@ jobs:
           python-version: "3.12"
       # [pipeline] carries Pillow + numpy, needed by the depth/view tests.
       # The review tool layer stays dependency-free and is covered by the same run.
-      - run: pip install -e ".[pipeline]"
+      - run: pip install -e ".[pipeline]" ruff
+      - run: ruff check .
       - run: python -m unittest discover -s tests -v
