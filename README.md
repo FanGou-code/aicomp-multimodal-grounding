@@ -173,7 +173,7 @@ python scripts/prepare_split.py --raw-root /path/to/dataset \
 # [2] 普查（API 调用；--resume 断点续跑、--retry-failed 重试失败项、
 #     --preflight-only 只做计划与校验、--deep-verify-images 额外校验图像字节）
 python scripts/run_census.py --split train --limit-sequences 320 \
-    --concurrency 48 --num-shards 16 --run-tag census-full-1 \
+    --num-shards 96 --run-tag census-full-1 \
     --data-root /path/to/dataset --index-dir data/indexes
 
 # [3] 组装（纯本地，确定性）
