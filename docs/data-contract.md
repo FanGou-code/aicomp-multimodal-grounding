@@ -19,8 +19,8 @@ outputs/                      运行产物，不入库
   submission/<run_id>/        submission.zip
 ```
 
-`Train/` 与 `Test/` 是不可变本体；`Processed/` 是 `scripts/prepare_rgbdt.py` 的确定性
-构建产物。除 `data/` 与 `outputs/` 外，上游标注生产线另有索引与查重留痕，见下。
+`Train/` 与 `Test/` 是原始数据，`Processed/` 由 `scripts/prepare_rgbdt.py` 生成。
+上游标注流水线的索引与查重留痕不在本仓，见「产物与责任边界」。
 
 ## 三模态输入格式
 
@@ -40,13 +40,13 @@ outputs/                      运行产物，不入库
 | --- | --- | --- | --- |
 | `data/Train`、`data/Test`、`data/Processed` | 数据交付方 + `scripts/prepare_rgbdt.py` | 本仓训练/推理；上游标注流水线 | 本地目录 |
 | `query-foundry/data/indexes/{train,val}.json`、`split_manifest.json`、`excluded_overlap.json` | `query-foundry/scripts/prepare_split.py` | 上游标注流水线（本仓不读） | 上游仓内，纳入其 Git |
-| `outputs/annotations/<run_id>/{train,val}/approved.json` | `query-foundry/scripts/package_approved.py` | **本仓训练与验证集推理** | 4 重 SHA-256 指纹（协议 12，见下） |
+| `outputs/annotations/<run_id>/{train,val}/approved.json` | `query-foundry/scripts/package_approved.py` | 本仓训练与验证集推理 | 4 重 SHA-256 指纹（协议 12，见下） |
 | `outputs/inference/<run_id>/predictions.json` | 本仓 `offline/infer.py` | 融合 `fusion.wbf` | `{query_id: bbox|None}` |
 | `submission.zip` | 本仓 `submission.py` / `fusion.wbf` | 赛事提交 | 官方模板 + `bbox` |
 
 上游以 `--data-root` 指向本仓 `data/`、以自己的 `--index-dir` 指向
 `query-foundry/data/indexes/`；两侧不建符号链接。本仓训练只消费 `approved.json`，
-不读索引、不导入上游代码。
+不导入上游代码。
 
 ## 标注产物 `approved.json`
 
@@ -107,15 +107,15 @@ train 与 val 必须来自同一 `run_id`，且两侧 `prompt_hash` 与 `provena
 | 官方模板 | `test_data.validate_official_test_template`（由 `submission.build_submission` 调用） | 条数 9555、查询 ID 形态、字段集、路径形态、内容哈希 | 抛 `ValueError`，不出包 |
 | Test 深度引用 | `scripts/prepare_rgbdt.validate_test_depth_references` | 官方模板 → `Processed/Test/depth_jet` 逐条映射、深度文件集合指纹、三模态尺寸一致性 | 返回错误列表，脚本中止 |
 | 推理续跑 | `inference_state.validate_checkpoint_payload`、`load_resume_predictions` | 分片分配与键集合、框与分数合法性、跨来源冲突结果 | 抛 `ValueError`，拒绝合并 |
-| 上游侧 | `query-foundry`：`prepare_split`（测试集同帧哈希去重）、`package_approved`（同帧描述唯一性、QC、双 split 联合） | — | 见上游仓 |
+| 上游侧 | `query-foundry`：`prepare_split`、`package_approved` | 测试集同帧哈希去重；同帧描述唯一性、QC、双 split 联合校验 | 见上游仓 |
 
 ## 提交格式
 
 预测必须是官方模板 JSON 的逐条副本：只替换 `bbox` 字段，`visible`、`infrared`、
 `depth`、`query` 逐字节保留；打包为 `submission.zip`，内含单个 `result.json`。
 评测按归一化 XYXY 计算 IoU，`IoU ≥ 0.5` 记为命中；反向坐标、越界坐标、NaN 与空框
-一律判为无效预测。`--allow-fallback` 会把无效框填成占位框，仅用于显式不完整的
-诊断包，正式提交不得使用。
+判为无效预测。`--allow-fallback` 会把无效框填成占位框，用于诊断不完整的包，正式提交
+不使用。
 
 ## 数据集来源
 
