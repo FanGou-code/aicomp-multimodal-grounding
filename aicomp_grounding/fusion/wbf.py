@@ -39,7 +39,7 @@ def fuse_boxes(boxes: list[list[float]], weights: list[float]) -> list[float]:
     """Weighted coordinate average of a cluster of valid XYXY boxes."""
     total = sum(weights)
     return [
-        round(sum(w * box[k] for w, box in zip(weights, boxes)) / total, 6)
+        round(sum(w * box[k] for w, box in zip(weights, boxes, strict=True)) / total, 6)
         for k in range(4)
     ]
 
