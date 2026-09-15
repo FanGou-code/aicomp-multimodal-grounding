@@ -62,6 +62,34 @@ AMD ROCm（MI300X）环境在训练/推理前 source 性能环境文件：
 source offline/rocm_env.sh   # hipBLASLt、硬件队列上限、Triton/pip 缓存目录
 ```
 
+## 数据准备（Data Preparation）
+
+原始数据集是三模态视频帧 + `groundtruth.txt`。主仓的 `scripts/prepare_rgbdt.py`
+负责把原始数据整理成模型与标注流水线都能直接读取的基础数据：
+
+| 步骤 | 产物 | 说明 |
+| --- | --- | --- |
+| 三模态校验 | — | 逐帧检查 `color/`（RGB）、`infrared/`（热红外）、`depth/`（16 位深度）三路存在且尺寸对齐；解析 `groundtruth.txt`，把像素框归一化为 0–1 的 XYXY，越界或退化框计为无效并剔除 |
+| 深度伪彩 | `Processed/Train/<seq>/depth_jet/`、`Processed/Test/depth_jet/` | 16 位毫米深度按固定标定（默认 `--min-depth-mm 300`、`--max-depth-mm 20000`）映射为 JET 伪彩三通道图，作为三模态中的深度输入 |
+| Test 引用校验 | `split_manifest.json` 的 `test_contract`（需 `--generate-indexes`） | 校验官方 Test 模板与 `Processed/Test/depth_jet` 的逐条路径映射、深度文件集合指纹，不符即中止 |
+
+```bash
+python scripts/prepare_rgbdt.py --dataset-root data            # 三模态校验 + 深度伪彩
+python scripts/prepare_rgbdt.py --dataset-root data --dry-run   # 仅校验，不写文件
+```
+
+本仓的 train/val 索引生成已移交副仓（`--generate-indexes` 默认关闭，且不做测试集
+重叠过滤）；训练只读 `approved.json`，不读索引。
+
+产出的基础数据（RGB / 红外 / Depth-Jet 三路对齐图 + 归一化框）**直接供给上游数据
+工程流水线**：[query-foundry](https://github.com/FanGou-code/query-foundry) 在此之上
+完成训练集与测试集同帧 SHA-256 去重（防污染）、镜头序列级隔离划分（防时序穿越）、
+三模态事实普查与指向性文本质检，最后按 4 重 SHA-256 指纹契约封包为 `approved.json`
+回交本仓。
+
+两仓的接口就是这份自包含产物（`protocol_version=12`）：本仓训练与推理只消费
+`outputs/annotations/<run_id>/{train,val}/approved.json`，不导入副仓代码。
+
 ## 数据布局
 
 ```text
@@ -75,10 +103,9 @@ outputs/
   inference/<run_id>/        预测与 checkpoint
 ```
 
-训练只消费 `outputs/annotations/<run_id>/{train,val}/approved.json`（标注产物协议
-version 12）：每个样本含 `visible`/`infrared`/`depth` 路径、`query`、归一化 `bbox`
-与记录尺寸。数据与产物不入库（`.gitignore` 忽略 `data/` 与 `outputs/`）。字段级
-合同与坐标约束见 `docs/data-contract.md`。
+标注产物协议 version 12：每个样本含 `visible`/`infrared`/`depth` 路径、`query`、
+归一化 `bbox` 与记录尺寸。数据与产物不入库（`.gitignore` 忽略 `data/` 与 `outputs/`）。
+字段级合同与坐标约束见 `docs/data-contract.md`。
 
 ## 快速开始
 
@@ -180,6 +207,7 @@ docs/                    架构、数据合同、GPU 实操、赛题说明
 | `docs/data-contract.md` | `data/` 布局、标注产物协议、提交格式 |
 | `docs/sop.md` | GPU 实操：环境、模型下载、逐模型训练与推理命令 |
 | `docs/research.md` | 赛题背景与官方评测口径 |
+| [query-foundry](https://github.com/FanGou-code/query-foundry) | 上游数据工程仓：跨集去重、序列级划分、三模态事实普查、人审质检与 `approved.json` 契约封包 |
 
 ## 数据来源与许可
 
