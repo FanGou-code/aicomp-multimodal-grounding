@@ -169,6 +169,11 @@ df -h /mnt/workspace
 | `mimo_vl` | 41,435,136 |
 | `glm46v` | 27,443,200 |
 
+期望值由适配器声明的 LoRA 投影集合与语言模型隐层尺寸决定，可在有模型 config 的
+机器上按 meta device 复算；数值与一次 `glm46v` 冒烟日志逐位吻合。
+打印值与上表不符时，先确认 `--model-path` 指向的 revision 与适配器声明的
+`MODEL_REVISION` 一致、且 LoRA 名单未被改动。
+
 冒烟通过会打印 `Training smoke passed`。
 
 ### Qwen3-VL-8B
