@@ -6,8 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "aicomp-grounding"
 version = "1.0.0"
 description = "RGBDT tri-modal (visible / infrared / depth) visual grounding system"
+readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: POSIX :: Linux",
+]
 dependencies = [
     # 基础库：本地 CPU 测试与数据预处理共用
     "numpy>=1.26",
@@ -33,6 +40,11 @@ dependencies = [
 kernels = ["flash-linear-attention", "causal-conv1d"]
 # 本地开发与运维：代码检查 (ruff) + 数据集管理 (modelscope)
 dev = ["ruff", "modelscope>=1.15"]
+
+[project.urls]
+Homepage = "https://github.com/FanGou-code/aicomp-multimodal-grounding"
+Repository = "https://github.com/FanGou-code/aicomp-multimodal-grounding"
+Issues = "https://github.com/FanGou-code/aicomp-multimodal-grounding/issues"
 
 [tool.setuptools.packages.find]
 include = ["aicomp_grounding*"]
