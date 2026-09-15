@@ -11,9 +11,8 @@
 | 入口 | `offline/`、`scripts/` | 训练与推理 CLI、数据预处理 | `aicomp_grounding` |
 | 上游 | `query-foundry`（独立仓库） | 数据划分、标注生产、质检与封包 | 与本仓只通过 `approved.json` 交接 |
 
-依赖方向单向：`offline/`、`scripts/` → `aicomp_grounding/`。核心库不导入入口代码，
-也不导入上游仓库代码；`models/` 里的 `torch` / `transformers` / `peft` 一律在函数内
-惰性导入，使核心库可在无 GPU 的纯 CPU 环境下被测试。
+依赖方向单向：`offline/`、`scripts/` → `aicomp_grounding/`。核心库不导入入口代码与
+上游仓库代码；`models/` 中的 `torch` / `transformers` / `peft` 在函数内惰性导入。
 
 ## 数据流
 
@@ -40,7 +39,7 @@
 | `prompts.py` | 三模态提示词协议与提示词哈希 |
 | `query.py` | 查询文本的格式校验与风格门 |
 | `sequence.py` | 序列级输入指纹、标注查询 QC |
-| `sharding.py` | 序列感知的键分组与分片工具；生产推理分片走 `inference_state.assign_pending_shards`，本模块当前仅被测试引用 |
+| `sharding.py` | 序列感知的键分组与分片工具（生产推理分片见 `inference_state.assign_pending_shards`；本模块目前仅测试引用） |
 | `images.py` | 图像引用指纹（路径 + 记录尺寸，不解码字节） |
 | `test_data.py` | 官方 Test 模板合同、Test 准备合同（深度集合指纹） |
 | `submission.py` | 由官方模板生成提交包（只补 `bbox`，ZIP 回读校验） |
@@ -82,8 +81,7 @@
    tag，不覆盖既有产物。
 5. **坐标与提交**：解析器只接受各模型协议的 0–1000 或像素坐标，越界即判失败（不裁剪）；
    提交包只补 `bbox`，官方模板其余字段逐字节保留。
-6. **单张量形状**：验证损失与训练共用同一 micro-batch 大小（默认 1），避免多形状触发
-   算子二次编译。
+6. **单张量形状**：验证损失与训练共用同一 micro-batch 大小（默认 1）。
 7. **离线加载**：所有 `from_pretrained` 使用 `local_files_only=True`；底座目录由调用者
    提供，本仓库不校验该目录与声明 revision 的对应关系。
 8. **产物自洽**：`approved.json` 的 `source_fingerprint` 与 `dataset_fingerprint` 在
@@ -91,8 +89,8 @@
 
 ## 不提供
 
-`cloud/`（云端调度壳）、`internvl35`、`qwen36_27b` 已移除；平台相关差异只保留
-`offline/rocm_env.sh` 一处。本仓库不提供数据集、模型权重、标注产物与运行结果。
+数据集、模型权重、标注产物与运行结果不在本仓库。平台相关差异集中在
+`offline/rocm_env.sh`；`cloud/`、`internvl35`、`qwen36_27b` 不在本仓库（git 历史可溯）。
 
 ## 契约边界
 
@@ -104,5 +102,5 @@
 
 ## 测试
 
-`python -m unittest discover -s tests`：纯 CPU、无权重、约 200 项。GPU 相关的行为
-（真实权重加载、生成、步时）不在测试覆盖内，需在 GPU 环境用冒烟验证。
+`python -m unittest discover -s tests`：208 项，纯 CPU、不加载权重。真实权重加载、
+生成质量、步时与显存不在覆盖内。
