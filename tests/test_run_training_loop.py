@@ -217,7 +217,7 @@ def _fake_adapter(calls: dict):
                 "lora_dropout": 0.0,
                 "compute_dtype": "float32",
                 "autocast": False,
-                "eval_batch_size": 4,
+                "eval_batch_size": 1,
                 "best_epoch_primary_metric": "acc_at_0_5",
                 "lora_targets": language_model_lora_targets(*DEFAULT_LORA_PROJECTIONS),
             }

@@ -212,7 +212,7 @@ class MiMoVLAdapter:
             "lora_dropout": 0.05,
             "compute_dtype": "bfloat16",
             "autocast": True,
-            "eval_batch_size": 4,
+            "eval_batch_size": 1,
             "best_epoch_primary_metric": "acc_at_0_5",
             "python_version": RUNTIME_PYTHON_VERSION,
             "lora_targets": self.lora_target_modules(),

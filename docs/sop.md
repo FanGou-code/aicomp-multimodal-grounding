@@ -166,7 +166,7 @@ df -h /mnt/workspace
 | `--gradient-accumulation-steps` | `None` (默认 16) | `gradient_accumulation_steps` | 梯度累积步数（等效 batch = batch_size × accum） |
 | `--learning-rate` | `None` (默认 1e-4) | `learning_rate` | 初始学习率 |
 | `--epochs` | `None` (默认 3) | `epochs` | 训练轮数 |
-| `--eval-batch-size` | `None` (默认 4) | `eval_batch_size` | 验证集生成评测（ACC@0.5）批量 |
+| `--eval-batch-size` | `None` (默认 1) | `eval_batch_size` | 验证集生成评测（ACC@0.5）批量 |
 | `--best-metric` | `None` (默认 `acc_at_0_5`) | `best_epoch_primary_metric` | 最佳检查点判定指标（可选 `acc_at_0_5` / `mean_iou` / `val_loss`） |
 
 **冒烟口径**：
@@ -185,6 +185,8 @@ python offline/train.py \
   --model qwen3vl \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
+  --batch-size 1 \
+  --eval-batch-size 1 \
   --checkpoint-interval 20 \
   --smoke-test
 
@@ -193,6 +195,11 @@ python offline/train.py \
   --model qwen3vl \
   --model-path /mnt/workspace/models/Qwen/Qwen3-VL-8B-Instruct \
   --data-dir data \
+  --batch-size 1 \
+  --gradient-accumulation-steps 16 \
+  --learning-rate 1e-4 \
+  --epochs 3 \
+  --eval-batch-size 1 \
   --run-tag exp-qwen8-retrain-auditfix \
   --num-workers 4 \
   --checkpoint-interval 20
@@ -206,6 +213,8 @@ python offline/train.py \
   --model qwen3_5 \
   --model-path /mnt/workspace/models/Qwen/Qwen3.5-9B \
   --data-dir data \
+  --batch-size 1 \
+  --eval-batch-size 1 \
   --checkpoint-interval 20 \
   --smoke-test
 
@@ -214,6 +223,11 @@ python offline/train.py \
   --model qwen3_5 \
   --model-path /mnt/workspace/models/Qwen/Qwen3.5-9B \
   --data-dir data \
+  --batch-size 1 \
+  --gradient-accumulation-steps 16 \
+  --learning-rate 1e-4 \
+  --epochs 3 \
+  --eval-batch-size 1 \
   --run-tag exp-qwen35-9b-auditfix \
   --num-workers 4 \
   --checkpoint-interval 20
@@ -227,6 +241,8 @@ python offline/train.py \
   --model glm46v \
   --model-path /mnt/workspace/models/ZhipuAI/GLM-4.6V-Flash \
   --data-dir data \
+  --batch-size 1 \
+  --eval-batch-size 1 \
   --checkpoint-interval 20 \
   --smoke-test
 
@@ -235,6 +251,11 @@ python offline/train.py \
   --model glm46v \
   --model-path /mnt/workspace/models/ZhipuAI/GLM-4.6V-Flash \
   --data-dir data \
+  --batch-size 1 \
+  --gradient-accumulation-steps 16 \
+  --learning-rate 1e-4 \
+  --epochs 3 \
+  --eval-batch-size 1 \
   --run-tag exp-glm46v-flash-auditfix \
   --num-workers 4 \
   --checkpoint-interval 20
@@ -248,6 +269,9 @@ python offline/train.py \
   --model internvl35 \
   --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --data-dir data \
+  --batch-size 1 \
+  --eval-batch-size 1 \
+  --checkpoint-interval 20 \
   --smoke-test
 
 python offline/train.py \
@@ -255,8 +279,14 @@ python offline/train.py \
   --model internvl35 \
   --model-path /mnt/workspace/models/OpenGVLab/InternVL3_5-8B-HF \
   --data-dir data \
+  --batch-size 1 \
+  --gradient-accumulation-steps 16 \
+  --learning-rate 1e-4 \
+  --epochs 3 \
+  --eval-batch-size 1 \
   --run-tag exp-internvl-01-auditfix \
-  --num-workers 4
+  --num-workers 4 \
+  --checkpoint-interval 20
 ```
 
 ### MiMo-VL-7B-RL
@@ -267,6 +297,9 @@ python offline/train.py \
   --model mimo_vl \
   --model-path /mnt/workspace/models/XiaomiMiMo/MiMo-VL-7B-RL \
   --data-dir data \
+  --batch-size 1 \
+  --eval-batch-size 1 \
+  --checkpoint-interval 20 \
   --smoke-test
 
 python offline/train.py \
@@ -274,8 +307,14 @@ python offline/train.py \
   --model mimo_vl \
   --model-path /mnt/workspace/models/XiaomiMiMo/MiMo-VL-7B-RL \
   --data-dir data \
+  --batch-size 1 \
+  --gradient-accumulation-steps 16 \
+  --learning-rate 1e-4 \
+  --epochs 3 \
+  --eval-batch-size 1 \
   --run-tag exp-mimo-vl-auditfix \
-  --num-workers 4
+  --num-workers 4 \
+  --checkpoint-interval 20
 ```
 
 ### GroundingDINO-B

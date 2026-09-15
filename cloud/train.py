@@ -105,6 +105,12 @@ def train(
     preflight_only: bool = False,
     num_workers: int = 4,
     checkpoint_interval: int = 20,
+    batch_size: int | None = None,
+    gradient_accumulation_steps: int | None = None,
+    learning_rate: float | None = None,
+    epochs: int | None = None,
+    eval_batch_size: int | None = None,
+    best_metric: str | None = None,
 ):
     """modal run cloud/train.py --annotation-run-id annot_dc189f029d962b27 --smoke-test"""
     train_job.remote(dict(locals()))
