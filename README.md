@@ -114,9 +114,11 @@ SHA-256，与测试集图像哈希集合比对，命中即从 train/val 候选�
 - **前端防竞态**：保存响应只更新发起请求的条目，跳转后到达的旧响应不覆盖当前画布。
 - **三种会话模式**：`--census-run`（普查框审，教师框预置为 AI 预标注）、
   `--assembly`（组装件审：改框 + 改 query）、`--manifest`（任意清单，通用模式）。
-- **人工操作**：拖拽/缩放修正框（`PUT /api/item/<id>/bbox`）、改写 query
-  （`PUT /api/item/<id>/query`）、"不存在"以 `bbox: null` 且 `annotator` 带
-  `:absent` 后缀裁决入日志。
+- **人工操作**：拖拽/缩放修正框（`PUT /api/item/<id>/bbox`）、在编辑框改写 query
+  （`PUT /api/item/<id>/query`）。前端不提供"目标不存在"按钮，HTTP 也不提供删除入口：
+  缺席裁决以 `bbox: null` 且 `annotator` 带 `:absent` 后缀写入日志，只有经
+  `AnnotationStore.delete()` 的程序化调用（脚本/工具）才能产生，标注侧与
+  `apply_review.py` 都按该记录形态读取。
 
 ### 6. 指纹化自包含契约交付（Contract-Driven Packaging）
 
@@ -241,6 +243,8 @@ python scripts/make_manifest.py \
     --data-root /path/to/dataset --index-dir data/indexes
 
 # 或从任意 query JSON 生成（通用模式，零管线依赖）
+# 支持映射式 {"img_001": {"image": "photos/a.jpg", "query": "the red car"}}
+# 与列表式 [{"id": "img_001", "image": "photos/a.jpg", "query": "the red car"}]
 python scripts/make_manifest.py --source my_queries.json \
     --images-root /path/to/images --out review-manifest.json
 
@@ -310,9 +314,10 @@ HTTP 接口：`GET /api/session`、`GET /api/progress`、`GET /image`、
 教师身份、服务地址与限流参数固化在 `foundry/utils.py`（教师为托管开源权重模型
 GLM-4.6V，经 OpenAI 协议端点调用，account 级并发受服务方限制，可用
 `--requests-per-minute` / `--tokens-per-minute` 对齐账号配额）；四桶分类与配额份额
-固化在 `foundry/pipeline/buckets.py`（冻结顺序 `ordinal > distance > spatial >
-attribute_action`，份额 335 / 258 / 256 / 151 per-mille）。这两处没有通过 JSON
-切换教师或桶规则的入口。
+固化在 `foundry/pipeline/buckets.py`：分类优先序为 `ordinal` → `distance` → `spatial`
+→ `attribute_action`，配额份额（per-mille）分别为 `ordinal` 335 / `spatial` 258 /
+`attribute_action` 256 / `distance` 151（即份额最大值在 `spatial`，`distance` 最小）。
+这两处没有通过 JSON 切换教师或桶规则的入口。
 
 实际读取的外置文件只有 `configs/default/prompts/`（findall / attr 提示词）与
 `configs/default/rules/qc.json`（冠词规则、KEEP 表与人工裁定的 echo 表）。
