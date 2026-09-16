@@ -99,9 +99,9 @@ def _parse_mimo_bbox(text: str, *, width: int | None = None, height: int | None 
         if any(not (value == value and -1e9 < value < 1e9) for value in coords):
             return None
         if any(value > 1 for value in coords):
-            if not width or not height:
-                return None
-            coords = [coords[0] / width, coords[1] / height, coords[2] / width, coords[3] / height]
+            w = width or 1920
+            h = height or 1080
+            coords = [coords[0] / w, coords[1] / h, coords[2] / w, coords[3] / h]
         if not validate_bbox(coords):
             return None
         return coords
@@ -138,6 +138,8 @@ class MiMoVLAdapter:
         }
         self._processor = None
         self._model = None
+        self._pending_sizes: list[tuple[int, int]] = []
+        self._eval_pending_sizes: list[tuple[int, int]] = []
 
     def prompt_hash(self) -> str:
         return grounding_prompt_hash(MIMO_GROUNDING_SYSTEM_PROMPT)
@@ -359,6 +361,9 @@ class MiMoVLAdapter:
     def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:
         from qwen_vl_utils import process_vision_info
 
+        self._eval_pending_sizes = [
+            (sample.visible.size[0], sample.visible.size[1]) for sample in samples
+        ]
         messages = [
             build_grounding_messages(
                 sample.visible,
@@ -393,7 +398,10 @@ class MiMoVLAdapter:
         )
 
     def parse_grounding_text(self, text: str) -> list[float] | None:
-        return _parse_mimo_bbox(text)
+        width, height = None, None
+        if getattr(self, "_eval_pending_sizes", None):
+            width, height = self._eval_pending_sizes.pop(0)
+        return _parse_mimo_bbox(text, width=width, height=height)
 
     def prepare_inputs(self, samples: list[ModelInput]) -> dict:
         from qwen_vl_utils import process_vision_info

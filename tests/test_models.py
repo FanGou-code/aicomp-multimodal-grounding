@@ -33,6 +33,7 @@ from aicomp_grounding.models.glm46v import (
     parse_glm_box,
     processor_pixel_kwargs,
 )
+from aicomp_grounding.models.mimo_vl import _parse_mimo_bbox
 from aicomp_grounding.models.qwen3_5 import (
     MAX_PIXELS as QWEN3_5_MAX_PIXELS,
     MIN_PIXELS as QWEN3_5_MIN_PIXELS,
@@ -258,6 +259,52 @@ class Glm46VContractTests(unittest.TestCase):
         self.assertIsNone(parse_glm_box(GLM46V_BOX_OPEN + "0,0,2000,400" + GLM46V_BOX_CLOSE))
         self.assertIsNone(parse_glm_box(""))
         self.assertIsNone(parse_glm_box("no box here"))
+
+
+class MiMoVLContractTests(unittest.TestCase):
+    def test_parse_pixel_bbox_with_explicit_dimensions(self):
+        text = '[{"bbox_2d": [192, 108, 960, 540], "label": "car"}]'
+        self.assertEqual(
+            _parse_mimo_bbox(text, width=1920, height=1080),
+            [0.1, 0.1, 0.5, 0.5],
+        )
+
+    def test_parse_pixel_bbox_with_default_fallback_dimensions(self):
+        text = '[{"bbox_2d": [192, 108, 960, 540], "label": "car"}]'
+        self.assertEqual(
+            _parse_mimo_bbox(text),
+            [0.1, 0.1, 0.5, 0.5],
+        )
+
+    def test_parse_normalized_bbox(self):
+        text = '[{"bbox_2d": [0.1, 0.2, 0.5, 0.6], "label": "person"}]'
+        self.assertEqual(
+            _parse_mimo_bbox(text),
+            [0.1, 0.2, 0.5, 0.6],
+        )
+
+    def test_parse_bare_json_object(self):
+        text = '{"bbox_2d": [192, 108, 960, 540], "label": "car"}'
+        self.assertEqual(
+            _parse_mimo_bbox(text),
+            [0.1, 0.1, 0.5, 0.5],
+        )
+
+    def test_parse_rejects_invalid_or_malformed(self):
+        self.assertIsNone(_parse_mimo_bbox("no bbox here"))
+        self.assertIsNone(_parse_mimo_bbox('{"bbox_2d": [100, 200]}'))
+        self.assertIsNone(_parse_mimo_bbox('{"bbox_2d": [500, 500, 400, 600]}'))
+
+    def test_adapter_parse_grounding_text_pops_eval_pending_sizes(self):
+        adapter = get_adapter("mimo_vl")
+        adapter._eval_pending_sizes = [(1000, 500), (2000, 1000)]
+        text1 = '[{"bbox_2d": [100, 50, 500, 250]}]'
+        text2 = '[{"bbox_2d": [200, 100, 1000, 500]}]'
+        self.assertEqual(adapter.parse_grounding_text(text1), [0.1, 0.1, 0.5, 0.5])
+        self.assertEqual(adapter.parse_grounding_text(text2), [0.1, 0.1, 0.5, 0.5])
+        # Queue is now empty; fallback to 1920x1080
+        text3 = '[{"bbox_2d": [192, 108, 960, 540]}]'
+        self.assertEqual(adapter.parse_grounding_text(text3), [0.1, 0.1, 0.5, 0.5])
 
 
 TRAINABLE_ADAPTERS = (
