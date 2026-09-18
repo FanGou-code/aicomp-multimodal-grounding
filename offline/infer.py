@@ -1,9 +1,11 @@
 """Standalone single-GPU offline inference and evaluation entry.
 
 Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl / qwen3_5 /
-mimo_vl / glm46v / groundingdino / mock). Handles both:
-1. Competition Submission Generation (when running on unannotated test queries)
-2. Validation Accuracy & IoU Score Evaluation (when running on annotated val/train queries)
+mimo_vl / glm46v / groundingdino / mock).
+
+This entrypoint produces predictions only. Building ``submission.zip`` is a
+separate, explicit step (``python -m aicomp_grounding.submission``); inference
+never packages one.
 """
 
 from __future__ import annotations
@@ -39,7 +41,6 @@ from aicomp_grounding.models import available_models, get_adapter
 from aicomp_grounding.models.base import ModelInput, require_local_model_path
 from aicomp_grounding.config import INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS
 from aicomp_grounding.paths import ProjectPaths, resolve_from_root
-from aicomp_grounding.submission import build_submission
 
 CACHE_MAX_SIZE = 32
 
@@ -713,7 +714,6 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     print(f"\nInference finished for {len(predictions)} queries. Saved to {predictions_path}")
 
     # Metrics only exist when the dataset carries ground-truth bboxes (e.g. val).
-    has_ground_truth = bool(items) and "bbox" in items[0]
     metrics = evaluate_predictions(items, predictions)
 
     if metrics is not None:
@@ -735,40 +735,6 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     if commit_hook is not None:
         commit_hook()
 
-    # Package submission.zip before the summary is serialized so that
-    # "submission_ready" reflects the real outcome instead of a constant False.
-    official_template_path = (
-        args.test_json if args.test_json.is_file() else paths.submission_template
-    )
-    submission_ready = False
-    if (
-        not has_ground_truth
-        and args.limit == 0
-        and len(predictions) == len(items)
-        and official_template_path.is_file()
-    ):
-        print("Packaging competition submission ZIP...")
-        build_submission(
-            test_json_path=official_template_path,
-            predictions_path=predictions_path,
-            output_dir=run_dir,
-            allow_fallback=True,
-        )
-        submission_ready = True
-    elif not has_ground_truth and args.limit == 0:
-        if not official_template_path.is_file():
-            print(
-                f"Warning: submission template not found at {official_template_path}; "
-                "skipping submission packaging.",
-                flush=True,
-            )
-        else:
-            print(
-                f"Warning: {len(predictions)}/{len(items)} predictions; "
-                "submission packaging skipped (incomplete run).",
-                flush=True,
-            )
-
     summary = {
         "metadata": metadata,
         "metrics": metrics,
@@ -776,7 +742,6 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
         "valid_predictions": sum(
             validate_bbox(value) is not None for value in predictions.values()
         ),
-        "submission_ready": submission_ready,
     }
     atomic_write_json(run_dir / "summary.json", summary)
     print(f"Metadata saved to: {metadata_path}")

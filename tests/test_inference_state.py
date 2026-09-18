@@ -20,7 +20,6 @@ from aicomp_grounding.inference_state import (
     merge_retry_predictions,
     merge_shard_payloads,
     pending_keys,
-    predictions_are_submission_ready,
     resolve_lora_path,
     validate_checkpoint_payload,
 )
@@ -367,24 +366,6 @@ class CheckpointTests(unittest.TestCase):
 
 
 class RetryAndEvaluationTests(unittest.TestCase):
-    def test_submission_ready_requires_full_valid_coverage(self):
-        keys = ["a", "b"]
-        self.assertTrue(
-            predictions_are_submission_ready(
-                keys,
-                {"a": [0.1, 0.1, 0.5, 0.5], "b": [0.2, 0.2, 0.6, 0.6]},
-            )
-        )
-        self.assertFalse(
-            predictions_are_submission_ready(
-                keys,
-                {"a": [0.1, 0.1, 0.5, 0.5], "b": None},
-            )
-        )
-        self.assertFalse(
-            predictions_are_submission_ready(keys, {"a": [0.1, 0.1, 0.5, 0.5]})
-        )
-
     def test_retry_only_replaces_failures_with_valid_overlay(self):
         base = {"a": [0.1, 0.1, 0.5, 0.5], "b": None, "c": None}
         original = dict(base)

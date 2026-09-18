@@ -42,7 +42,7 @@ outputs/                      运行产物，不入库
 | `query-foundry/data/indexes/{train,val}.json`、`split_manifest.json`、`excluded_overlap.json` | `query-foundry/scripts/prepare_split.py` | 上游标注流水线（本仓不读） | 上游仓内，纳入其 Git |
 | `outputs/annotations/<run_id>/{train,val}/approved.json` | `query-foundry/scripts/package_approved.py` | 本仓训练与验证集推理 | 4 重 SHA-256 指纹（协议 12，见下） |
 | `outputs/inference/<run_id>/predictions.json` | 本仓 `offline/infer.py` | 融合 `fusion.wbf` | `{query_id: bbox 或 null}` |
-| `submission.zip` | 本仓 `submission.py` / `fusion.wbf` | 赛事提交 | 官方模板 + `bbox` |
+| `submission.zip` | 本仓 `submission.py`（显式调用；推理与融合均不自动打包） | 赛事提交 | 官方模板 + `bbox` |
 
 上游以 `--data-root` 指向本仓 `data/`、以自己的 `--index-dir` 指向
 `query-foundry/data/indexes/`；两侧不建符号链接。本仓训练只消费 `approved.json`，
