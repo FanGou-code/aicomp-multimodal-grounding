@@ -18,7 +18,7 @@ Inference plan dict (from prepare_inference_plan):
 
 Summary dict (summary.json):
     {metadata, metrics: {hits, total, acc_at_0_5, mean_iou, failures} | None,
-     total_predictions, valid_predictions, submission_ready}
+     total_predictions, valid_predictions}
 """
 
 from __future__ import annotations
@@ -460,18 +460,6 @@ def merge_retry_predictions(
         if bbox is not None:
             result[key] = bbox
     return result
-
-
-def predictions_are_submission_ready(
-    expected_keys: list[str],
-    predictions: Mapping[str, object],
-) -> bool:
-    """Return whether predictions exactly cover a split with valid normalized boxes."""
-    if len(expected_keys) != len(set(expected_keys)):
-        return False
-    if set(predictions) != set(expected_keys):
-        return False
-    return all(validate_bbox(predictions[key]) is not None for key in expected_keys)
 
 
 def evaluate_dataset_predictions(dataset: dict, keys: list[str], predictions: dict) -> dict:

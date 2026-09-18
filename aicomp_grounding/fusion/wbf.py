@@ -12,6 +12,8 @@ Design notes
 - Fusion per query: greedy IoU clustering of the valid boxes, cluster score
   = sum of member weights, winner = heaviest cluster, fused box = weighted
   average of the cluster's coordinates (classic WBF, single-class reduced).
+- Fusion only. This module never builds a submission package; packaging is the
+  separate, explicit ``aicomp_grounding.submission`` step.
 """
 
 from __future__ import annotations
@@ -181,12 +183,6 @@ def main() -> None:
     )
     parser.add_argument("--iou-threshold", type=float, default=0.55)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/fusion"))
-    parser.add_argument(
-        "--test-json",
-        type=Path,
-        default=None,
-        help="Official test template; when given, also build submission.zip.",
-    )
     args = parser.parse_args()
 
     if len(args.predictions) < 2:
@@ -217,19 +213,6 @@ def main() -> None:
     print(f"[wbf] run_id: {metadata['run_id']}")
     print(f"[wbf] queries: {len(fused)} | fused valid boxes: {valid}")
     print(f"[wbf] predictions saved: {predictions_path}")
-
-    if args.test_json is not None:
-        from aicomp_grounding.submission import build_submission
-
-        zip_path = build_submission(
-            test_json_path=args.test_json,
-            predictions_path=predictions_path,
-            output_dir=run_dir,
-            # Some queries may have no valid fused box (all models failed);
-            # fall back to the whole-image box instead of aborting the package.
-            allow_fallback=True,
-        )
-        print(f"[wbf] submission ready: {zip_path}")
 
 
 if __name__ == "__main__":

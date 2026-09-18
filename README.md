@@ -121,7 +121,7 @@ python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct
   --data-dir data --num-shards 1 --num-workers 2 --batch-size 2 --batch-save 100 \
   --run-tag val-eval
 
-# 测试集推理：无真值，跑完后自动打包 submission.zip
+# 测试集推理：无真值，只写 predictions.json，不打包
 python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
   --lora-path outputs/output_lora/<train_run_id>/best/epoch_03 \
   --test-json data/Test/queries/queries.json \
@@ -133,12 +133,15 @@ python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct
 
 ## 融合与提交
 
+融合与打包都是显式步骤：推理只产出 `predictions.json`，融合只产出融合后的
+`predictions.json`，提交包由 `submission` 单独生成。训练与推理入口都不会自动打包。
+
 ```bash
 python -m aicomp_grounding.fusion.wbf \
   --predictions outputs/inference/<run_a>/predictions.json \
                 outputs/inference/<run_b>/predictions.json \
   --weights 1.0 1.0 --iou-threshold 0.55 \
-  --test-json data/Test/queries/queries.json --output-dir outputs/fusion
+  --output-dir outputs/fusion
 
 python -m aicomp_grounding.submission \
   --test-json data/Test/queries/queries.json \
@@ -147,7 +150,8 @@ python -m aicomp_grounding.submission \
 ```
 
 `--scores` 可传各模型的分数文件（检测器用原生置信度做乘性加权），空字符串表示该模型
-不计分数；`--allow-fallback` 会把无效框填成占位框，仅用于诊断包。
+不计分数。`submission` 默认要求预测 ID 与官方模板完全一致、bbox 全部合法，否则拒绝
+出包；`--allow-fallback` 会把缺失或无效的框填成占位框，仅用于显式不完整的诊断包。
 
 ## 运行身份与产物
 
