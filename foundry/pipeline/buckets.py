@@ -1,8 +1,9 @@
 """Frozen four-bucket classification and quota shares.
 
-Imported by both the assembler and the planner. Classification regexes and
-quota shares are derived from self-owned data statistics; the bucket order
-is ordinal > distance > spatial > attribute_action.
+Imported by both the assembler and the planner. The bucket order is
+ordinal > distance > spatial > attribute_action (first match wins); the quota
+shares are frozen per-mille weights the planner uses to steer the assembled
+corpus composition.
 """
 
 from __future__ import annotations
