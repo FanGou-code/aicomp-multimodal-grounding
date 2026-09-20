@@ -50,8 +50,8 @@ from aicomp_grounding.training_state import (
 SEED = 42
 
 #: Adapters that drive the generic LoRA training loop.  Every one of them takes
-#: the tri-modal pixel budget; ``groundingdino`` and ``mock`` are inference-only.
-TRAINABLE_MODELS = ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v")
+#: the tri-modal pixel budget; ``mock`` is inference-only.
+TRAINABLE_MODELS = ("qwen3vl", "qwen3_5", "glm46v")
 
 #: Supported best-epoch metrics that are minimized; every other supported
 #: metric is maximized.  ``best_epoch_primary_metric`` is validated against

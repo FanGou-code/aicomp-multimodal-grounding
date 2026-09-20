@@ -24,8 +24,8 @@ dependencies = [
     # 落在范围内即被 pip 判定已满足而跳过，不覆盖镜像自带的 torch
     "torch>=2.8,<3",
     # torchvision 不锁版本：由 pip 按已安装的 torch 解析配对版本（硬 pin 会与
-    # torch 范围冲突）。transformers 图像预处理链路（含 GroundingDINO）需要它；
-    # GPU 平台镜像通常自带，纯净容器环境需要显式安装。
+    # torch 范围冲突）。transformers 的图像预处理链路需要它；GPU 平台镜像通常
+    # 自带，纯净容器环境需要显式安装。
     "torchvision",
     # 模型框架层：== 紧 pin，跨平台行为一致
     "transformers==5.15.1",

@@ -1,7 +1,7 @@
 """Standalone single-GPU offline inference and evaluation entry.
 
 Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl / qwen3_5 /
-mimo_vl / glm46v / groundingdino / mock).
+glm46v / mock).
 
 This entrypoint produces predictions only. Building ``submission.zip`` is a
 separate, explicit step (``python -m aicomp_grounding.submission``); inference
@@ -45,10 +45,10 @@ from aicomp_grounding.paths import ProjectPaths, resolve_from_root
 CACHE_MAX_SIZE = 32
 
 #: Adapters whose constructor takes the tri-modal pixel budget (``max_pixels``).
-#: GroundingDINO and mock are not in this set: they have no such parameter, and
-#: passing it would raise TypeError.  This is a capability set, not the training
-#: roster — a future inference-only VLM belongs here without being trainable.
-PIXEL_BUDGET_MODELS = ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v")
+#: ``mock`` is not in this set: it has no such parameter, and passing it would
+#: raise TypeError.  This is a capability set, not the training roster — a future
+#: inference-only VLM belongs here without being trainable.
+PIXEL_BUDGET_MODELS = ("qwen3vl", "qwen3_5", "glm46v")
 
 
 def _now_str() -> str:

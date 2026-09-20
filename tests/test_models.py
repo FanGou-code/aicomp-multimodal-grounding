@@ -16,10 +16,6 @@ from aicomp_grounding.models.base import (
     ModelInput,
     language_model_lora_targets,
 )
-from aicomp_grounding.models.groundingdino import (
-    normalize_grounding_query,
-    select_top_detection,
-)
 from aicomp_grounding.models.mock import _stable_box
 from aicomp_grounding.models.glm46v import (
     GLM_BOX_CLOSE as GLM46V_BOX_CLOSE,
@@ -33,7 +29,6 @@ from aicomp_grounding.models.glm46v import (
     parse_glm_box,
     processor_pixel_kwargs,
 )
-from aicomp_grounding.models.mimo_vl import _parse_mimo_bbox
 from aicomp_grounding.models.qwen3_5 import (
     MAX_PIXELS as QWEN3_5_MAX_PIXELS,
     MIN_PIXELS as QWEN3_5_MIN_PIXELS,
@@ -54,7 +49,7 @@ class RegistryTests(unittest.TestCase):
     def test_registry_exposes_expected_models(self):
         self.assertEqual(
             available_models(),
-            ["glm46v", "groundingdino", "mimo_vl", "mock", "qwen3_5", "qwen3vl"],
+            ["glm46v", "mock", "qwen3_5", "qwen3vl"],
         )
 
     def test_unknown_model_raises_with_valid_options(self):
@@ -80,9 +75,7 @@ class RegistryTests(unittest.TestCase):
 EXPECTED_MODEL_REVISIONS = {
     "qwen3vl": "5d854aab08710c16b980ec6d603d863b3821b915",
     "qwen3_5": "460979c3d11864dd16408d860ac930a360a2fac2",
-    "mimo_vl": "d307865d4a3b6ad9ae35e574bcabaa563038c8fb",
     "glm46v": "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41",
-    "groundingdino": "d06985a44c66b6133c131bd273293be8649cfe3a",
 }
 
 
@@ -261,56 +254,9 @@ class Glm46VContractTests(unittest.TestCase):
         self.assertIsNone(parse_glm_box("no box here"))
 
 
-class MiMoVLContractTests(unittest.TestCase):
-    def test_parse_pixel_bbox_with_explicit_dimensions(self):
-        text = '[{"bbox_2d": [192, 108, 960, 540], "label": "car"}]'
-        self.assertEqual(
-            _parse_mimo_bbox(text, width=1920, height=1080),
-            [0.1, 0.1, 0.5, 0.5],
-        )
-
-    def test_parse_pixel_bbox_with_default_fallback_dimensions(self):
-        text = '[{"bbox_2d": [192, 108, 960, 540], "label": "car"}]'
-        self.assertEqual(
-            _parse_mimo_bbox(text),
-            [0.1, 0.1, 0.5, 0.5],
-        )
-
-    def test_parse_normalized_bbox(self):
-        text = '[{"bbox_2d": [0.1, 0.2, 0.5, 0.6], "label": "person"}]'
-        self.assertEqual(
-            _parse_mimo_bbox(text),
-            [0.1, 0.2, 0.5, 0.6],
-        )
-
-    def test_parse_bare_json_object(self):
-        text = '{"bbox_2d": [192, 108, 960, 540], "label": "car"}'
-        self.assertEqual(
-            _parse_mimo_bbox(text),
-            [0.1, 0.1, 0.5, 0.5],
-        )
-
-    def test_parse_rejects_invalid_or_malformed(self):
-        self.assertIsNone(_parse_mimo_bbox("no bbox here"))
-        self.assertIsNone(_parse_mimo_bbox('{"bbox_2d": [100, 200]}'))
-        self.assertIsNone(_parse_mimo_bbox('{"bbox_2d": [500, 500, 400, 600]}'))
-
-    def test_adapter_parse_grounding_text_pops_eval_pending_sizes(self):
-        adapter = get_adapter("mimo_vl")
-        adapter._eval_pending_sizes = [(1000, 500), (2000, 1000)]
-        text1 = '[{"bbox_2d": [100, 50, 500, 250]}]'
-        text2 = '[{"bbox_2d": [200, 100, 1000, 500]}]'
-        self.assertEqual(adapter.parse_grounding_text(text1), [0.1, 0.1, 0.5, 0.5])
-        self.assertEqual(adapter.parse_grounding_text(text2), [0.1, 0.1, 0.5, 0.5])
-        # Queue is now empty; fallback to 1920x1080
-        text3 = '[{"bbox_2d": [192, 108, 960, 540]}]'
-        self.assertEqual(adapter.parse_grounding_text(text3), [0.1, 0.1, 0.5, 0.5])
-
-
 TRAINABLE_ADAPTERS = (
     "qwen3vl",
     "qwen3_5",
-    "mimo_vl",
     "glm46v",
 )
 
@@ -324,14 +270,16 @@ TRAINABLE_ADAPTERS = (
 EXPECTED_LORA_PROJECTIONS = {
     "qwen3vl": ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"),
     "qwen3_5": ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"),
-    "mimo_vl": ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"),
     "glm46v": ("q_proj", "k_proj", "v_proj", "o_proj", "down_proj"),
 }
 
 # Vision towers that reuse language-model projection names are the trap: a bare
 # suffix list silently wraps them, which puts the vision encoder through
 # backward plus gradient-checkpoint recomputation.  These are the real module
-# paths of the Qwen2.5-VL tower used by `mimo_vl`.
+# paths of the GLM-4.6V vision tower (`glm46v`, in service): its blocks and its
+# merger both expose `gate_proj` / `up_proj` / `down_proj`, so a de-anchored
+# LoRA regex would wrap them.  The Qwen-family towers use other names
+# (`linear_fc1` / `linear_fc2`, packed `qkv`), which is why they were never hit.
 FROZEN_VISION_MODULES = (
     "model.visual.blocks.0.mlp.gate_proj",
     "model.visual.blocks.0.mlp.up_proj",
@@ -408,44 +356,9 @@ class TrainableAdapterContractTests(unittest.TestCase):
                 self.assertIsNone(re.fullmatch(pattern, key), f"{name} would train {key}")
 
 
-class GroundingDINOContractTests(unittest.TestCase):
-    def test_normalize_grounding_query_matches_official_demo(self):
-        self.assertEqual(
-            normalize_grounding_query(" The Red Car "),
-            "the red car.",
-        )
-        self.assertEqual(
-            normalize_grounding_query("the red car."),
-            "the red car.",
-        )
-
-    def test_select_top_detection_picks_highest_postprocessed_xyxy(self):
-        # post_process_grounded_object_detection already returns normalized XYXY.
-        boxes = [[0.5, 0.5, 0.75, 0.75], [0.25, 0.25, 0.375, 0.375]]
-        bbox, score = select_top_detection(boxes, [0.3, 0.9])
-        self.assertEqual(bbox, [0.25, 0.25, 0.375, 0.375])
-        self.assertEqual(score, 0.9)
-
-    def test_select_top_detection_falls_back_to_next_valid_box(self):
-        boxes = [[0.8, 0.8, 0.4, 0.4], [0.1, 0.1, 0.5, 0.5]]
-        bbox, score = select_top_detection(boxes, [0.9, 0.6])
-        self.assertEqual(bbox, [0.1, 0.1, 0.5, 0.5])
-        self.assertEqual(score, 0.6)
-
-    def test_select_top_detection_rejects_invalid_or_low_score(self):
-        self.assertEqual(
-            select_top_detection([[0.8, 0.8, 0.4, 0.4]], [0.9]),
-            (None, None),
-        )
-        self.assertEqual(
-            select_top_detection([[0.1, 0.1, 0.5, 0.5]], [0.05]), (None, None)
-        )
-        self.assertEqual(select_top_detection([], []), (None, None))
-
-
 class LocalModelPolicyTests(unittest.TestCase):
     def test_real_adapters_reject_missing_directory_before_loading(self):
-        for name in ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v", "groundingdino"):
+        for name in ("qwen3vl", "qwen3_5", "glm46v"):
             with self.subTest(model=name):
                 with self.assertRaisesRegex(ValueError, "--model-path"):
                     get_adapter(name).load()
@@ -456,7 +369,7 @@ class LocalModelPolicyTests(unittest.TestCase):
     def test_loaders_explicitly_forbid_network_fallback(self):
         import ast
         import inspect
-        for name in ("qwen3vl", "qwen3_5", "mimo_vl", "glm46v", "groundingdino"):
+        for name in ("qwen3vl", "qwen3_5", "glm46v"):
             module = inspect.getmodule(type(get_adapter(name)))
             calls = [n for n in ast.walk(ast.parse(inspect.getsource(module)))
                      if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
@@ -465,27 +378,6 @@ class LocalModelPolicyTests(unittest.TestCase):
             for call in calls:
                 self.assertTrue(any(k.arg == "local_files_only" and isinstance(k.value, ast.Constant)
                                     and k.value.value is True for k in call.keywords), name)
-
-    def test_dino_instance_threshold_reaches_final_selection(self):
-        import torch
-        from transformers import BatchEncoding
-        class Processor:
-            def __call__(self, **kwargs):
-                return BatchEncoding({"input_ids": torch.tensor([[1]])})
-            def post_process_grounded_object_detection(self, outputs, ids, threshold, text_threshold):
-                self.threshold = threshold
-                return [{"boxes": torch.tensor([[0.1, 0.2, 0.5, 0.6]]), "scores": torch.tensor([0.2])}]
-        class Model:
-            device = "cpu"
-            def __call__(self, **kwargs):
-                return None
-        adapter = get_adapter("groundingdino", box_threshold=0.1)
-        adapter._processor, adapter._model = Processor(), Model()
-        result = adapter.predict([ModelInput(None, None, None, "the object")])[0]
-        self.assertEqual(adapter._processor.threshold, 0.1)
-        self.assertIsNotNone(result.bbox)
-        self.assertAlmostEqual(result.score, 0.2)
-        self.assertEqual(adapter.compute_dtype, "float32")
 
 
 class MockAdapterTests(unittest.TestCase):

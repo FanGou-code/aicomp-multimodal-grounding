@@ -4,7 +4,7 @@ RGB-D-T（可见光、热红外、深度）三模态目标视觉定位的微调�
 
 输入同一场景已对齐的三张图像与一句英文目标描述（query），输出目标在可见光图像中的
 归一化边界框 `[x1, y1, x2, y2]`。指标为 `ACC@0.5`：与真值框 IoU ≥ 0.5 记为命中，
-命中数 / 查询总数。支持四款视觉大模型的 LoRA 微调与一个零样本检测基线，统一 adapter
+命中数 / 查询总数。支持三款视觉大模型的 LoRA 微调，统一 adapter
 协议。
 
 仓库只提供代码，不含数据集、模型权重与标注产物。
@@ -15,9 +15,7 @@ RGB-D-T（可见光、热红外、深度）三模态目标视觉定位的微调�
 | --- | --- | --- | --- |
 | `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | RGB + 红外 + 深度 | LoRA |
 | `qwen3_5` | `Qwen/Qwen3.5-9B` | RGB + 红外 + 深度 | LoRA |
-| `mimo_vl` | `XiaomiMiMo/MiMo-VL-7B-RL` | RGB + 红外 + 深度 | LoRA |
 | `glm46v` | `zai-org/GLM-4.6V-Flash` | RGB + 红外 + 深度 | LoRA |
-| `groundingdino` | `IDEA-Research/grounding-dino-base` | 仅 RGB | 仅推理（零样本） |
 | `mock` | — | 接口占位 | 仅测试 |
 
 ## 安装
@@ -54,9 +52,7 @@ revision 是否对应，revision 只用于追溯与运行身份。
 | --- | --- | --- |
 | `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | `5d854aab08710c16b980ec6d603d863b3821b915` |
 | `qwen3_5` | `Qwen/Qwen3.5-9B` | `460979c3d11864dd16408d860ac930a360a2fac2` |
-| `mimo_vl` | `XiaomiMiMo/MiMo-VL-7B-RL` | `d307865d4a3b6ad9ae35e574bcabaa563038c8fb` |
 | `glm46v` | `zai-org/GLM-4.6V-Flash`（镜像 `ZhipuAI/GLM-4.6V-Flash`） | `a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41` |
-| `groundingdino` | `IDEA-Research/grounding-dino-base` | `d06985a44c66b6133c131bd273293be8649cfe3a` |
 
 ```bash
 # 以 Hugging Face CLI 为例
@@ -83,7 +79,7 @@ python scripts/prepare_rgbdt.py --dataset-root data --dry-run     # 只校验，
 
 ## 训练
 
-四个可训练模型的超参默认值相同，均可用 CLI 覆盖；覆盖值计入运行身份。
+三个可训练模型的超参默认值相同，均可用 CLI 覆盖；覆盖值计入运行身份。
 
 ```bash
 # 冒烟：单步前向 + 反向，只跑 1 个 micro-batch
@@ -98,7 +94,7 @@ python offline/train.py --annotation-run-id <run_id> --model qwen3vl \
   --eval-batch-size 1 --num-workers 4 --checkpoint-interval 20 --run-tag qwen3vl-r1
 ```
 
-训练其它模型时替换 `--model`（`qwen3vl` / `qwen3_5` / `mimo_vl` / `glm46v`）与
+训练其它模型时替换 `--model`（`qwen3vl` / `qwen3_5` / `glm46v`）与
 `--model-path`。
 
 | 参数 | 默认 | 说明 |
@@ -149,9 +145,10 @@ python -m aicomp_grounding.submission \
   --output-dir outputs/submission/<run_id>
 ```
 
-`--scores` 可传各模型的分数文件（检测器用原生置信度做乘性加权），空字符串表示该模型
-不计分数。`submission` 默认要求预测 ID 与官方模板完全一致、bbox 全部合法，否则拒绝
-出包；`--allow-fallback` 会把缺失或无效的框填成占位框，仅用于显式不完整的诊断包。
+`--scores` 可传各模型的分数文件做乘性加权，空字符串表示该模型不计分数；当前阵容没有
+模型产出原生置信度，该参数暂无使用者。`submission` 默认要求预测 ID 与官方模板完全
+一致、bbox 全部合法，否则拒绝出包；`--allow-fallback` 会把缺失或无效的框填成占位框，
+仅用于显式不完整的诊断包。
 
 ## 运行身份与产物
 
@@ -183,7 +180,7 @@ python -m aicomp_grounding.submission \
 ## 测试
 
 ```bash
-python -m unittest discover -s tests                      # 208 项，纯 CPU
+python -m unittest discover -s tests                      # 202 项，纯 CPU
 python -m compileall aicomp_grounding scripts offline      # 语法检查
 ```
 
@@ -194,8 +191,7 @@ mock 端到端链路；不覆盖真实权重加载、生成质量、步时与显
 
 ```text
 aicomp_grounding/          核心库：坐标与合同、运行身份、训练核心、推理状态、融合与提交
-aicomp_grounding/models/   各底座适配器（qwen3vl / qwen3_5 / mimo_vl / glm46v /
-                           groundingdino / mock）
+aicomp_grounding/models/   各底座适配器（qwen3vl / qwen3_5 / glm46v / mock）
 aicomp_grounding/fusion/   加权框融合（WBF）
 offline/                   训练与推理 CLI、ROCm 环境脚本
 scripts/                   数据预处理与数据集发布工具

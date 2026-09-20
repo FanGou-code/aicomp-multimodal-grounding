@@ -50,8 +50,7 @@
 | `inference_state.py` | 推理运行身份、分片分配、检查点校验与恢复 |
 | `models/__init__.py` | 适配器注册表 |
 | `models/base.py` | 适配器协议、输入/输出类型、LoRA 目标层构造、本地模型路径策略 |
-| `models/qwen3vl.py` `models/qwen3_5.py` `models/mimo_vl.py` `models/glm46v.py` | 四个可训练 VLM 适配器（各自的提示词、坐标协议与超参默认值） |
-| `models/groundingdino.py` | 零样本检测基线：单图输入、原生置信度 |
+| `models/qwen3vl.py` `models/qwen3_5.py` `models/glm46v.py` | 三个可训练 VLM 适配器（各自的提示词、坐标协议与超参默认值） |
 | `models/mock.py` | CPU 契约测试用的最小适配器（无权重、确定性输出） |
 | `fusion/wbf.py` | 多模型预测的加权框融合与融合身份 |
 
@@ -74,7 +73,7 @@
 2. **LoRA 范围**：目标层一律经 `models/base.py:language_model_lora_targets()` 构造
    （锚定 `model.language_model` 的正则）；锚定共享，投影名单由各适配器自己声明。
    视觉塔恒为冻结、只做前向。裸后缀名单会被 PEFT 按后缀匹配而命中视觉塔。
-3. **像素预算**：四个三模态适配器的 `min_pixels` / `max_pixels` 一律按单帧计并进入
+3. **像素预算**：三个三模态适配器的 `min_pixels` / `max_pixels` 一律按单帧计并进入
    运行身份；处理器单位与单帧单位不一致的适配器在处理器边界换算。
 4. **运行身份**：训练 id 由模型 revision、提示词哈希、数据与图像指纹、超参、种子与
    run-tag 哈希得出；推理 id 另含像素预算、分片数、limit 等。任何参数变更必须换新
@@ -90,7 +89,8 @@
 ## 不提供
 
 数据集、模型权重、标注产物与运行结果不在本仓库。平台相关差异集中在
-`offline/rocm_env.sh`；`cloud/`、`internvl35`、`qwen36_27b` 不在本仓库（git 历史可溯）。
+`offline/rocm_env.sh`；`cloud/`、`internvl35`、`qwen36_27b`、`mimo_vl`、`groundingdino`
+不在本仓库（git 历史可溯）。
 
 ## 契约边界
 
@@ -102,5 +102,5 @@
 
 ## 测试
 
-`python -m unittest discover -s tests`：208 项，纯 CPU、不加载权重。真实权重加载、
+`python -m unittest discover -s tests`：202 项，纯 CPU、不加载权重。真实权重加载、
 生成质量、步时与显存不在覆盖内。
