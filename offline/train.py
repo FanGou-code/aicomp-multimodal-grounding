@@ -1,8 +1,8 @@
 """Single-machine LoRA training entrypoint around the shared training core.
 
 Runs the training pipeline on a local CUDA/HIP GPU. Practical uses: cheap
-QLoRA-style experiments on 24GB cards (with a reduced pixel budget),
-GroundingDINO-scale fine-tuning, or full runs on >=48GB local hardware.
+QLoRA-style experiments on 24GB cards (with a reduced pixel budget), or full
+runs on >=48GB local hardware.
 
 The repository layout keeps approved annotations and training outputs under
 repository-level ``outputs/``.

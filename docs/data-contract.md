@@ -14,7 +14,8 @@ data/                         运行输入，不入库
 outputs/                      运行产物，不入库
   annotations/<run_id>/       train/approved.json  val/approved.json
   output_lora/<run_id>/       plan.json  checkpoints/  best/  last/  completed.json
-  inference/<run_id>/         metadata.json  predictions.json  scores.json  checkpoint.json
+  inference/<run_id>/         metadata.json  predictions.json  checkpoint.json
+                              scores.json（可选：仅当有模型产出原生置信度时写出）
   fusion/<run_id>/            融合产物
   submission/<run_id>/        submission.zip
 ```

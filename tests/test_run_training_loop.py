@@ -208,7 +208,7 @@ class _FakeModel(torch.nn.Module):
 
 def _fake_adapter(calls: dict):
     class _Adapter:
-        name = "mimo_vl"
+        name = "qwen3vl"
         model_name = "fake/model"
         model_revision = "rev"
         supports_lora = True
@@ -321,7 +321,7 @@ class RunTrainingLoopTests(unittest.TestCase):
                     annotation_root=root / "outputs" / "annotations",
                     output_root=root / "outputs",
                     annotation_run_id=run_id,
-                    model="mimo_vl",
+                    model="qwen3vl",
                     run_tag="fake-r1",
                     seed=42,
                     resume=True,
@@ -374,7 +374,7 @@ class RunTrainingLoopTests(unittest.TestCase):
                     annotation_root=root / "outputs" / "annotations",
                     output_root=root / "outputs",
                     annotation_run_id=run_id,
-                    model="mimo_vl",
+                    model="qwen3vl",
                     run_tag="fake-full",
                     seed=42,
                     resume=True,
@@ -387,7 +387,7 @@ class RunTrainingLoopTests(unittest.TestCase):
                     annotation_root=root / "outputs" / "annotations",
                     output_root=root / "outputs",
                     annotation_run_id=run_id,
-                    model="mimo_vl",
+                    model="qwen3vl",
                     run_tag="fake-full",
                     seed=42,
                     resume=True,
@@ -426,7 +426,7 @@ class HyperparameterOverrideTests(unittest.TestCase):
                 annotation_root=root / "outputs" / "annotations",
                 output_root=root / "outputs",
                 annotation_run_id=run_id,
-                model="mimo_vl",
+                model="qwen3vl",
                 run_tag="override-test",
                 seed=42,
                 resume=True,
@@ -438,7 +438,7 @@ class HyperparameterOverrideTests(unittest.TestCase):
                 annotation_root=root / "outputs" / "annotations",
                 output_root=root / "outputs",
                 annotation_run_id=run_id,
-                model="mimo_vl",
+                model="qwen3vl",
                 run_tag="override-test",
                 seed=42,
                 resume=True,
@@ -458,7 +458,7 @@ class HyperparameterOverrideTests(unittest.TestCase):
                 annotation_root=root / "outputs" / "annotations",
                 output_root=root / "outputs",
                 annotation_run_id=run_id,
-                model="mimo_vl",
+                model="qwen3vl",
                 run_tag="override-test",
                 seed=42,
                 resume=True,
@@ -510,7 +510,7 @@ class HyperparameterOverrideTests(unittest.TestCase):
                             annotation_root=root / "outputs" / "annotations",
                             output_root=root / "outputs",
                             annotation_run_id=run_id,
-                            model="mimo_vl",
+                            model="qwen3vl",
                             run_tag="invalid",
                             seed=42,
                             resume=True,
@@ -573,7 +573,7 @@ class BestMetricTests(unittest.TestCase):
                     annotation_root=root / "outputs" / "annotations",
                     output_root=root / "outputs",
                     annotation_run_id=run_id,
-                    model="mimo_vl",
+                    model="qwen3vl",
                     run_tag="best-metric-val-loss",
                     seed=42,
                     resume=True,
