@@ -203,8 +203,8 @@ python scripts/review_report.py --census-run outputs/census/census_<id>
 ## 与下游训练系统的生态联动
 
 下游是 [aicomp-multimodal-grounding](https://github.com/FanGou-code/aicomp-multimodal-grounding)：
-RGB-D-T 三模态视觉定位训练与推理系统（Qwen3-VL-8B / Qwen3.5-9B / MiMo-VL-7B /
-GLM-4.6V-Flash + Grounding-DINO 基线，LoRA 微调，唯一指标 ACC@0.5）。
+RGB-D-T 三模态视觉定位训练与推理系统（Qwen3-VL-8B / Qwen3.5-9B /
+GLM-4.6V-Flash，LoRA 微调，唯一指标 ACC@0.5）。
 
 交付一步到位：`--export-to-main` 会把 train 与 val 两个 split 同时写入主仓的
 `outputs/annotations/<run_id>/{train,val}/approved.json`，主仓随后可直接启动训练：
