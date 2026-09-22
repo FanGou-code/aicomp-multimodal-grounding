@@ -24,6 +24,17 @@ def _stable_box(query: str) -> list[float]:
     return [round(x1, 6), round(y1, 6), round(min(x2, 1.0), 6), round(min(y2, 1.0), 6)]
 
 
+_MOCK_INTENT = (
+    '{"category": "object", "selection": {"mode": "rank", "k": 1, "axis": "x", "direction": "asc"}}'
+)
+
+_MOCK_ENUMERATION = (
+    '{"count": 2, "instances": ['
+    '{"bbox": [0.10, 0.10, 0.20, 0.30], "confidence": 0.9}, '
+    '{"bbox": [0.40, 0.10, 0.50, 0.30], "confidence": 0.9}]}'
+)
+
+
 class MockAdapter:
     name = "mock"
     model_name = "mock/grounding"
@@ -58,3 +69,26 @@ class MockAdapter:
             Prediction(bbox=_stable_box(sample.query), score=0.5)
             for sample in samples
         ]
+
+    def generate_messages(
+        self,
+        messages_list: list[list[dict]],
+        *,
+        max_new_tokens: int,
+        temperature: float,
+        skip_special_tokens: bool = False,
+    ) -> list[str]:
+        """Deterministic replies: an image means the enumerate prompt, none means parse.
+
+        Both calls return the same list, so the reconcile gate passes and the
+        ordinal chain stays exercisable end to end without a GPU.
+        """
+        replies: list[str] = []
+        for messages in messages_list:
+            has_image = any(
+                part.get("type") == "image"
+                for message in messages
+                for part in message["content"]
+            )
+            replies.append(_MOCK_ENUMERATION if has_image else _MOCK_INTENT)
+        return replies

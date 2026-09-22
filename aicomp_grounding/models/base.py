@@ -6,6 +6,8 @@ An adapter owns everything model-specific on the inference path:
 - ``generation_config`` decoding parameters recorded in run metadata
 - ``load()``            weights + processor (lazy heavy imports inside)
 - ``predict()``         (three images, query) -> Prediction, in batches
+- ``generate_messages()`` caller-built chat messages -> raw text, for callers
+                        that own their prompt and their output shape
 
 Pure logic (prompt construction, output parsing, coordinate conversion) lives
 in adapter modules as module-level functions so it stays unit-testable in
@@ -69,6 +71,42 @@ def require_local_model_path(model_path: str | Path | None) -> str:
     if not path.is_dir() or not (path / "config.json").is_file():
         raise FileNotFoundError(f"Local model directory is missing config.json: {path}")
     return str(path)
+
+
+def run_generation(
+    model: Any,
+    processor: Any,
+    inputs: dict,
+    *,
+    max_new_tokens: int,
+    temperature: float,
+    skip_special_tokens: bool = False,
+) -> list[str]:
+    """Generate raw text from processor inputs; one string per sample.
+
+    ``temperature <= 0`` decodes greedily, and the temperature argument is only
+    passed on the sampled path so a greedy call never depends on an ignored
+    parameter.  Shared by the adapters' ``generate_messages`` so the slicing and
+    decoding rules have exactly one home.
+    """
+    import torch
+
+    inputs = {key: value.to(model.device) for key, value in inputs.items()}
+    kwargs: dict[str, Any] = {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": temperature > 0,
+    }
+    if temperature > 0:
+        kwargs["temperature"] = temperature
+
+    with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        generated_ids = model.generate(**inputs, **kwargs)
+
+    prompt_len = inputs["input_ids"].shape[1]
+    generated_tokens = generated_ids[:, prompt_len:]
+    return processor.batch_decode(
+        generated_tokens, skip_special_tokens=skip_special_tokens
+    )
 
 
 @dataclass(frozen=True)
@@ -143,6 +181,23 @@ class GroundingAdapter(Protocol):
 
     def predict_from_inputs(self, inputs: dict) -> list[Prediction]:
         """GPU-side generation from ``prepare_inputs`` output; order kept."""
+        ...
+
+
+    def generate_messages(
+        self,
+        messages_list: list[list[dict]],
+        *,
+        max_new_tokens: int,
+        temperature: float,
+        skip_special_tokens: bool = False,
+    ) -> list[str]:
+        """Template and generate caller-built chat messages; order preserved.
+
+        Unlike ``predict``, the caller owns the prompt and the output shape:
+        this returns raw decoded text.  The ordinal module needs it to enumerate
+        with a different prompt, a single image, and sampled decoding.
+        """
         ...
 
 
