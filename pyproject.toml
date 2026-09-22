@@ -49,6 +49,9 @@ Issues = "https://github.com/FanGou-code/aicomp-multimodal-grounding/issues"
 [tool.setuptools.packages.find]
 include = ["aicomp_grounding*"]
 
+[tool.setuptools.package-data]
+"aicomp_grounding.ordinal" = ["prompts/*.md"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
