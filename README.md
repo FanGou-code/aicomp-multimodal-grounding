@@ -150,6 +150,39 @@ python -m aicomp_grounding.submission \
 一致、bbox 全部合法，否则拒绝出包；`--allow-fallback` 会把缺失或无效的框填成占位框，
 仅用于显式不完整的诊断包。
 
+## 序数后处理（可选，显式步骤）
+
+推理之后、融合之前可插入一步序数后处理：解析 query 意图，枚举同类别的全部实例，再按
+坐标轴取第 k 个覆盖该模型的框。它只覆盖"在多个同类实例里按序选一个"这一类题，其余题
+逐字节不改；产出每个模型各一份修正后的预测，随后照常进 WBF。
+
+```bash
+# 每个在役模型各跑一次：解析（纯文本）→ 对排序题枚举两次（基座权重 + 仅可见光）
+python -m aicomp_grounding.ordinal.enumerate \
+  --model qwen3_5 --model-path models/Qwen3.5-9B \
+  --test-json data/Test/queries/queries.json --data-dir data \
+  --max-new-tokens 1024 --temperature 0.7 \
+  --output-dir outputs/enum --run-tag ord-full
+
+# 汇总三个模型：枚举两次清单必须一一对上
+python -m aicomp_grounding.ordinal.resolve \
+  --enum-run outputs/enum/<id_a> --predictions outputs/inference/<infer_a>/predictions.json \
+  --enum-run outputs/enum/<id_b> --predictions outputs/inference/<infer_b>/predictions.json \
+  --enum-run outputs/enum/<id_c> --predictions outputs/inference/<infer_c>/predictions.json \
+  --test-json data/Test/queries/queries.json --data-dir data \
+  --output-dir outputs/ordinal --run-tag ord-full
+```
+
+每个模型走完整套：自己的解析 → 自己的两次枚举 → 自己的取第 k。`resolve` 汇总三个
+模型，**至少两个模型都判定要换**才采纳这一轮，否则三份输出全部回退为原框。
+轴限 `x` / `y` / `depth` / `area` / `ir`；数据缺失的轴不触发。`--temperature` 必须
+大于 0 —— 两次枚举逐字相同就失去自证意义。
+
+判定用的门：解析合法、未截断（自报数等于清单长度）、两次清单一一对上、`k ≤ N`、
+基准框能在清单里找到。任一不过就保留原框。第 k 个若就是基准框那个物体，保留基准框
+坐标（WBF 的坐标比单次枚举更准）。
+
+
 ## 运行身份与产物
 
 产物目录名即运行身份，由模型 revision、提示词哈希、数据与图像指纹、像素预算、超参、
@@ -168,7 +201,7 @@ python -m aicomp_grounding.submission \
 | 类别 | 方法 |
 | --- | --- |
 | 标识 | `name`、`model_name`、`model_revision`、`supports_lora`、`prompt_hash()`、`identity()` |
-| 推理 | `load()`、`predict()`；可选 `prepare_inputs()` + `predict_from_inputs()`（批量预处理） |
+| 推理 | `load()`、`predict()`；可选 `prepare_inputs()` + `predict_from_inputs()`（批量预处理）；`generate_messages()`（调用方自备消息、返回原始文本，序数后处理用它） |
 | 训练 | `training_hyperparameters()`、`lora_target_modules()`、`load_for_training()`、`build_training_batch()`、`collate_training_batch()`、`build_grounding_batch()`、`decode_grounding_outputs()`、`parse_grounding_text()` |
 
 新增后需同步：注册表 `models/__init__.py`、可训练白名单
@@ -180,7 +213,7 @@ python -m aicomp_grounding.submission \
 ## 测试
 
 ```bash
-python -m unittest discover -s tests                      # 202 项，纯 CPU
+python -m unittest discover -s tests                      # 258 项，纯 CPU
 python -m compileall aicomp_grounding scripts offline      # 语法检查
 ```
 
@@ -193,6 +226,7 @@ mock 端到端链路；不覆盖真实权重加载、生成质量、步时与显
 aicomp_grounding/          核心库：坐标与合同、运行身份、训练核心、推理状态、融合与提交
 aicomp_grounding/models/   各底座适配器（qwen3vl / qwen3_5 / glm46v / mock）
 aicomp_grounding/fusion/   加权框融合（WBF）
+aicomp_grounding/ordinal/  序数后处理（解析 / 枚举 / 取第 k）+ prompts/*.md
 offline/                   训练与推理 CLI、ROCm 环境脚本
 scripts/                   数据预处理与数据集发布工具
 tests/                     CPU 单元测试

@@ -28,6 +28,7 @@ from aicomp_grounding.models.base import (
     Prediction,
     language_model_lora_targets,
     require_local_model_path,
+    run_generation,
 )
 from aicomp_grounding.training_state import validated_prompt_length
 
@@ -500,3 +501,38 @@ class Glm46VAdapter:
 
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:
         return self.predict_from_inputs(self.prepare_inputs(samples))
+
+    def generate_messages(
+        self,
+        messages_list: list[list[dict]],
+        *,
+        max_new_tokens: int,
+        temperature: float,
+        skip_special_tokens: bool = False,
+    ) -> list[str]:
+        """Template and generate caller-built chat messages (ordinal module)."""
+        if self._model is None or self._processor is None:
+            raise RuntimeError("Glm46VAdapter.load() must run before generate_messages()")
+
+        processor = self._processor
+        texts = [
+            _apply_chat_template(processor, m, add_generation_prompt=True)
+            for m in messages_list
+        ]
+        images = [
+            part["image"]
+            for messages in messages_list
+            for part in messages[-1]["content"]
+            if part.get("type") == "image"
+        ]
+        kwargs: dict[str, object] = {"text": texts, "padding": True, "return_tensors": "pt"}
+        if images:
+            kwargs["images"] = images
+        return run_generation(
+            self._model,
+            processor,
+            dict(processor(**kwargs)),
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            skip_special_tokens=skip_special_tokens,
+        )

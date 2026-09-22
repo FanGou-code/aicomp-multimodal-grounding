@@ -26,6 +26,7 @@ from aicomp_grounding.models.base import (
     Prediction,
     language_model_lora_targets,
     require_local_model_path,
+    run_generation,
 )
 from aicomp_grounding.prompts import (
     GROUNDING_SYSTEM_PROMPT,
@@ -399,3 +400,34 @@ class Qwen3_5Adapter:
 
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:
         return self.predict_from_inputs(self.prepare_inputs(samples))
+
+    def generate_messages(
+        self,
+        messages_list: list[list[dict]],
+        *,
+        max_new_tokens: int,
+        temperature: float,
+        skip_special_tokens: bool = False,
+    ) -> list[str]:
+        """Template and generate caller-built chat messages (ordinal module)."""
+        from qwen_vl_utils import process_vision_info
+
+        if self._model is None or self._processor is None:
+            raise RuntimeError("Qwen3_5Adapter.load() must run before generate_messages()")
+
+        processor = self._processor
+        texts = [_apply_chat_template(processor, m, add_generation_prompt=True) for m in messages_list]
+        image_inputs, video_inputs = process_vision_info(messages_list)
+        kwargs: dict[str, object] = {"text": texts, "padding": True, "return_tensors": "pt"}
+        if image_inputs is not None:
+            kwargs["images"] = image_inputs
+        if video_inputs is not None:
+            kwargs["videos"] = video_inputs
+        return run_generation(
+            self._model,
+            processor,
+            dict(processor(**kwargs)),
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            skip_special_tokens=skip_special_tokens,
+        )

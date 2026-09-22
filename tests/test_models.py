@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 import tempfile
@@ -354,6 +355,29 @@ class TrainableAdapterContractTests(unittest.TestCase):
             self.assertIsInstance(pattern, str, f"{name} must return a regex, not a list")
             for key in FROZEN_VISION_MODULES:
                 self.assertIsNone(re.fullmatch(pattern, key), f"{name} would train {key}")
+
+
+class OrdinalGenerationContractTests(unittest.TestCase):
+    """Every adapter must be able to serve the ordinal module's generation call."""
+
+    def test_every_registered_adapter_exposes_generate_messages(self):
+        for name in available_models():
+            with self.subTest(name=name):
+                self.assertTrue(
+                    callable(getattr(get_adapter(name), "generate_messages", None)),
+                    f"{name} cannot serve the ordinal module",
+                )
+
+    def test_generate_messages_takes_keyword_only_generation_controls(self):
+        parameters = inspect.signature(
+            get_adapter("mock").generate_messages
+        ).parameters
+        for name in ("max_new_tokens", "temperature", "skip_special_tokens"):
+            with self.subTest(parameter=name):
+                self.assertEqual(
+                    parameters[name].kind, inspect.Parameter.KEYWORD_ONLY
+                )
+        self.assertIs(parameters["skip_special_tokens"].default, False)
 
 
 class LocalModelPolicyTests(unittest.TestCase):

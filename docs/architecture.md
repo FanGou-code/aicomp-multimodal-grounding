@@ -6,7 +6,7 @@
 
 | 层 | 位置 | 职责 | 依赖 |
 | --- | --- | --- | --- |
-| 核心库 | `aicomp_grounding/` | 图像与坐标、合同校验、运行身份、训练核心、推理状态、融合与提交 | 标准库 + `Pillow` / `numpy` |
+| 核心库 | `aicomp_grounding/` | 图像与坐标、合同校验、运行身份、训练核心、推理状态、融合与提交、序数后处理 | 标准库 + `Pillow` / `numpy` |
 | 模型适配 | `aicomp_grounding/models/` | 各底座的协议适配与 LoRA 目标层声明 | 惰性导入 `torch` / `transformers` / `peft` |
 | 入口 | `offline/`、`scripts/` | 训练与推理 CLI、数据预处理 | `aicomp_grounding` |
 | 上游 | `query-foundry`（独立仓库） | 数据划分、标注生产、质检与封包 | 与本仓只通过 `approved.json` 交接 |
@@ -22,6 +22,7 @@
         → outputs/annotations/<run_id>/{train,val}/approved.json
         → offline/train.py → outputs/output_lora/<run_id>/
         → offline/infer.py → outputs/inference/<run_id>/predictions.json
+        → aicomp_grounding.ordinal.{enumerate,resolve}（可选）→ outputs/{enum,ordinal}/
         → aicomp_grounding.fusion.wbf → aicomp_grounding.submission → submission.zip
 ```
 
@@ -53,6 +54,10 @@
 | `models/qwen3vl.py` `models/qwen3_5.py` `models/glm46v.py` | 三个可训练 VLM 适配器（各自的提示词、坐标协议与超参默认值） |
 | `models/mock.py` | CPU 契约测试用的最小适配器（无权重、确定性输出） |
 | `fusion/wbf.py` | 多模型预测的加权框融合与融合身份 |
+| `ordinal/resolve.py` | 序数后处理的门、轴排序、第 k 个选择与组决策回退（纯代码） |
+| `ordinal/parse.py` `ordinal/enumerate.py` | 序数后处理的提示词消息组装与严格解码 |
+| `ordinal/loader.py` | 读取 `ordinal/prompts/*.md` 并给出提示词指纹 |
+| `ordinal/run.py` | 序数后处理的运行身份、产物读取与原始深度路径映射 |
 
 入口与工具：
 
@@ -102,5 +107,5 @@
 
 ## 测试
 
-`python -m unittest discover -s tests`：202 项，纯 CPU、不加载权重。真实权重加载、
+`python -m unittest discover -s tests`：258 项，纯 CPU、不加载权重。真实权重加载、
 生成质量、步时与显存不在覆盖内。
