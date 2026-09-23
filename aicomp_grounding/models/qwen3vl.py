@@ -378,6 +378,8 @@ class Qwen3VLAdapter:
         max_new_tokens: int,
         temperature: float,
         skip_special_tokens: bool = False,
+        sampling_kwargs: dict | None = None,
+        template_kwargs: dict | None = None,
     ) -> list[str]:
         """Template and generate caller-built chat messages (ordinal module)."""
         from qwen_vl_utils import process_vision_info
@@ -386,7 +388,9 @@ class Qwen3VLAdapter:
             raise RuntimeError("Qwen3VLAdapter.load() must run before generate_messages()")
 
         processor = self._processor
-        texts = [processor.apply_chat_template(m, tokenize=False, add_generation_prompt=True) for m in messages_list]
+        common = {"tokenize": False, "add_generation_prompt": True}
+        common.update(template_kwargs or {})
+        texts = [processor.apply_chat_template(m, **common) for m in messages_list]
         image_inputs, video_inputs = process_vision_info(messages_list)
         kwargs: dict[str, object] = {"text": texts, "padding": True, "return_tensors": "pt"}
         if image_inputs is not None:
@@ -400,4 +404,5 @@ class Qwen3VLAdapter:
             max_new_tokens=max_new_tokens,
             temperature=temperature,
             skip_special_tokens=skip_special_tokens,
+            sampling_kwargs=sampling_kwargs,
         )

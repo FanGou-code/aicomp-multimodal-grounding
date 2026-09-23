@@ -48,9 +48,9 @@ MAX_PIXELS = 3072 * 28 * 28
 
 MAX_NEW_TOKENS = 32
 
-# Qwen3.5 thinks by default before responding. The grounding protocol
-# requires the model to emit only the box-token sequence, so every
-# chat-template call must disable thinking for training and inference alike.
+# Qwen3.5 thinks by default.  The grounding protocol requires the model to emit
+# only the box-token sequence, so the default for every chat-template call is
+# thinking off.  Enumeration overrides it per call.
 CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
 
 
@@ -59,12 +59,15 @@ def _apply_chat_template(
     messages: list[dict],
     *,
     add_generation_prompt: bool,
+    template_kwargs: dict | None = None,
 ) -> str:
+    kwargs = dict(CHAT_TEMPLATE_KWARGS)
+    kwargs.update(template_kwargs or {})
     return processor.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=add_generation_prompt,
-        **CHAT_TEMPLATE_KWARGS,
+        **kwargs,
     )
 
 
@@ -408,6 +411,8 @@ class Qwen3_5Adapter:
         max_new_tokens: int,
         temperature: float,
         skip_special_tokens: bool = False,
+        sampling_kwargs: dict | None = None,
+        template_kwargs: dict | None = None,
     ) -> list[str]:
         """Template and generate caller-built chat messages (ordinal module)."""
         from qwen_vl_utils import process_vision_info
@@ -416,7 +421,12 @@ class Qwen3_5Adapter:
             raise RuntimeError("Qwen3_5Adapter.load() must run before generate_messages()")
 
         processor = self._processor
-        texts = [_apply_chat_template(processor, m, add_generation_prompt=True) for m in messages_list]
+        texts = [
+            _apply_chat_template(
+                processor, m, add_generation_prompt=True, template_kwargs=template_kwargs
+            )
+            for m in messages_list
+        ]
         image_inputs, video_inputs = process_vision_info(messages_list)
         kwargs: dict[str, object] = {"text": texts, "padding": True, "return_tensors": "pt"}
         if image_inputs is not None:
@@ -430,4 +440,5 @@ class Qwen3_5Adapter:
             max_new_tokens=max_new_tokens,
             temperature=temperature,
             skip_special_tokens=skip_special_tokens,
+            sampling_kwargs=sampling_kwargs,
         )

@@ -12,6 +12,7 @@ from unittest import mock
 import numpy as np
 from PIL import Image
 
+from aicomp_grounding.ordinal import run as ordinal_run
 from aicomp_grounding.ordinal.enumerate import main as enumerate_main
 from aicomp_grounding.ordinal.resolve import main as resolve_main
 
@@ -50,64 +51,27 @@ class MockOrdinalPipelineTests(unittest.TestCase):
         with mock.patch.object(sys, "argv", argv):
             main_func()
 
-    def test_the_chain_replaces_the_box_when_two_models_agree(self):
+    def _enumerate(self, root: Path, queries: Path, *extra: str) -> Path:
+        self._run(enumerate_main, [
+            "enumerate", "--model", "mock",
+            "--test-json", str(queries), "--data-dir", str(root / "data"),
+            "--output-dir", str(root / "enum"), "--batch-save", "1",
+            *extra,
+        ])
+        return next(iter((root / "enum").glob("*")))
+
+    def test_the_chain_replaces_the_box_and_keeps_the_thinking_sidecar(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             queries = _write_fixture(root)
-            enum_root = root / "enum"
-            enum_dirs = []
-            for tag in ("m1", "m2", "m3"):
-                before = set(enum_root.glob("*")) if enum_root.is_dir() else set()
-                self._run(enumerate_main, [
-                    "enumerate", "--model", "mock",
-                    "--test-json", str(queries), "--data-dir", str(root / "data"),
-                    "--output-dir", str(enum_root), "--run-tag", tag,
-                    "--temperature", "0.7", "--batch-save", "1",
-                ])
-                enum_dirs.append(next(iter(set(enum_root.glob("*")) - before)))
+            enum_dir = self._enumerate(root, queries)
 
-            self.assertEqual(len(set(enum_dirs)), 3)
-            for directory in enum_dirs:
-                parsed = json.loads((directory / "parse.json").read_text(encoding="utf-8"))
-                self.assertEqual(parsed[QUERY_ID]["intent"]["selection"]["mode"], "rank")
-                instances = json.loads((directory / "instances.json").read_text(encoding="utf-8"))
-                self.assertEqual(len(instances[QUERY_ID]["runs"]), 2)
+            parsed = json.loads((enum_dir / "parse.json").read_text(encoding="utf-8"))
+            self.assertEqual(parsed[QUERY_ID]["intent"]["selection"]["mode"], "rank")
+            instances = json.loads((enum_dir / "instances.json").read_text(encoding="utf-8"))
+            self.assertEqual(instances[QUERY_ID]["payload"]["count"], 2)
+            self.assertEqual(ordinal_run.load_thinking(enum_dir).get(QUERY_ID, "").count("2"), 1)
 
-            prediction_files = []
-            for index in range(3):
-                path = root / f"pred_{index}.json"
-                path.write_text(json.dumps({QUERY_ID: list(SECOND)}), encoding="utf-8")
-                prediction_files.append(path)
-
-            argv = [
-                "resolve", "--test-json", str(queries), "--data-dir", str(root / "data"),
-                "--output-dir", str(root / "ordinal"),
-            ]
-            for directory, prediction in zip(enum_dirs, prediction_files, strict=True):
-                argv += ["--enum-run", str(directory), "--predictions", str(prediction)]
-            self._run(resolve_main, argv)
-
-            out_dir = next(iter((root / "ordinal").glob("*")))
-            metadata = json.loads((out_dir / "metadata.json").read_text(encoding="utf-8"))
-            stats = metadata["stats"]
-            self.assertEqual(stats["rank_queries"], 1)
-            self.assertEqual(stats["adopted"], 1)
-            self.assertEqual(stats["replaced_per_model"], [1, 1, 1])
-            self.assertEqual(len(stats["outputs"]), 3)
-            for entry in stats["outputs"]:
-                written = json.loads((out_dir / entry["file"]).read_text(encoding="utf-8"))
-                self.assertEqual(written[QUERY_ID], FIRST)
-
-    def test_a_single_model_alone_leaves_the_box_untouched(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            queries = _write_fixture(root)
-            self._run(enumerate_main, [
-                "enumerate", "--model", "mock",
-                "--test-json", str(queries), "--data-dir", str(root / "data"),
-                "--output-dir", str(root / "enum"), "--temperature", "0.7",
-            ])
-            enum_dir = next(iter((root / "enum").glob("*")))
             prediction = root / "pred.json"
             prediction.write_text(json.dumps({QUERY_ID: list(SECOND)}), encoding="utf-8")
 
@@ -116,12 +80,33 @@ class MockOrdinalPipelineTests(unittest.TestCase):
                 "--test-json", str(queries), "--data-dir", str(root / "data"),
                 "--output-dir", str(root / "ordinal"),
             ])
+
             out_dir = next(iter((root / "ordinal").glob("*")))
             metadata = json.loads((out_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["stats"]["adopted"], 0)
-            self.assertEqual(metadata["stats"]["replaced_not_adopted"], 1)
-            written = json.loads((out_dir / metadata["stats"]["outputs"][0]["file"]).read_text(encoding="utf-8"))
-            self.assertEqual(written[QUERY_ID], SECOND)
+            self.assertEqual(metadata["stats"]["rank_queries"], 1)
+            self.assertEqual(metadata["stats"]["adopted"], 1)
+            self.assertEqual(len(metadata["stats"]["outputs"]), 1)
+            entry = metadata["stats"]["outputs"][0]
+            written = json.loads((out_dir / entry["file"]).read_text(encoding="utf-8"))
+            self.assertEqual(written[QUERY_ID], FIRST)
+
+    def test_enumerating_without_thinking_still_replaces_the_box(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queries = _write_fixture(root)
+            enum_dir = self._enumerate(root, queries, "--no-think")
+            self.assertEqual(ordinal_run.load_thinking(enum_dir), {})
+
+            prediction = root / "pred.json"
+            prediction.write_text(json.dumps({QUERY_ID: list(SECOND)}), encoding="utf-8")
+            self._run(resolve_main, [
+                "resolve", "--enum-run", str(enum_dir), "--predictions", str(prediction),
+                "--test-json", str(queries), "--data-dir", str(root / "data"),
+                "--output-dir", str(root / "ordinal"),
+            ])
+            out_dir = next(iter((root / "ordinal").glob("*")))
+            metadata = json.loads((out_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["stats"]["adopted"], 1)
 
     def test_enumerate_refuses_a_zero_temperature(self):
         with tempfile.TemporaryDirectory() as tmp:

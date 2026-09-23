@@ -1,39 +1,30 @@
-"""Run identity, artifact paths, and the per-query group decision.
+"""Run identity, artifact paths, and the thinking sidecar.
 
 Mirrors the inference run-identity pattern: one identity dict, hashed with the
 fields that can change the artifact, prefixed per stage, and asserted against a
-frozen field tuple so a new field can never slip in unhashed.
+frozen field tuple.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from aicomp_grounding.artifacts import key_hash, stable_json_hash
-from aicomp_grounding.io import load_json
+from aicomp_grounding.io import atomic_write_jsonl, load_json, load_jsonl
 from aicomp_grounding.ordinal import loader
-
-if TYPE_CHECKING:  # resolve imports this module, so the dependency stays one-way
-    from aicomp_grounding.ordinal.resolve import Decision
 
 ENUM_RUN_PREFIX = "ordinal_enum_"
 RESOLVE_RUN_PREFIX = "ordinal_resolve_"
 
 CHECKPOINT_VERSION = 1
 
-#: How many serving models must independently replace the box before the round
-#: is adopted.
-MIN_REPLACES = 2
-
-#: Independent enumeration runs per model.  Two is the minimum that can disagree.
-ENUM_RUNS = 2
-
 AXIS_SET_VERSION = 1
 
-#: Decoded visible images kept resident while walking items in path order, so
-#: one image is decoded once for both enumeration runs.
+#: Filename of the thinking sidecar, one JSON object per query.
+THINKING_FILENAME = "thinking.jsonl"
+
+#: Decoded visible images kept resident while walking items in path order.
 SCENE_CACHE_MAX = 32
 
 ENUM_METADATA_FIELDS = (
@@ -44,7 +35,8 @@ ENUM_METADATA_FIELDS = (
     "instance_of",
     "max_new_tokens",
     "temperature",
-    "enum_runs",
+    "think",
+    "sampling",
     "prompts_fingerprint",
     "run_tag",
     "limit",
@@ -56,11 +48,10 @@ ENUM_METADATA_FIELDS = (
 RESOLVE_METADATA_FIELDS = (
     "version",
     "run_id",
-    "enum_run_ids",
-    "prediction_fingerprints",
+    "enum_run_id",
+    "prediction_fingerprint",
     "axes",
     "iou_threshold",
-    "min_replaces",
     "run_tag",
     "selected_key_hash",
     "stats",
@@ -73,16 +64,17 @@ def build_enum_metadata(
     model_revision: str,
     max_new_tokens: int,
     temperature: float,
+    think: bool,
+    sampling: dict,
     run_tag: str,
     limit: int,
     selected_keys: Sequence[str],
     input_fingerprint: str,
     stats: dict | None = None,
 ) -> dict:
-    """Identity of one model's enumeration run (base weights, RGB only).
+    """Identity of one enumeration run (base weights, RGB only).
 
-    ``stats`` is written into the artifact but excluded from the run id, so a
-    run keeps its identity while its counters are filled in after the loop.
+    ``stats`` is written into the artifact but excluded from the run id.
     """
     if max_new_tokens <= 0:
         raise ValueError(f"max_new_tokens must be positive, got {max_new_tokens}")
@@ -95,7 +87,8 @@ def build_enum_metadata(
         "instance_of": None,
         "max_new_tokens": max_new_tokens,
         "temperature": temperature,
-        "enum_runs": ENUM_RUNS,
+        "think": bool(think),
+        "sampling": dict(sampling),
         "prompts_fingerprint": loader.prompts_fingerprint(),
         "run_tag": run_tag,
         "limit": limit,
@@ -115,25 +108,22 @@ def build_enum_metadata(
 
 def build_resolve_metadata(
     *,
-    enum_run_ids: Sequence[str],
-    prediction_fingerprints: Sequence[str],
+    enum_run_id: str,
+    prediction_fingerprint: str,
     iou_threshold: float,
     run_tag: str,
     selected_keys: Sequence[str],
     stats: dict | None = None,
 ) -> dict:
-    """Identity of one resolve run: every upstream run it consumed."""
-    if len(enum_run_ids) != len(prediction_fingerprints):
-        raise ValueError("Every enumeration run needs its base prediction fingerprint")
+    """Identity of one resolve run: the single enumeration it consumed."""
     from aicomp_grounding.ordinal.resolve import AXES
 
     identity = {
         "version": CHECKPOINT_VERSION,
-        "enum_run_ids": list(enum_run_ids),
-        "prediction_fingerprints": list(prediction_fingerprints),
+        "enum_run_id": enum_run_id,
+        "prediction_fingerprint": prediction_fingerprint,
         "axes": list(AXES),
         "iou_threshold": iou_threshold,
-        "min_replaces": MIN_REPLACES,
         "run_tag": run_tag,
         "selected_key_hash": key_hash(selected_keys),
     }
@@ -148,9 +138,24 @@ def build_resolve_metadata(
     return metadata
 
 
-def adopt_replacements(decisions: Sequence[Decision]) -> bool:
-    """True when enough models independently replaced the box to adopt the round."""
-    return sum(1 for decision in decisions if decision.action == "replace") >= MIN_REPLACES
+def write_thinking(run_dir: Path, rows: dict[str, str]) -> None:
+    """Write the thinking sidecar: one ``{"key", "thinking"}`` record per line."""
+    atomic_write_jsonl(
+        run_dir / THINKING_FILENAME,
+        [{"key": key, "thinking": text} for key, text in rows.items()],
+    )
+
+
+def load_thinking(run_dir: Path) -> dict[str, str]:
+    """Read the thinking sidecar, or an empty mapping when it is absent."""
+    path = run_dir / THINKING_FILENAME
+    if not path.is_file():
+        return {}
+    return {
+        row["key"]: row["thinking"]
+        for row in load_jsonl(path)
+        if isinstance(row.get("key"), str) and isinstance(row.get("thinking"), str)
+    }
 
 
 def raw_depth_relpath(depth_rel: str) -> str:

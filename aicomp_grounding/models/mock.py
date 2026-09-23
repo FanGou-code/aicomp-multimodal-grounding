@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.ordinal.parse import THINK_CLOSE, THINK_OPEN
 
 
 def _stable_box(query: str) -> list[float]:
@@ -33,6 +34,9 @@ _MOCK_ENUMERATION = (
     '{"bbox": [0.10, 0.10, 0.20, 0.30], "confidence": 0.9}, '
     '{"bbox": [0.40, 0.10, 0.50, 0.30], "confidence": 0.9}]}'
 )
+
+#: Self-reported count in the mock's thinking block; matches ``count`` above.
+_MOCK_THINKING = "I count 2 person instances across the frame."
 
 
 class MockAdapter:
@@ -77,12 +81,15 @@ class MockAdapter:
         max_new_tokens: int,
         temperature: float,
         skip_special_tokens: bool = False,
+        sampling_kwargs: dict | None = None,
+        template_kwargs: dict | None = None,
     ) -> list[str]:
         """Deterministic replies: an image means the enumerate prompt, none means parse.
 
-        Both calls return the same list, so the reconcile gate passes and the
-        ordinal chain stays exercisable end to end without a GPU.
+        With ``enable_thinking`` the enumeration reply is wrapped in a thinking
+        block whose self-reported count matches ``count``.
         """
+        thinking = bool((template_kwargs or {}).get("enable_thinking"))
         replies: list[str] = []
         for messages in messages_list:
             has_image = any(
@@ -90,5 +97,13 @@ class MockAdapter:
                 for message in messages
                 for part in message["content"]
             )
-            replies.append(_MOCK_ENUMERATION if has_image else _MOCK_INTENT)
+            if not has_image:
+                replies.append(_MOCK_INTENT)
+                continue
+            if not thinking:
+                replies.append(_MOCK_ENUMERATION)
+                continue
+            replies.append(
+                f"{THINK_OPEN}{_MOCK_THINKING}{THINK_CLOSE}{_MOCK_ENUMERATION}"
+            )
         return replies

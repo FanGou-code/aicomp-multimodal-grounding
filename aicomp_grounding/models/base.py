@@ -81,13 +81,12 @@ def run_generation(
     max_new_tokens: int,
     temperature: float,
     skip_special_tokens: bool = False,
+    sampling_kwargs: dict | None = None,
 ) -> list[str]:
     """Generate raw text from processor inputs; one string per sample.
 
-    ``temperature <= 0`` decodes greedily, and the temperature argument is only
-    passed on the sampled path so a greedy call never depends on an ignored
-    parameter.  Shared by the adapters' ``generate_messages`` so the slicing and
-    decoding rules have exactly one home.
+    ``temperature <= 0`` decodes greedily; ``temperature`` and
+    ``sampling_kwargs`` are only passed on the sampled path.
     """
     import torch
 
@@ -98,6 +97,7 @@ def run_generation(
     }
     if temperature > 0:
         kwargs["temperature"] = temperature
+        kwargs.update(sampling_kwargs or {})
 
     with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
         generated_ids = model.generate(**inputs, **kwargs)
@@ -191,12 +191,17 @@ class GroundingAdapter(Protocol):
         max_new_tokens: int,
         temperature: float,
         skip_special_tokens: bool = False,
+        sampling_kwargs: dict | None = None,
+        template_kwargs: dict | None = None,
     ) -> list[str]:
         """Template and generate caller-built chat messages; order preserved.
 
-        Unlike ``predict``, the caller owns the prompt and the output shape:
-        this returns raw decoded text.  The ordinal module needs it to enumerate
-        with a different prompt, a single image, and sampled decoding.
+        The caller owns the prompt and the output shape; this returns raw
+        decoded text.
+
+        ``sampling_kwargs`` (``top_p``, ``top_k``, ``presence_penalty``) reaches
+        ``model.generate()``; ``template_kwargs`` (``enable_thinking``) reaches
+        ``apply_chat_template()``.  ``None`` means the adapter's own default.
         """
         ...
 

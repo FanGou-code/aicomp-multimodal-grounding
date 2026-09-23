@@ -10,11 +10,6 @@ import numpy as np
 from PIL import Image
 
 from aicomp_grounding.ordinal import run
-from aicomp_grounding.ordinal.resolve import Decision
-
-
-def _decision(action: str) -> Decision:
-    return Decision(action, [0.1, 0.1, 0.2, 0.2] if action == "replace" else None, "r")
 
 
 class IdentityTests(unittest.TestCase):
@@ -22,8 +17,10 @@ class IdentityTests(unittest.TestCase):
         payload = dict(
             model="qwen3_5",
             model_revision="abc123",
-            max_new_tokens=1024,
-            temperature=0.7,
+            max_new_tokens=4096,
+            temperature=0.6,
+            think=True,
+            sampling={"top_p": 0.95, "top_k": 20, "presence_penalty": 0.0},
             run_tag="t",
             limit=0,
             selected_keys=["b", "a"],
@@ -42,6 +39,8 @@ class IdentityTests(unittest.TestCase):
         for overrides in (
             {"temperature": 0.0},
             {"max_new_tokens": 2048},
+            {"think": False},
+            {"sampling": {"top_p": 0.8, "top_k": 20, "presence_penalty": 0.0}},
             {"model": "qwen3vl"},
             {"model_revision": "other"},
             {"limit": 10},
@@ -63,35 +62,28 @@ class IdentityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._metadata(temperature=-0.1)
 
-    def test_resolve_identity_needs_matching_enumerations_and_predictions(self):
+    def test_resolve_identity_covers_one_enumeration_and_one_prediction(self):
         metadata = run.build_resolve_metadata(
-            enum_run_ids=["a", "b"],
-            prediction_fingerprints=["p", "q"],
+            enum_run_id="a",
+            prediction_fingerprint="p",
             iou_threshold=0.5,
             run_tag="t",
             selected_keys=["k"],
         )
         self.assertTrue(metadata["run_id"].startswith(run.RESOLVE_RUN_PREFIX))
-        self.assertEqual(metadata["min_replaces"], run.MIN_REPLACES)
-        with self.assertRaises(ValueError):
-            run.build_resolve_metadata(
-                enum_run_ids=["a", "b"],
-                prediction_fingerprints=["p"],
-                iou_threshold=0.5,
-                run_tag="t",
-                selected_keys=["k"],
-            )
 
 
-class GroupDecisionTests(unittest.TestCase):
-    def test_one_model_alone_is_not_adopted(self):
-        self.assertFalse(run.adopt_replacements([]))
-        self.assertFalse(run.adopt_replacements([_decision("replace")]))
-        self.assertFalse(run.adopt_replacements([_decision("replace"), _decision("keep")]))
+class ThinkingSidecarTests(unittest.TestCase):
+    def test_thinking_round_trips_and_survives_newlines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = {"a": "I count 3.\nThen I list them.", "b": "one line"}
+            run.write_thinking(root, rows)
+            self.assertEqual(run.load_thinking(root), rows)
 
-    def test_two_models_agreeing_is_adopted(self):
-        self.assertTrue(run.adopt_replacements([_decision("replace"), _decision("replace")]))
-        self.assertTrue(run.adopt_replacements([_decision("replace")] * 3))
+    def test_a_missing_sidecar_reads_as_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(run.load_thinking(Path(tmp)), {})
 
 
 class RawDepthPathTests(unittest.TestCase):
