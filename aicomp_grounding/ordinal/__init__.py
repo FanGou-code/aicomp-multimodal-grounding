@@ -1,20 +1,22 @@
 """Ordinal post-processing: locate the k-th instance of a category, deterministically.
 
-This subpackage fixes the one failure mode the fine-tuned VLMs cannot fix from
-the inside: autoregressive decoding has no discrete counter, so "the third
-person from the left" is answered by writing coordinates, not by counting.
-The module moves counting out of the decoder and into code.
+Autoregressive decoding has no discrete counter: "the third person from the
+left" is answered by writing coordinates, not by counting. This module moves
+counting out of the decoder and into code.
 
-Pipeline position (per model, before WBF)::
+Pipeline position (before WBF)::
 
-    model box -> parse (text only) -> enumerate x2 (base weights, RGB) -> select
+    parse (text only, greedy) -> enumerate (base weights, RGB, thinking) -> select
 
-Each of the serving models walks that whole flow for itself; the three
-selections are then fused by WBF as usual.
+``qwen3_5`` walks that flow once and writes one repaired prediction file; the
+three serving models are still fused by WBF afterwards, and only the ordinal
+model's own box is rewritten.
+
+Enumeration loads base weights, not the LoRA adapter: the adapter was trained on
+the "thinking off, box tokens only" format.
 
 Ranking key
-    Left edge ``x1``.  This is the key the enumeration prompt asks the model to
-    order by, and the key the reviewer's numbered view uses.
+    Left edge ``x1``.
 
 Axes (closed set)
     ``x``      left edge                  asc = leftmost,  desc = rightmost
@@ -24,21 +26,20 @@ Axes (closed set)
     ``area``   box area                    asc = smallest,  desc = largest
 
     An axis whose data is missing is *unsupported*: no replacement happens.
-    The axis set is closed because every axis must be computable from what the
-    sample actually carries (boxes, the 16-bit depth map, the infrared image).
 
 Gates
     All of them must pass; any failure keeps the base box unchanged.
 
     1. parse valid: category non-empty, ``k >= 1``, axis in the set, direction asc/desc
-    2. every run is a well-formed instance list
-    3. neither run truncated: self-reported count == number of listed instances
-    4. the two runs reconcile one-to-one (IoU >= 0.5) with nothing unmatched
-    5. ``k <= N``
-    6. the axis is computable for every instance
+    2. the reply is a well-formed instance list
+    3. self-reported count == number of listed instances
+    4. count > 0
+    5. a thinking block that commits to a number names that same count
+    6. ``k <= N``
+    7. the axis is computable for every instance
 
 Replacement rule
     The base box enters only the last comparison: k-th instance is the same
-    object -> keep the base box (a WBF coordinate is more precise than a single
-    enumeration); a different object or no usable base box -> replace with it.
+    object -> keep the base box; a different object or no usable base box ->
+    replace with it.
 """

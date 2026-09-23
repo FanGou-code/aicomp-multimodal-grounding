@@ -1,7 +1,7 @@
 """Ordinal resolve entry point: gates, axis ranking, the k-th pick, and the file hand-off.
 
 Pure code, no model, no I/O: callers hand in the base box, the parsed intent,
-the two enumeration runs, and (for depth/ir axes) the pixel arrays.  Every
+the enumeration payload, and (for depth/ir axes) the pixel arrays.  Every
 outcome is either "keep the base box" or "replace it with the k-th instance".
 """
 
@@ -18,6 +18,7 @@ from aicomp_grounding.bbox import compute_iou, validate_bbox
 from aicomp_grounding.inference_core import load_inference_items
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.ordinal import run
+from aicomp_grounding.ordinal.parse import thinking_reported_counts
 
 #: Closed axis set.  Every axis is computable from what a sample carries:
 #: boxes, the 16-bit millimetre depth map, the infrared image.
@@ -115,56 +116,6 @@ def parse_selection(payload: object) -> Selection | None:
     return Selection(category.strip(), "rank", k, axis, direction)
 
 
-def reconcile_runs(
-    run_a: Sequence[Instance],
-    run_b: Sequence[Instance],
-    *,
-    iou_threshold: float = MATCH_IOU,
-) -> tuple[list[Instance] | None, str]:
-    """One-to-one greedy IoU matching; both lists must be fully consumed.
-
-    Returns the surviving instances sorted by left edge, or ``(None, reason)``.
-    A single unmatched instance invalidates the run: positions before ``k``
-    decide the rank, so a list that is one instance short cannot be trusted.
-    """
-    if not run_a or not run_b:
-        return None, "empty-run"
-    pairs = []
-    for a_index, a_item in enumerate(run_a):
-        for b_index, b_item in enumerate(run_b):
-            iou = compute_iou(a_item.bbox, b_item.bbox)
-            if iou >= iou_threshold:
-                pairs.append((iou, a_index, b_index))
-    pairs.sort(key=lambda item: (-item[0], item[1], item[2]))
-    used_a: set[int] = set()
-    used_b: set[int] = set()
-    matched: list[Instance] = []
-    for _iou, a_index, b_index in pairs:
-        if a_index in used_a or b_index in used_b:
-            continue
-        used_a.add(a_index)
-        used_b.add(b_index)
-        matched.append(run_a[a_index])
-    if len(matched) != len(run_a) or len(matched) != len(run_b):
-        return None, "runs-disagree"
-    matched.sort(key=lambda item: (item.bbox[0], item.bbox[1], item.bbox[2], item.bbox[3]))
-    return matched, ""
-
-
-def truncation_reason(
-    runs: Sequence[Sequence[Instance]], counts: Sequence[object]
-) -> str:
-    """Empty string when every run's self-reported count matches what it listed."""
-    if len(runs) != len(counts):
-        return "count-missing"
-    for attempt, reported in zip(runs, counts, strict=True):
-        if isinstance(reported, bool) or not isinstance(reported, int):
-            return "count-missing"
-        if reported != len(attempt):
-            return "truncated"
-    return ""
-
-
 def _box_patch(array, bbox: Sequence[float], image_size: tuple[int, int]):
     """Slice ``array`` (height, width) or (height, width, channels) to the box."""
     if image_size is None:
@@ -247,9 +198,9 @@ def rank_instances(
 def resolve_query(
     base_bbox: Sequence[float] | None,
     parse_payload: object,
-    runs: Sequence[object],
-    counts: Sequence[object],
+    run_payload: object,
     *,
+    thinking: str | None = None,
     depth_mm=None,
     ir=None,
     image_size: tuple[int, int] | None = None,
@@ -257,39 +208,42 @@ def resolve_query(
 ) -> Decision:
     """Run every gate and return the final box for one query.
 
-    ``runs`` holds the independent enumeration attempts (currently two) as raw
-    instance mappings; ``counts`` holds what each attempt reported for itself.
+    ``run_payload`` is one enumeration's decoded ``{"count", "instances"}``.
     """
     selection = parse_selection(parse_payload)
     if selection is None:
         return Decision("keep", None, "parse-invalid")
     if selection.mode != "rank":
         return Decision("keep", None, "not-rank")
-    base = validate_bbox(base_bbox) if base_bbox is not None else None
 
-    lists: list[list[Instance]] = []
-    for raw_run in runs:
-        coerced = coerce_instances(raw_run)
-        if coerced is None:
-            return Decision("keep", None, "run-malformed")
-        lists.append(coerced)
-    reason = truncation_reason(lists, counts)
-    if reason:
-        return Decision("keep", None, reason)
-    merged, reason = reconcile_runs(lists[0], lists[-1], iou_threshold=iou_threshold)
-    if merged is None:
-        return Decision("keep", None, reason)
+    if not isinstance(run_payload, dict):
+        return Decision("keep", None, "run-malformed")
+    instances = coerce_instances(run_payload.get("instances"))
+    if instances is None:
+        return Decision("keep", None, "run-malformed")
+    count = run_payload.get("count")
+    if isinstance(count, bool) or not isinstance(count, int):
+        return Decision("keep", None, "count-missing")
+    if count != len(instances):
+        return Decision("keep", None, "truncated")
+    if count == 0:
+        return Decision("keep", None, "count-zero")
+    claimed = thinking_reported_counts(thinking)
+    if claimed and count not in claimed:
+        return Decision("keep", None, "thinking-mismatch")
 
-    if selection.k > len(merged):
+    if selection.k > len(instances):
         return Decision("keep", None, "k-out-of-range")
 
     ordered = rank_instances(
-        merged, selection.axis, selection.direction,
+        instances, selection.axis, selection.direction,
         depth_mm=depth_mm, ir=ir, image_size=image_size,
     )
     if ordered is None:
         return Decision("keep", None, "axis-unsupported")
+
     target = ordered[selection.k - 1]
+    base = validate_bbox(base_bbox) if base_bbox is not None else None
     if base is not None and compute_iou(base, target.bbox) >= iou_threshold:
         return Decision("keep", None, "already-correct")
     return Decision("replace", list(target.bbox), "replaced")
@@ -312,8 +266,8 @@ def _axis_arrays(item: dict, data_dir: Path, cache: dict):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--enum-run", type=Path, action="append", required=True, help="one enumeration run directory per model")
-    parser.add_argument("--predictions", type=Path, action="append", required=True, help="that model's predictions.json, same order as --enum-run")
+    parser.add_argument("--enum-run", type=Path, required=True, help="the enumeration run directory")
+    parser.add_argument("--predictions", type=Path, required=True, help="the predictions.json to repair")
     parser.add_argument("--test-json", type=Path, required=True)
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--iou-threshold", type=float, default=MATCH_IOU)
@@ -326,20 +280,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    if len(args.enum_run) != len(args.predictions):
-        raise SystemExit("--enum-run and --predictions must be given the same number of times")
 
     items, _approved = load_inference_items(args.test_json, limit=args.limit)
     dataset = {item["key"]: item for item in items}
     keys = [item["key"] for item in items]
-    enum_runs = [run.load_enum_artifacts(path) for path in args.enum_run]
-    predictions = [load_json(path) for path in args.predictions]
-    prediction_fingerprints = [_file_sha256(path) for path in args.predictions]
+    enum_metadata, parse_map, instances_map = run.load_enum_artifacts(args.enum_run)
+    thinking_map = run.load_thinking(args.enum_run)
+    predictions = load_json(args.predictions)
+    prediction_fingerprint = _file_sha256(args.predictions)
 
     def metadata(stats: dict | None = None) -> dict:
         return run.build_resolve_metadata(
-            enum_run_ids=[entry[0]["run_id"] for entry in enum_runs],
-            prediction_fingerprints=prediction_fingerprints,
+            enum_run_id=enum_metadata["run_id"],
+            prediction_fingerprint=prediction_fingerprint,
             iou_threshold=args.iou_threshold,
             run_tag=args.run_tag,
             selected_keys=keys,
@@ -351,80 +304,54 @@ def main() -> None:
         raise SystemExit(f"run directory already exists: {out_dir} (pass --resume or a new --run-tag)")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    final_predictions = [dict(entry) for entry in predictions]
+    final_predictions = dict(predictions)
     stats: dict = {
         "queries": len(keys),
         "rank_queries": 0,
         "adopted": 0,
-        "replaced_not_adopted": 0,
-        "replaced_per_model": [0] * len(enum_runs),
         "reasons": {},
     }
     axis_cache: dict = {}
 
     for key in keys:
         item = dataset.get(key)
-        decisions: list[Decision] = []
-        is_rank = False
-        for index, (_enum_metadata, parse_map, instances_map) in enumerate(enum_runs):
-            intent = (parse_map.get(key) or {}).get("intent")
-            selection = parse_selection(intent)
-            if selection is not None and selection.mode == "rank":
-                is_rank = True
-            depth = infrared = size = None
-            if (
-                item is not None
-                and selection is not None
-                and selection.mode == "rank"
-                and selection.axis in ("depth", "ir")
-            ):
-                depth, infrared, size = _axis_arrays(item, args.data_dir, axis_cache)
-            run_entries = ((instances_map.get(key) or {}).get("runs")) or []
-            payloads = [entry.get("payload") for entry in run_entries]
-            if len(payloads) != run.ENUM_RUNS or any(not isinstance(payload, dict) for payload in payloads):
-                decisions.append(Decision("keep", None, "runs-missing"))
-                continue
-            decisions.append(
-                resolve_query(
-                    predictions[index].get(key),
-                    intent,
-                    [payload["instances"] for payload in payloads],
-                    [payload["count"] for payload in payloads],
-                    depth_mm=depth,
-                    ir=infrared,
-                    image_size=size,
-                    iou_threshold=args.iou_threshold,
-                )
-            )
+        intent = (parse_map.get(key) or {}).get("intent")
+        selection = parse_selection(intent)
+        is_rank = selection is not None and selection.mode == "rank"
         if is_rank:
             stats["rank_queries"] += 1
-        for decision in decisions:
-            stats["reasons"][decision.reason] = stats["reasons"].get(decision.reason, 0) + 1
 
-        if run.adopt_replacements(decisions):
+        depth = infrared = size = None
+        if item is not None and is_rank and selection.axis in ("depth", "ir"):
+            depth, infrared, size = _axis_arrays(item, args.data_dir, axis_cache)
+
+        payload = (instances_map.get(key) or {}).get("payload")
+        decision = resolve_query(
+            predictions.get(key),
+            intent,
+            payload,
+            thinking=thinking_map.get(key),
+            depth_mm=depth,
+            ir=infrared,
+            image_size=size,
+            iou_threshold=args.iou_threshold,
+        )
+        stats["reasons"][decision.reason] = stats["reasons"].get(decision.reason, 0) + 1
+
+        if decision.action == "replace" and decision.bbox is not None:
+            final_predictions[key] = list(decision.bbox)
             stats["adopted"] += 1
-            for index, decision in enumerate(decisions):
-                if decision.action == "replace" and decision.bbox is not None:
-                    final_predictions[index][key] = list(decision.bbox)
-                    stats["replaced_per_model"][index] += 1
-        elif any(decision.action == "replace" for decision in decisions):
-            stats["replaced_not_adopted"] += 1
 
-    outputs = []
-    for index, (enum_metadata, _parse, _instances) in enumerate(enum_runs):
-        # The index keeps file names unique and ordered even when two runs share
-        # a model name; the model name keeps them readable.
-        name = f"predictions_{index}_{enum_metadata['model'].replace('/', '-')}.json"
-        atomic_write_json(out_dir / name, final_predictions[index])
-        outputs.append({"index": index, "model": enum_metadata["model"], "file": name})
+    name = f"predictions_{enum_metadata['model'].replace('/', '-')}.json"
+    atomic_write_json(out_dir / name, final_predictions)
+    outputs = [{"model": enum_metadata["model"], "file": name}]
 
     atomic_write_json(out_dir / "metadata.json", metadata({**stats, "outputs": outputs}))
     print(f"[ordinal-resolve] run_id={out_dir.name}")
     print(
         f"[ordinal-resolve] rank_queries={stats['rank_queries']}/{stats['queries']} "
-        f"adopted={stats['adopted']} one_model_only={stats['replaced_not_adopted']}"
+        f"adopted={stats['adopted']}"
     )
-    print(f"[ordinal-resolve] replaced per model: {stats['replaced_per_model']}")
     print(f"[ordinal-resolve] reasons: {stats['reasons']}")
     print(f"[ordinal-resolve] wrote {out_dir}")
 

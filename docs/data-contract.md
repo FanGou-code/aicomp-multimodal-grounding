@@ -16,8 +16,8 @@ outputs/                      运行产物，不入库
   output_lora/<run_id>/       plan.json  checkpoints/  best/  last/  completed.json
   inference/<run_id>/         metadata.json  predictions.json  checkpoint.json
                               scores.json（可选：仅当有模型产出原生置信度时写出）
-  enum/<run_id>/              每模型一个：metadata.json  parse.json  instances.json
-  ordinal/<run_id>/           metadata.json  predictions_<i>_<model>.json
+  enum/<run_id>/              一个模型：metadata.json  parse.json  instances.json  thinking.jsonl
+  ordinal/<run_id>/           metadata.json  predictions_<model>.json
   fusion/<run_id>/            融合产物
   submission/<run_id>/        submission.zip
 ```
@@ -33,8 +33,8 @@ outputs/                      运行产物，不入库
 | `infrared` | 三通道 8 位无符号（单通道热辐射灰度堆叠，无彩色语义） | 按 RGB 读入 | 同上 |
 | `depth` | 单通道 16 位无符号，单位毫米，`0` 为无效读数 | 经 `Processed/*/depth_jet/` 的 JET 伪彩图读入 | 固定标定 `depth_scaling=fixed`、`min_depth_mm=300`、`max_depth_mm=20000` |
 
-序数后处理的深度轴是唯一例外：它读**原始 16 位毫米图**（`Test/Images/depth/`、
-`Train/<seq>/depth/`），不读 JET 伪彩图，因为伪彩已经丢掉了绝对距离。
+序数后处理的深度轴读**原始 16 位毫米图**（`Test/Images/depth/`、`Train/<seq>/depth/`），
+不走 `Processed/` 的 JET 伪彩。
 
 同一场景的三张图按 `visible → infrared → depth` 固定顺序送入模型。`Processed/` 缺失
 或损坏时由 `scripts/prepare_rgbdt.py` 重新生成；深度源已是 8 位三通道伪彩图时按原样
@@ -48,8 +48,8 @@ outputs/                      运行产物，不入库
 | `query-foundry/data/indexes/{train,val}.json`、`split_manifest.json`、`excluded_overlap.json` | `query-foundry/scripts/prepare_split.py` | 上游标注流水线（本仓不读） | 上游仓内，纳入其 Git |
 | `outputs/annotations/<run_id>/{train,val}/approved.json` | `query-foundry/scripts/package_approved.py` | 本仓训练与验证集推理 | 4 重 SHA-256 指纹（协议 12，见下） |
 | `outputs/inference/<run_id>/predictions.json` | 本仓 `offline/infer.py` | 融合 `fusion.wbf` | `{query_id: bbox 或 null}` |
-| `outputs/enum/<run_id>/{parse,instances}.json` | 本仓 `ordinal.enumerate` | `ordinal.resolve` | 每题的解析意图与两遍枚举清单（每模型一个 run） |
-| `outputs/ordinal/<run_id>/predictions_<i>_<model>.json` | 本仓 `ordinal.resolve` | 融合 `fusion.wbf` | 键与推理产物一致，只改动采纳的序数题 |
+| `outputs/enum/<run_id>/{parse,instances}.json` | 本仓 `ordinal.enumerate` | `ordinal.resolve` | 每题的解析意图与一次枚举清单（`thinking.jsonl` 存思考文本） |
+| `outputs/ordinal/<run_id>/predictions_<model>.json` | 本仓 `ordinal.resolve` | 融合 `fusion.wbf` | 键与推理产物一致，只改动采纳的序数题 |
 | `submission.zip` | 本仓 `submission.py`（显式调用；推理与融合均不自动打包） | 赛事提交 | 官方模板 + `bbox` |
 
 上游以 `--data-root` 指向本仓 `data/`、以自己的 `--index-dir` 指向

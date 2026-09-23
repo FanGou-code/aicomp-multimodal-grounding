@@ -142,12 +142,20 @@ def parse_glm_box(text: str) -> list[float] | None:
     return validate_bbox([v / 1000.0 for v in values])
 
 
-def _apply_chat_template(processor, messages, *, add_generation_prompt: bool) -> str:
+def _apply_chat_template(
+    processor,
+    messages,
+    *,
+    add_generation_prompt: bool,
+    template_kwargs: dict | None = None,
+) -> str:
+    kwargs = dict(CHAT_TEMPLATE_KWARGS)
+    kwargs.update(template_kwargs or {})
     return processor.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=add_generation_prompt,
-        **CHAT_TEMPLATE_KWARGS,
+        **kwargs,
     )
 
 
@@ -509,6 +517,8 @@ class Glm46VAdapter:
         max_new_tokens: int,
         temperature: float,
         skip_special_tokens: bool = False,
+        sampling_kwargs: dict | None = None,
+        template_kwargs: dict | None = None,
     ) -> list[str]:
         """Template and generate caller-built chat messages (ordinal module)."""
         if self._model is None or self._processor is None:
@@ -516,7 +526,9 @@ class Glm46VAdapter:
 
         processor = self._processor
         texts = [
-            _apply_chat_template(processor, m, add_generation_prompt=True)
+            _apply_chat_template(
+                processor, m, add_generation_prompt=True, template_kwargs=template_kwargs
+            )
             for m in messages_list
         ]
         images = [
@@ -535,4 +547,5 @@ class Glm46VAdapter:
             max_new_tokens=max_new_tokens,
             temperature=temperature,
             skip_special_tokens=skip_special_tokens,
+            sampling_kwargs=sampling_kwargs,
         )

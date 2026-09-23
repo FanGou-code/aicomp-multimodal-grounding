@@ -54,10 +54,10 @@
 | `models/qwen3vl.py` `models/qwen3_5.py` `models/glm46v.py` | 三个可训练 VLM 适配器（各自的提示词、坐标协议与超参默认值） |
 | `models/mock.py` | CPU 契约测试用的最小适配器（无权重、确定性输出） |
 | `fusion/wbf.py` | 多模型预测的加权框融合与融合身份 |
-| `ordinal/resolve.py` | 序数后处理的门、轴排序、第 k 个选择与组决策回退（纯代码） |
-| `ordinal/parse.py` `ordinal/enumerate.py` | 序数后处理的提示词消息组装与严格解码 |
+| `ordinal/resolve.py` | 序数后处理的门、轴排序、第 k 个选择（纯代码，无组决策） |
+| `ordinal/parse.py` `ordinal/enumerate.py` | 序数后处理的提示词消息组装、思考切分与严格解码 |
 | `ordinal/loader.py` | 读取 `ordinal/prompts/*.md` 并给出提示词指纹 |
-| `ordinal/run.py` | 序数后处理的运行身份、产物读取与原始深度路径映射 |
+| `ordinal/run.py` | 序数后处理的运行身份、产物读取、思考侧车与原始深度路径映射 |
 
 入口与工具：
 
@@ -107,5 +107,5 @@
 
 ## 测试
 
-`python -m unittest discover -s tests`：258 项，纯 CPU、不加载权重。真实权重加载、
+`python -m unittest discover -s tests`：263 项，纯 CPU、不加载权重。真实权重加载、
 生成质量、步时与显存不在覆盖内。

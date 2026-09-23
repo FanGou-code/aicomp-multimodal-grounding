@@ -6,15 +6,17 @@ import unittest
 
 import numpy as np
 
+from aicomp_grounding.ordinal.parse import (
+    split_thinking,
+    thinking_reported_counts,
+)
 from aicomp_grounding.ordinal.resolve import (
     Decision,
     axis_value,
     coerce_instances,
     parse_selection,
     rank_instances,
-    reconcile_runs,
     resolve_query,
-    truncation_reason,
 )
 
 I1 = [0.10, 0.10, 0.20, 0.30]
@@ -24,6 +26,10 @@ I3 = [0.70, 0.10, 0.80, 0.30]
 
 def run(*boxes: list[float]) -> list[dict]:
     return [{"bbox": list(box), "confidence": 0.9} for box in boxes]
+
+
+def enumeration(*boxes: list[float], count: int | None = None) -> dict:
+    return {"count": len(boxes) if count is None else count, "instances": run(*boxes)}
 
 
 def rank_payload(k: int, axis: str = "x", direction: str = "asc") -> dict:
@@ -64,38 +70,40 @@ class CoerceInstanceTests(unittest.TestCase):
         self.assertIsNone(coerce_instances([{"bbox": [0.5, 0.5, 0.4, 0.6]}]))
 
 
-class ReconcileRunsTests(unittest.TestCase):
-    def test_identical_lists_reconcile(self):
-        merged, reason = reconcile_runs(coerce_instances(run(I1, I2, I3)), coerce_instances(run(I1, I2, I3)))
-        self.assertEqual(reason, "")
-        self.assertEqual([item.bbox for item in merged], [I1, I2, I3])
+class SplitThinkingTests(unittest.TestCase):
+    def test_a_reply_without_thinking_passes_through(self):
+        self.assertEqual(split_thinking('{"count": 1}'), (None, '{"count": 1}'))
 
-    def test_order_does_not_matter(self):
-        merged, reason = reconcile_runs(coerce_instances(run(I3, I1, I2)), coerce_instances(run(I2, I3, I1)))
-        self.assertEqual(reason, "")
-        self.assertEqual([item.bbox for item in merged], [I1, I2, I3])
+    def test_the_block_is_removed_from_the_answer(self):
+        thinking, answer = split_thinking("<think>left to right</think>{\"count\": 1}")
+        self.assertEqual(thinking, "left to right")
+        self.assertEqual(answer, '{"count": 1}')
 
-    def test_missing_or_extra_instance_fails_the_gate(self):
-        for other in (run(I1, I2), run(I1, I2, I3, [0.85, 0.10, 0.95, 0.30])):
-            with self.subTest(other=other):
-                merged, reason = reconcile_runs(coerce_instances(run(I1, I2, I3)), coerce_instances(other))
-                self.assertIsNone(merged)
-                self.assertEqual(reason, "runs-disagree")
+    def test_an_unclosed_block_leaves_no_answer(self):
+        thinking, answer = split_thinking("<think>I count 3")
+        self.assertEqual(thinking, "I count 3")
+        self.assertEqual(answer, "")
 
-    def test_empty_run_is_rejected(self):
-        self.assertEqual(reconcile_runs([], coerce_instances(run(I1))), (None, "empty-run"))
+    def test_non_strings_are_not_thinking(self):
+        self.assertEqual(split_thinking(None), (None, ""))
 
 
-class TruncationTests(unittest.TestCase):
-    def test_matching_counts_pass(self):
-        lists = [coerce_instances(run(I1, I2)), coerce_instances(run(I1, I2))]
-        self.assertEqual(truncation_reason(lists, [2, 2]), "")
+class ReportedCountsTests(unittest.TestCase):
+    def test_explicit_claims_are_read(self):
+        for text in (
+            "I count 3 people here.",
+            "There are 3 in the frame.",
+            "a total of 3 instances",
+            "3 instances visible",
+            "in total 3",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(thinking_reported_counts(text), {3})
 
-    def test_mismatched_or_missing_counts_fail(self):
-        lists = [coerce_instances(run(I1, I2)), coerce_instances(run(I1, I2))]
-        self.assertEqual(truncation_reason(lists, [3, 2]), "truncated")
-        self.assertEqual(truncation_reason(lists, [2]), "count-missing")
-        self.assertEqual(truncation_reason(lists, [2, None]), "count-missing")
+    def test_incidental_digits_are_not_claims(self):
+        self.assertEqual(thinking_reported_counts("the box is [0.12, 0.34]"), set())
+        self.assertEqual(thinking_reported_counts(""), set())
+        self.assertEqual(thinking_reported_counts(None), set())
 
 
 class AxisValueTests(unittest.TestCase):
@@ -157,52 +165,58 @@ class RankInstancesTests(unittest.TestCase):
 
 class ResolveQueryTests(unittest.TestCase):
     def test_replaces_the_base_box_with_the_kth_instance(self):
-        decision = resolve_query(I1, rank_payload(2), [run(I1, I2, I3), run(I1, I2, I3)], [3, 3])
+        decision = resolve_query(I1, rank_payload(2), enumeration(I1, I2, I3))
         self.assertEqual(decision.action, "replace")
         self.assertEqual(decision.reason, "replaced")
         self.assertEqual(decision.bbox, I2)
 
     def test_keeps_everything_when_the_kth_is_already_the_base_box(self):
-        decision = resolve_query(I1, rank_payload(1), [run(I1, I2, I3), run(I1, I2, I3)], [3, 3])
+        decision = resolve_query(I1, rank_payload(1), enumeration(I1, I2, I3))
         self.assertEqual((decision.action, decision.bbox, decision.reason), ("keep", None, "already-correct"))
 
     def test_single_instance_frame_is_never_rewritten(self):
-        # k=1..N all resolve to the only instance, which is the base box
-        for k in (1,):
-            with self.subTest(k=k):
-                decision = resolve_query(I1, rank_payload(k), [run(I1), run(I1)], [1, 1])
-                self.assertEqual(decision.bbox, None)
+        decision = resolve_query(I1, rank_payload(1), enumeration(I1))
+        self.assertEqual(decision.bbox, None)
 
     def test_every_gate_failure_keeps_the_base_box(self):
         cases = [
-            ("parse-invalid", I1, {"category": "", "selection": {"mode": "unique"}}, [run(I1), run(I1)], [1, 1]),
-            ("not-rank", I1, {"category": "person", "selection": {"mode": "unique"}}, [run(I1), run(I1)], [1, 1]),
-            ("run-malformed", I1, rank_payload(1), [[{"bbox": [0.5, 0.5]}], run(I1)], [1, 1]),
-            ("truncated", I1, rank_payload(1), [run(I1, I2), run(I1, I2)], [1, 2]),
-            ("runs-disagree", I1, rank_payload(1), [run(I1, I2), run(I1)], [2, 1]),
-            ("k-out-of-range", I1, rank_payload(4), [run(I1, I2), run(I1, I2)], [2, 2]),
-            ("axis-unsupported", I1, rank_payload(1, axis="depth"), [run(I1, I2), run(I1, I2)], [2, 2]),
+            ("parse-invalid", I1, {"category": "", "selection": {"mode": "unique"}}, enumeration(I1), None),
+            ("not-rank", I1, {"category": "person", "selection": {"mode": "unique"}}, enumeration(I1), None),
+            ("run-malformed", I1, rank_payload(1), {"count": 1, "instances": [{"bbox": [0.5, 0.5]}]}, None),
+            ("run-malformed", I1, rank_payload(1), "not-a-payload", None),
+            ("count-missing", I1, rank_payload(1), {"instances": run(I1)}, None),
+            ("truncated", I1, rank_payload(1), enumeration(I1, I2, count=1), None),
+            ("count-zero", I1, rank_payload(1), enumeration(count=0), None),
+            ("thinking-mismatch", I1, rank_payload(1), enumeration(I1, I2), "I count 3 people."),
+            ("k-out-of-range", I1, rank_payload(4), enumeration(I1, I2), None),
+            ("axis-unsupported", I1, rank_payload(1, axis="depth"), enumeration(I1, I2), None),
         ]
-        for reason, base, payload, runs, counts in cases:
+        for reason, base, payload, enum_payload, thinking in cases:
             with self.subTest(reason=reason):
-                decision = resolve_query(base, payload, runs, counts)
+                decision = resolve_query(base, payload, enum_payload, thinking=thinking)
                 self.assertEqual(decision.action, "keep", reason)
                 self.assertIsNone(decision.bbox, reason)
                 self.assertEqual(decision.reason, reason)
 
+    def test_thinking_that_agrees_or_claims_nothing_passes(self):
+        for thinking in ("I count 2 people.", "There are 2 in total.", "left to right", None):
+            with self.subTest(thinking=thinking):
+                decision = resolve_query(I1, rank_payload(2), enumeration(I1, I2), thinking=thinking)
+                self.assertEqual(decision.reason, "replaced")
+
     def test_unusable_base_box_is_replaced_by_the_kth_instance(self):
-        decision = resolve_query([0.5, 0.5, 0.4, 0.6], rank_payload(1), [run(I1, I2), run(I1, I2)], [2, 2])
+        decision = resolve_query([0.5, 0.5, 0.4, 0.6], rank_payload(1), enumeration(I1, I2))
         self.assertEqual((decision.action, decision.bbox), ("replace", I1))
 
     def test_base_box_absent_from_the_list_is_still_replaced(self):
-        decision = resolve_query([0.85, 0.10, 0.95, 0.30], rank_payload(1), [run(I1, I2), run(I1, I2)], [2, 2])
+        decision = resolve_query([0.85, 0.10, 0.95, 0.30], rank_payload(1), enumeration(I1, I2))
         self.assertEqual((decision.action, decision.bbox), ("replace", I1))
 
     def test_depth_axis_can_reverse_the_x_order(self):
         depth = np.array([[100 * (10 - x) for x in range(10)] for _ in range(10)], dtype=np.uint16)
         decision = resolve_query(
             I1, rank_payload(1, axis="depth", direction="asc"),
-            [run(I1, I2, I3), run(I1, I2, I3)], [3, 3],
+            enumeration(I1, I2, I3),
             depth_mm=depth, image_size=(10, 10),
         )
         self.assertEqual(decision.action, "replace")

@@ -1,7 +1,7 @@
-"""Enumeration entry point: parse every query, then enumerate the rank ones twice.
+"""Enumeration entry point: parse every query, then enumerate the rank ones once.
 
-One run = one model output.  Two runs per model are compared by
-``resolve.reconcile_runs``; a run that does not decode cleanly fails on its own.
+One run = one model output.  The enumeration thinks before answering and
+reports both the instances it listed and how many it counted.
 """
 
 from __future__ import annotations
@@ -15,7 +15,11 @@ from aicomp_grounding.inference_state import fingerprint_inputs
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.models import available_models, get_adapter
 from aicomp_grounding.ordinal import loader, run
-from aicomp_grounding.ordinal.parse import build_parse_messages, strict_json_object
+from aicomp_grounding.ordinal.parse import (
+    build_parse_messages,
+    split_thinking,
+    strict_json_object,
+)
 from aicomp_grounding.ordinal.resolve import parse_selection
 
 
@@ -38,8 +42,7 @@ def decode_run(text: object) -> dict | None:
     """Return ``{"count", "instances"}`` from one reply, or None when malformed.
 
     Only the envelope is checked here; each instance's box and confidence are
-    validated by ``resolve.coerce_instances`` so that validation lives in one
-    place.  The count-vs-listed comparison is the truncation gate.
+    validated by ``resolve.coerce_instances``.
     """
     payload = strict_json_object(text)
     if payload is None or set(payload) != {"count", "instances"}:
@@ -81,13 +84,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
-        "--max-new-tokens", type=int, default=1024,
-        help="budget for one enumeration reply (longer than a grounding box)",
+        "--max-new-tokens", type=int, default=4096,
+        help="budget for one enumeration reply, thinking included",
     )
     parser.add_argument("--parse-max-new-tokens", type=int, default=256)
     parser.add_argument(
-        "--temperature", type=float, default=0.7,
-        help="enumeration sampling temperature; must be > 0 or the two runs cannot differ",
+        "--temperature", type=float, default=0.6,
+        help="enumeration sampling temperature (Qwen3.5 thinking-VL official value)",
+    )
+    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument(
+        "--presence-penalty", type=float, default=0.0,
+        help="the reply repeats key names and coordinates",
+    )
+    parser.add_argument(
+        "--think", action=argparse.BooleanOptionalAction, default=True,
+        help="enumerate with the model's thinking pass on (default)",
     )
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--run-tag", default="")
@@ -106,12 +119,20 @@ def main() -> None:
     dataset = {item["key"]: item for item in items}
     adapter = get_adapter(args.model)
 
+    sampling = {
+        "top_p": args.top_p,
+        "top_k": args.top_k,
+        "presence_penalty": args.presence_penalty,
+    }
+
     def metadata(stats: dict | None = None) -> dict:
         return run.build_enum_metadata(
             model=adapter.model_name,
             model_revision=adapter.model_revision,
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
+            think=args.think,
+            sampling=sampling,
             run_tag=args.run_tag,
             limit=args.limit,
             selected_keys=keys,
@@ -126,6 +147,7 @@ def main() -> None:
         raise SystemExit(f"run directory already exists: {run_dir} (use --resume or a new --run-tag)")
     parse_out = load_json(parse_path) if args.resume and parse_path.is_file() else {}
     instances_out = load_json(instances_path) if args.resume and instances_path.is_file() else {}
+    thinking_out = run.load_thinking(run_dir) if args.resume else {}
 
     pending = sorted(
         (item for item in items if item["key"] not in parse_out),
@@ -133,7 +155,7 @@ def main() -> None:
     )
     stats = {
         "parsed": len(parse_out), "rank": len(instances_out), "parse_failed": 0,
-        "enum_runs": 0, "enum_decode_failed": 0,
+        "enum_runs": 0, "enum_decode_failed": 0, "enum_thought": 0,
     }
     print(f"[ordinal-enum] run_id={run_dir.name} model={args.model} pending={len(pending)}/{len(items)}")
 
@@ -146,6 +168,7 @@ def main() -> None:
                 [build_parse_messages(item["query"])],
                 max_new_tokens=args.parse_max_new_tokens,
                 temperature=0.0,
+                template_kwargs={"enable_thinking": False},
             )[0]
             intent = strict_json_object(raw)
             parse_out[key] = {"query": item["query"], "raw": raw, "intent": intent}
@@ -157,33 +180,38 @@ def main() -> None:
             elif selection.mode == "rank":
                 stats["rank"] += 1
                 image = _visible_image(item, args.data_dir, cache)
-                runs = []
-                for _ in range(run.ENUM_RUNS):
-                    text = adapter.generate_messages(
-                        [build_enumerate_messages(image, selection.category)],
-                        max_new_tokens=args.max_new_tokens,
-                        temperature=args.temperature,
-                    )[0]
-                    payload = decode_run(text)
-                    if payload is None:
-                        stats["enum_decode_failed"] += 1
-                    runs.append({"raw": text, "payload": payload})
-                    stats["enum_runs"] += 1
-                instances_out[key] = {"category": selection.category, "runs": runs}
+                text = adapter.generate_messages(
+                    [build_enumerate_messages(image, selection.category)],
+                    max_new_tokens=args.max_new_tokens,
+                    temperature=args.temperature,
+                    sampling_kwargs=sampling,
+                    template_kwargs={"enable_thinking": args.think},
+                )[0]
+                thinking, answer = split_thinking(text)
+                payload = decode_run(answer)
+                if payload is None:
+                    stats["enum_decode_failed"] += 1
+                if thinking:
+                    thinking_out[key] = thinking
+                    stats["enum_thought"] += 1
+                stats["enum_runs"] += 1
+                instances_out[key] = {"category": selection.category, "payload": payload}
 
             if index % args.batch_save == 0:
                 atomic_write_json(parse_path, parse_out)
                 atomic_write_json(instances_path, instances_out)
+                run.write_thinking(run_dir, thinking_out)
                 print(f"[ordinal-enum] {index}/{len(pending)} ranked={stats['rank']}")
 
         atomic_write_json(parse_path, parse_out)
         atomic_write_json(instances_path, instances_out)
+        run.write_thinking(run_dir, thinking_out)
 
     atomic_write_json(run_dir / "metadata.json", metadata(stats))
     print(
         f"[ordinal-enum] done: parsed={stats['parsed']} rank={stats['rank']} "
         f"parse_failed={stats['parse_failed']} enum_runs={stats['enum_runs']} "
-        f"decode_failed={stats['enum_decode_failed']}"
+        f"decode_failed={stats['enum_decode_failed']} thought={stats['enum_thought']}"
     )
     print(f"[ordinal-enum] wrote {run_dir}")
 

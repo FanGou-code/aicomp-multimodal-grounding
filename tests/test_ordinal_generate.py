@@ -68,10 +68,39 @@ class RunGenerationTests(unittest.TestCase):
         self.assertAlmostEqual(model.kwargs["temperature"], 0.7)
 
 
+    def test_sampled_path_forwards_the_sampling_kwargs(self):
+        inputs = {"input_ids": torch.zeros((1, 3), dtype=torch.long)}
+        model = _FakeModel(torch.tensor([[1, 2, 3, 7]]))
+        run_generation(
+            model,
+            _FakeProcessor(["a"]),
+            inputs,
+            max_new_tokens=64,
+            temperature=0.6,
+            sampling_kwargs={"top_p": 0.95, "top_k": 20, "presence_penalty": 0.0},
+        )
+        self.assertEqual(model.kwargs["top_p"], 0.95)
+        self.assertEqual(model.kwargs["top_k"], 20)
+        self.assertEqual(model.kwargs["presence_penalty"], 0.0)
+
+    def test_greedy_path_drops_the_sampling_kwargs(self):
+        inputs = {"input_ids": torch.zeros((1, 3), dtype=torch.long)}
+        model = _FakeModel(torch.tensor([[1, 2, 3, 7]]))
+        run_generation(
+            model,
+            _FakeProcessor(["a"]),
+            inputs,
+            max_new_tokens=64,
+            temperature=0.0,
+            sampling_kwargs={"top_p": 0.95},
+        )
+        self.assertNotIn("top_p", model.kwargs)
+
+
 class MockOrdinalReplyTests(unittest.TestCase):
-    def _reply(self, messages: list[dict]) -> str:
+    def _reply(self, messages: list[dict], temperature: float = 0.0, **kwargs) -> str:
         return get_adapter("mock").generate_messages(
-            [messages], max_new_tokens=64, temperature=0.0
+            [messages], max_new_tokens=64, temperature=temperature, **kwargs
         )[0]
 
     def test_parse_prompt_gets_a_decodable_intent(self):
@@ -83,9 +112,17 @@ class MockOrdinalReplyTests(unittest.TestCase):
         payload = ordinal_enumerate.decode_run(reply)
         self.assertEqual(payload["count"], len(payload["instances"]))
 
-    def test_repeated_calls_agree_so_the_reconcile_gate_passes(self):
-        messages = ordinal_enumerate.build_enumerate_messages(object(), "car")
-        self.assertEqual(self._reply(messages), self._reply(messages))
+    def test_thinking_wraps_the_list_and_splits_back_to_it(self):
+        reply = self._reply(
+            ordinal_enumerate.build_enumerate_messages(object(), "car"),
+            0.6,
+            template_kwargs={"enable_thinking": True},
+        )
+        thinking, answer = ordinal_parse.split_thinking(reply)
+        self.assertIsNotNone(thinking)
+        payload = ordinal_enumerate.decode_run(answer)
+        self.assertEqual(payload["count"], len(payload["instances"]))
+        self.assertIn(payload["count"], ordinal_parse.thinking_reported_counts(thinking))
 
     def test_mock_flow_produces_a_decision(self):
         messages = ordinal_enumerate.build_enumerate_messages(object(), "car")
@@ -94,8 +131,7 @@ class MockOrdinalReplyTests(unittest.TestCase):
         decision = resolve_query(
             base,
             ordinal_parse.strict_json_object(self._reply(ordinal_parse.build_parse_messages("x"))),
-            [payload["instances"], payload["instances"]],
-            [payload["count"], payload["count"]],
+            payload,
         )
         self.assertEqual((decision.action, decision.bbox), ("keep", None))
 
