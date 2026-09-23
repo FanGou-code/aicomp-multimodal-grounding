@@ -1,7 +1,7 @@
 """Local query assembly from census facts.
 
-For each selected target, code picks the dimension that disambiguates it inside
-its own frame (``foundry.pipeline.realize``), the teacher turns that dimension
+For each selected target, code writes out every fact that is true of it inside
+its own frame (``foundry.pipeline.realize``), the teacher turns those facts
 into one sentence, and code verifies the sentence names the facts it was handed.
 Every sentence the teacher returns is emitted as-is; the planner only
 deduplicates.
@@ -16,8 +16,7 @@ nothing here steers it, and no share of any kind is computed.
 
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 from foundry.pipeline.census import trusted_objects
 from foundry.pipeline.facts import (
@@ -26,14 +25,13 @@ from foundry.pipeline.facts import (
     extract_frame_facts,
 )
 from foundry.pipeline.planner import TargetSupply, plan as planner_plan
-from foundry.pipeline.realize import choose_dimension
 
 MIN_TEACHER_AREA = 0.002
 MAX_TEACHER_AREA = 0.6
 
 
-def _variant(text: str, family: str, facts: tuple[str, ...]) -> Realization:
-    return Realization(" ".join(text.split()), family, facts, len(text.split()))
+def _variant(text: str) -> Realization:
+    return Realization(" ".join(text.split()), len(text.split()))
 
 
 @dataclass
@@ -45,8 +43,6 @@ class AssemblyRecord:
     bbox: list[float]
     object_index: int
     query: str
-    family: str
-    facts: list[str]
     words: int
     edited: bool = False  # text QC modified the query (foundry.text_qc)
 
@@ -57,9 +53,6 @@ class AssemblyResult:
     shortfall: list[dict] = field(default_factory=list)
     sequences: list[str] = field(default_factory=list)
 
-
-def _with_color(f: ObjectFacts, color: str | None) -> ObjectFacts:
-    return replace(f, color=color)
 
 
 def select_targets(
@@ -116,9 +109,9 @@ def assemble_run(
 ) -> AssemblyResult:
     """Assemble query records from a census merged.json + dataset index.
 
-    ``realize`` is a callable ``(dimension, bbox, sample_id) -> str | None``.
-    Whatever it returns goes to human review unjudged; a target with no usable
-    dimension, or whose reply carried no sentence, is reported as shortfall.
+    ``realize`` is a callable ``(facts, sample_id) -> str | None``. Whatever it
+    returns goes to human review unjudged; a target whose reply carried no
+    sentence is reported as shortfall.
     """
     result = AssemblyResult()
     sequences = merged.get("results", {})
@@ -147,32 +140,9 @@ def assemble_run(
                 continue
             facts = extract_frame_facts(objects, entry["bbox"], frame.get("attr"), frame.get("depth"))
 
-            # Color arbitration: a color claimed by 2+ same-head objects has no
-            # referential power in this frame — strip it from everyone in the
-            # head group so no dimension is built on it.
-            head_colors: dict[str, Counter] = {}
-            for f in facts:
-                if f.color:
-                    head_colors.setdefault(f.head, Counter())[f.color] += 1
-            facts = [
-                _with_color(f, None)
-                if f.color and head_colors.get(f.head, {}).get(f.color, 0) >= 2
-                else f
-                for f in facts
-            ]
             result.sequences.append(sequence_id)
             for source, target_facts in select_targets(facts, max_teacher=max_teacher_per_frame):
-                dimension = choose_dimension(target_facts, facts)
-                if dimension is None:
-                    result.shortfall.append(
-                        {"sample_id": sample_id, "reason": "no-dimension"}
-                    )
-                    continue
-                sentence = (
-                    realize(dimension, list(target_facts.bbox), sample_id)
-                    if realize is not None
-                    else None
-                )
+                sentence = realize(target_facts, sample_id) if realize is not None else None
                 if sentence is None:
                     result.shortfall.append(
                         {"sample_id": sample_id, "reason": "no-sentence"}
@@ -184,9 +154,7 @@ def assemble_run(
                     source=source,
                     facts=target_facts,
                     gt_bbox=list(entry["bbox"]),
-                    variants=[_variant(
-                        sentence, dimension["family"], tuple(dimension["facts"])
-                    )],
+                    variants=[_variant(sentence)],
                 ))
 
     target_supplies = [
@@ -215,8 +183,6 @@ def assemble_run(
                 bbox=list(item.gt_bbox) if item.source == "real" else list(item.facts.bbox),
                 object_index=item.facts.index,
                 query=chosen.text,
-                family=chosen.family,
-                facts=list(chosen.facts),
                 words=chosen.words,
             )
         )

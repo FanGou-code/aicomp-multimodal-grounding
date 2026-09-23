@@ -2,10 +2,10 @@
 """Phase 2: assemble queries from a census run.
 
 Consumes a census run directory (merged.json + the dataset index), selects
-per-frame targets, and for each target lets code choose the dimension that
-disambiguates it inside its own frame. The wording is one API call per target,
-unless ``--no-realize`` is passed. Code verifies every sentence against the
-facts it handed over.
+per-frame targets, and for each target writes out every fact that is true of
+it inside its own frame. The wording is one API call per target,
+unless ``--no-realize`` is passed. Nothing judges the wording: whatever comes
+back goes to human review as-is.
 
 The manifest is the input for human review.
 """
@@ -63,7 +63,7 @@ def _target_view(image, bbox) -> str:
 
 
 def build_realizer(data_root: Path, index: dict):
-    """One API call per target: the chosen dimension in, one sentence out."""
+    """One API call per target: the target's facts in, one sentence out."""
     from PIL import Image
 
     keys = load_api_keys()
@@ -86,13 +86,13 @@ def build_realizer(data_root: Path, index: dict):
     )
     cache: dict[str, object] = {}
 
-    def realize(dimension, bbox, sample_id):
+    def realize(facts, sample_id):
         if sample_id not in cache:
             with Image.open(data_root / index[sample_id]["visible"]) as opened:
                 cache[sample_id] = opened.convert("RGB")
-        url = _target_view(cache[sample_id], bbox)
+        url = _target_view(cache[sample_id], facts.bbox)
         response = client.complete(
-            messages=realize_messages(url, dimension),
+            messages=realize_messages(url, facts),
             max_tokens=REALIZE_STAGE["max_tokens"],
             temperature=REALIZE_STAGE["temperature"],
             do_sample=REALIZE_STAGE["do_sample"],
@@ -198,7 +198,7 @@ def main() -> None:
     print(f"wrote {out_dir / 'audit.json'}")
     print("\nsample records:")
     for record in result.records[: args.show]:
-        print(f"  [{record.source:<7}] {record.query}   ({record.sample_id}, {record.family})")
+        print(f"  [{record.source:<7}] {record.query}   ({record.sample_id})")
 
 
 if __name__ == "__main__":

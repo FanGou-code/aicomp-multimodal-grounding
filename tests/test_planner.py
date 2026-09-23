@@ -22,10 +22,10 @@ def make_target(sample_id, realizations):
     )
 
 
-def realization(text, family="plain_attribute", facts=("color",)):
+def realization(text):
     from foundry.pipeline.facts import Realization as R
 
-    return R(text, family, facts, len(text.split()))
+    return R(text, len(text.split()))
 
 
 class PlannerTest(unittest.TestCase):

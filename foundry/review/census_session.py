@@ -143,7 +143,6 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
                     # judged on their own.
                     "gt_bbox": record["bbox"] if record["source"] == "real" else None,
                     "category": record["category"],
-                    "family": record.get("family", ""),
                     "corpus": split,
 
                 }

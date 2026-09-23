@@ -1,9 +1,10 @@
-"""Turn one target's chosen facts into one English sentence.
+"""Turn one target's facts into one English sentence.
 
-Code decides which dimension disambiguates the target inside its own frame; the
-teacher words it. The prompt carries facts only -- no sentence template and no
-worked example. How the sentence is phrased is not checked: whatever comes back
-goes to human review, which is the only review pass.
+Everything that is true of the target inside its frame is written out and handed
+over; nothing selects or prioritises among those facts. The teacher reads the
+image and the list, and decides which of them to voice and how. Wording is not
+checked: whatever comes back goes to human review, which is the only review
+pass.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ def _load_prompt(name: str, default: str) -> str:
 
 _REALIZE_DEFAULT = """The image has a box drawn around one object.
 
-Write ONE short English noun phrase that identifies exactly that object and nothing else in the image.
+Write ONE short English noun phrase that identifies exactly that object and nothing else in the image. Everything listed below is true of it; use whichever of those facts you need, and as many as you need, to make the phrase unambiguous.
 
 Use only the facts listed below. Do not add any property that is not listed. Do not refer to the image, the frame, the box, or the rectangle. Do not mention that you were given facts.
 
@@ -64,180 +65,60 @@ def color_field(target: ObjectFacts) -> str | None:
     return target.color
 
 
-def rank_and_direction(target: ObjectFacts) -> tuple[int, str] | None:
-    """The rank to name: the smaller of the two, with its direction.
+def fact_lines(target: ObjectFacts) -> list[str]:
+    """Every fact that is true of ``target`` inside its frame, one per line.
 
-    Ties go to "from the left".
+    No selection and no priority: what gets said is the teacher's call.
     """
-    if target.rank_left is None or target.rank_right is None:
-        return None
-    if target.rank_left <= target.rank_right:
-        return target.rank_left, "asc"
-    return target.rank_right, "desc"
+    lines = [f"- the object is a: {target.head}"]
 
+    color = color_field(target)
+    if color:
+        lines.append(f"- its color is: {color}")
+    if target.features:
+        lines.append(f"- notable features: {target.features}")
 
-def choose_dimension(target: ObjectFacts, frame: list[ObjectFacts]) -> dict | None:
-    """Pick the one dimension that names ``target`` and nothing else in ``frame``.
+    if target.count_in_head >= 2:
+        lines.append(f"- the frame contains {target.count_in_head} of that category")
+    if target.rank_left is not None:
+        lines.append(f"- counting from the left, it is number {target.rank_left}")
+    if target.rank_right is not None:
+        lines.append(f"- counting from the right, it is number {target.rank_right}")
 
-    Dimensions are tried in a fixed order; the first that exists and is unique
-    wins. Uniqueness is counted over same-head objects.
-    """
-    peers = [o for o in frame if o.head == target.head]
-    rank_direction = rank_and_direction(target)
-
-    if rank_direction is not None:
-        rank, direction = rank_direction
-        return {
-            "family": "ordinal_direction",
-            "facts": (f"rank:{rank}", direction),
-            "fields": {
-                "category": target.head,
-                "k": rank,
-                "axis": "x",
-                "direction": direction,
-                "count": target.count_in_head,
-                "color": color_field(target),
-                "feature": target.features,
-            },
-        }
+    if target.side_of_image:
+        lines.append(f"- it is on the {target.side_of_image} side of the image")
 
     for side, attr in (("left", "anchors_left"), ("right", "anchors_right")):
-        for anchor in getattr(target, attr):
-            # The anchor head is unique in the frame (facts.py guarantees it);
-            # the phrase is unambiguous only if this target is the sole
-            # same-head object on that side of that anchor.
-            if sum(1 for o in peers if anchor in getattr(o, attr)) == 1:
-                return {
-                    "family": "side_of_anchor",
-                    "facts": (f"anchor:{side}:{anchor[0]}",),
-                    "fields": {
-                        "category": target.head,
-                        "anchor": anchor[1],
-                        "anchor_side": side,
-                        "color": color_field(target),
-                        "feature": target.features,
-                    },
-                }
+        for _index, category in getattr(target, attr):
+            lines.append(f"- it is on the {side} side of the {category}")
 
-    for flag, family, fact in (
-        ("is_closest", "superlative_camera", "y2-max"),
-        ("is_farthest", "superlative_camera", "y2-min"),
-        ("is_leftmost", "superlative_camera", "x-min"),
-        ("is_rightmost", "superlative_camera", "x-max"),
-        ("is_topmost", "superlative_camera", "y-min"),
-        ("is_bottommost", "superlative_camera", "y-max"),
+    for flag, text in (
+        ("is_leftmost", "no other object in the frame is further left"),
+        ("is_rightmost", "no other object in the frame is further right"),
+        ("is_topmost", "no other object in the frame is higher up"),
+        ("is_bottommost", "no other object in the frame is lower down"),
+        ("is_closest", "no other object in the frame is closer to the camera"),
+        ("is_farthest", "no other object in the frame is farther from the camera"),
     ):
         if getattr(target, flag):
-            return {
-                "family": family,
-                "facts": (fact,),
-                "fields": {
-                    "category": target.head,
-                    "position": fact,
-                    "color": color_field(target),
-                    "feature": target.features,
-                },
-            }
+            lines.append(f"- {text}")
 
-    for flag, band in (("is_in_foreground", "foreground"), ("is_in_background", "background")):
-        if getattr(target, flag) and sum(1 for o in peers if getattr(o, flag)) == 1:
-            return {
-                "family": "superlative_camera",
-                "facts": (band,),
-                "fields": {
-                    "category": target.head,
-                    "depth_band": band,
-                    "color": color_field(target),
-                    "feature": target.features,
-                },
-            }
-
-    if target.side_of_image and sum(1 for o in peers if o.side_of_image == target.side_of_image) == 1:
-        return {
-            "family": "side_of_anchor",
-            "facts": (f"image:{target.side_of_image}",),
-            "fields": {
-                    "category": target.head,
-                    "side_of_image": target.side_of_image,
-                    "color": color_field(target),
-                    "feature": target.features,
-                },
-        }
-
-    if target.color and color_field(target) is not None and sum(
-        1 for o in peers if o.color is not None and o.color == target.color
-    ) == 1:
-        return {
-            "family": "plain_attribute",
-            "facts": ("color",),
-            "fields": {
-                "category": target.head,
-                "color": color_field(target),
-                "feature": target.features,
-            },
-        }
-
-    if target.features and sum(
-        1 for o in peers if o.features is not None and o.features == target.features
-    ) == 1:
-        return {
-            "family": "plain_attribute",
-            "facts": ("feature",),
-            "fields": {"category": target.head, "feature": target.features},
-        }
-
-    if len(peers) == 1:
-        return {
-            "family": "plain_attribute",
-            "facts": ("unique-category",),
-            "fields": {"category": target.head},
-        }
-    return None
+    if target.is_in_foreground:
+        lines.append("- it is in the foreground")
+    if target.is_in_background:
+        lines.append("- it is in the background")
+    if target.median_mm is not None:
+        lines.append(f"- it is about {target.median_mm} mm from the camera")
+    return lines
 
 
-def dimension_prompt_text(dimension: dict) -> str:
-    """Render a dimension as the fact list the teacher is allowed to use.
-
-    Numbers stay numbers: the teacher picks the wording (``third``, ``3rd``,
-    ``number 3``) and nothing here constrains it.
-    """
-    fields = dimension["fields"]
-    labels = {
-        "category": "the object is a",
-        "k": "its position",
-        "direction": "counting",
-        "position": "it is the",
-        "depth_band": "it is in the",
-        "side_of_image": "it is on the",
-        "anchor": "it is on the",
-        "color": "its color is",
-        "feature": "one notable feature:",
-    }
-    lines = []
-    for key, value in fields.items():
-        if value is None or value == "":
-            continue
-        if key in ("axis", "count", "anchor_side"):
-            continue
-        if key == "direction":
-            value = "from the " + DIRECTION_SIDE[value]
-        if key == "anchor":
-            value = f"{fields['anchor_side']} side of the {value}"
-        if key == "position":
-            value = {
-                "y2-max": "closest to the camera",
-                "y2-min": "farthest from the camera",
-                "x-min": "leftmost one",
-                "x-max": "rightmost one",
-                "y-min": "topmost one",
-                "y-max": "bottommost one",
-            }[value]
-        lines.append(f"- {labels.get(key, key)}: {value}")
-    return "\n".join(lines)
+def facts_prompt_text(target: ObjectFacts) -> str:
+    """The fact list as it is handed to the teacher."""
+    return "\n".join(fact_lines(target))
 
 
-def realize_messages(image_url: str, dimension: dict) -> list[dict]:
-    body = REALIZE_PROMPT + "\n\nFacts:\n" + dimension_prompt_text(dimension)
+def realize_messages(image_url: str, target: ObjectFacts) -> list[dict]:
+    body = REALIZE_PROMPT + "\n\nFacts:\n" + facts_prompt_text(target)
     return [
         {"role": "system", "content": "You write one short, natural English noun phrase. Return only valid JSON."},
         {

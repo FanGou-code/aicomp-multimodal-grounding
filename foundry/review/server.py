@@ -75,7 +75,6 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
             "frame_id": entry.get("frame_id", ""),
             "gt_bbox": entry["bbox"] if entry.get("source") == "real" else None,
             "category": entry.get("category", ""),
-            "family": "",
             "corpus": corpus,
         }
         meta = existing_metas.get(corpus, {}).get(item_id)
