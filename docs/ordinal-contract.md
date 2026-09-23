@@ -82,16 +82,17 @@
 
 枚举层
   3  run-malformed        不是一份合法实例清单
-  4  truncated            自报 count != 实际列出的个数
-  5  count-zero           count == 0
-  6  thinking-mismatch    思考中自报的数 != count
+  4  count-missing        自报数不是整数
+  5  truncated            自报 count != 实际列出的个数
+  6  count-zero           count == 0
+  7  thinking-mismatch    思考中自报的数 != count
 
 选择层
-  7  k-out-of-range       k > 清单长度
-  8  axis-unsupported     该轴算不出值
+  8  k-out-of-range       k > 清单长度
+  9  axis-unsupported     该轴算不出值
 ```
 
-基准框进入最后一次比较：第 k 个与它 IoU ≥ 0.5 保留基准框坐标，否则替换。
+`already-correct` 与 `replaced` 不是门，是终态：前者保留基准框，后者替换。
 
 ## 5. run-id
 
