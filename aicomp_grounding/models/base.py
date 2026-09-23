@@ -73,6 +73,14 @@ def require_local_model_path(model_path: str | Path | None) -> str:
     return str(path)
 
 
+def content_parts(message: dict) -> list[dict]:
+    """The part list of one chat message; plain string content has none."""
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [part for part in content if isinstance(part, dict)]
+
+
 def run_generation(
     model: Any,
     processor: Any,

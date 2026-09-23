@@ -34,9 +34,8 @@ Gates
     2. the reply is a well-formed instance list
     3. the self-reported count is an integer and equals the number of listed instances
     4. count > 0
-    5. a thinking block that commits to a number names that same count
-    6. ``k <= N``
-    7. the axis is computable for every instance
+    5. ``k <= N``
+    6. the axis is computable for every instance
 
 Replacement rule
     The base box enters only the last comparison: k-th instance is the same

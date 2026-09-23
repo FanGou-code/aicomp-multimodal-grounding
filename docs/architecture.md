@@ -107,5 +107,5 @@
 
 ## 测试
 
-`python -m unittest discover -s tests`：263 项，纯 CPU、不加载权重。真实权重加载、
+`python -m unittest discover -s tests`：269 项，纯 CPU、不加载权重。真实权重加载、
 生成质量、步时与显存不在覆盖内。

@@ -122,7 +122,6 @@ class MockOrdinalReplyTests(unittest.TestCase):
         self.assertIsNotNone(thinking)
         payload = ordinal_enumerate.decode_run(answer)
         self.assertEqual(payload["count"], len(payload["instances"]))
-        self.assertIn(payload["count"], ordinal_parse.thinking_reported_counts(thinking))
 
     def test_mock_flow_produces_a_decision(self):
         messages = ordinal_enumerate.build_enumerate_messages(object(), "car")
@@ -134,6 +133,52 @@ class MockOrdinalReplyTests(unittest.TestCase):
             payload,
         )
         self.assertEqual((decision.action, decision.bbox), ("keep", None))
+
+
+class ResumeSelectionTests(unittest.TestCase):
+    """A run interrupted between the two artifact writes must not lose queries."""
+
+    items = [{"key": "q1"}, {"key": "q2"}, {"key": "q3"}]
+
+    def test_a_rank_intent_without_its_enumeration_is_still_pending(self):
+        parse_out = {
+            "q1": {"intent": {"category": "car", "selection": {"mode": "rank", "k": 1, "axis": "x", "direction": "asc"}}},
+            "q2": {"intent": {"category": "car", "selection": {"mode": "rank", "k": 1, "axis": "x", "direction": "asc"}}},
+        }
+        instances_out = {"q1": {"category": "car", "payload": {"count": 1, "instances": []}}}
+        pending = ordinal_enumerate.select_pending(self.items, parse_out, instances_out)
+        self.assertEqual([item["key"] for item in pending], ["q2", "q3"])
+
+    def test_a_finished_rank_query_is_not_repeated(self):
+        parse_out = {
+            "q1": {"intent": {"category": "car", "selection": {"mode": "rank", "k": 1, "axis": "x", "direction": "asc"}}},
+        }
+        instances_out = {"q1": {"category": "car", "payload": {"count": 1, "instances": []}}}
+        self.assertEqual(
+            [item["key"] for item in ordinal_enumerate.select_pending(self.items, parse_out, instances_out)],
+            ["q2", "q3"],
+        )
+
+    def test_a_unique_intent_needs_no_enumeration(self):
+        parse_out = {
+            "q1": {"intent": {"category": "car", "selection": {"mode": "unique"}}},
+            "q2": {"intent": None},
+            "q3": {"intent": "not-a-dict"},
+        }
+        self.assertEqual(ordinal_enumerate.select_pending(self.items, parse_out, {}), [])
+
+
+class StringContentTests(unittest.TestCase):
+    def test_a_plain_string_message_does_not_crash_the_mock_adapter(self):
+        adapter = get_adapter("mock")
+        adapter.load()
+        replies = adapter.generate_messages(
+            [[{"role": "user", "content": "Where is the red car?"}]],
+            max_new_tokens=16,
+            temperature=0.0,
+        )
+        self.assertEqual(len(replies), 1)
+        self.assertIn("selection", replies[0])
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from aicomp_grounding.models.base import ModelInput, Prediction
+from aicomp_grounding.models.base import ModelInput, Prediction, content_parts
 from aicomp_grounding.ordinal.parse import THINK_CLOSE, THINK_OPEN
 
 
@@ -95,7 +95,7 @@ class MockAdapter:
             has_image = any(
                 part.get("type") == "image"
                 for message in messages
-                for part in message["content"]
+                for part in content_parts(message)
             )
             if not has_image:
                 replies.append(_MOCK_INTENT)

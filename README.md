@@ -174,9 +174,9 @@ python -m aicomp_grounding.ordinal.resolve \
 枚举用基座权重、不挂 LoRA、只喂可见光一张图，一次调用；思考里先数，输出
 `{"count", "instances"}`。
 
-门：解析合法、`count == len(instances)`、`count > 0`、思考段自报的数与 `count` 一致、
-`k ≤ N`、轴能算出值。任一不过保留原框。第 k 个与基准框 IoU ≥ 0.5 时保留基准框坐标，
-否则替换。
+门：解析合法、`count == len(instances)`、`count > 0`、`k ≤ N`、轴能算出值。任一不过
+保留原框。第 k 个与基准框 IoU ≥ 0.5 时保留基准框坐标，否则替换。思考文本只作诊断
+留存，不参与判定。
 
 参数出处与正向/逆向共用的中间表示见 `docs/ordinal-contract.md`。思考文本落
 `outputs/enum/<run_id>/thinking.jsonl`。
@@ -212,7 +212,7 @@ python -m aicomp_grounding.ordinal.resolve \
 ## 测试
 
 ```bash
-python -m unittest discover -s tests                      # 263 项，纯 CPU
+python -m unittest discover -s tests                      # 269 项，纯 CPU
 python -m compileall aicomp_grounding scripts offline      # 语法检查
 ```
 

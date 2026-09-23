@@ -14,21 +14,14 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
 THINK_OPEN = "<think>"
 THINK_CLOSE = "</think>"
 
-#: Phrases that make the thinking text commit to a number.  Coordinates and
-#: confidences are not matched.
-_COUNT_CLAIM = re.compile(
-    r"(?:there\s+(?:are|is)|i\s+(?:count|see|find|found)|(?:a\s+)?total\s+of|"
-    r"count(?:ed)?|in\s+total)\s+(?:about\s+|around\s+|exactly\s+)?(\d{1,4})"
-    r"|(\d{1,4})\s+(?:instances?|of\s+them|in\s+total|total|totals)",
-    re.IGNORECASE,
-)
-
 
 def split_thinking(text: object) -> tuple[str | None, str]:
     """Split one reply into ``(thinking, answer)``.
 
     ``thinking`` is None when the reply carries no thinking block.  A block that
-    was opened but never closed yields an empty answer.
+    was opened but never closed yields an empty answer.  The answer is what
+    follows the block; text before it is used only when nothing follows, so
+    conversational filler ahead of the block cannot spoil the extraction.
     """
     if not isinstance(text, str):
         return None, ""
@@ -40,20 +33,8 @@ def split_thinking(text: object) -> tuple[str | None, str]:
     if end < 0:
         return text[body:].strip(), ""
     thinking = text[body:end].strip()
-    answer = (text[:start] + text[end + len(THINK_CLOSE):]).strip()
+    answer = text[end + len(THINK_CLOSE):].strip() or text[:start].strip()
     return (thinking or None), answer
-
-
-def thinking_reported_counts(text: object) -> set[int]:
-    """Counts the thinking text explicitly claims; empty when it claims none."""
-    if not isinstance(text, str) or not text.strip():
-        return set()
-    found: set[int] = set()
-    for leading, trailing in _COUNT_CLAIM.findall(text):
-        digits = leading or trailing
-        if digits:
-            found.add(int(digits))
-    return found
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:

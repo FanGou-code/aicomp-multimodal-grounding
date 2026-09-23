@@ -188,8 +188,11 @@ def load_axis_arrays(item: dict, data_dir: Path):
     depth = None
     depth_rel = item.get("depth")
     if isinstance(depth_rel, str):
-        path = data_dir / raw_depth_relpath(depth_rel)
-        if path.is_file():
+        try:
+            path = data_dir / raw_depth_relpath(depth_rel)
+        except ValueError:
+            path = None
+        if path is not None and path.is_file():
             with Image.open(path) as image:
                 depth = numpy.asarray(image)
 
@@ -201,8 +204,11 @@ def load_axis_arrays(item: dict, data_dir: Path):
             with Image.open(path) as image:
                 infrared = numpy.asarray(image.convert("RGB"))
 
-    if size is None and depth is not None:
-        size = (depth.shape[1], depth.shape[0])
+    if size is None:
+        for array in (depth, infrared):
+            if array is not None:
+                size = (array.shape[1], array.shape[0])
+                break
     return depth, infrared, size
 
 

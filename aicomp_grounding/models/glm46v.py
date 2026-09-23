@@ -26,6 +26,7 @@ from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
 from aicomp_grounding.models.base import (
     ModelInput,
     Prediction,
+    content_parts,
     language_model_lora_targets,
     require_local_model_path,
     run_generation,
@@ -534,7 +535,7 @@ class Glm46VAdapter:
         images = [
             part["image"]
             for messages in messages_list
-            for part in messages[-1]["content"]
+            for part in content_parts(messages[-1])
             if part.get("type") == "image"
         ]
         kwargs: dict[str, object] = {"text": texts, "padding": True, "return_tensors": "pt"}

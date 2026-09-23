@@ -18,7 +18,6 @@ from aicomp_grounding.bbox import compute_iou, validate_bbox
 from aicomp_grounding.inference_core import load_inference_items
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.ordinal import run
-from aicomp_grounding.ordinal.parse import thinking_reported_counts
 
 #: Closed axis set.  Every axis is computable from what a sample carries:
 #: boxes, the 16-bit millimetre depth map, the infrared image.
@@ -200,7 +199,6 @@ def resolve_query(
     parse_payload: object,
     run_payload: object,
     *,
-    thinking: str | None = None,
     depth_mm=None,
     ir=None,
     image_size: tuple[int, int] | None = None,
@@ -228,9 +226,6 @@ def resolve_query(
         return Decision("keep", None, "truncated")
     if count == 0:
         return Decision("keep", None, "count-zero")
-    claimed = thinking_reported_counts(thinking)
-    if claimed and count not in claimed:
-        return Decision("keep", None, "thinking-mismatch")
 
     if selection.k > len(instances):
         return Decision("keep", None, "k-out-of-range")
@@ -285,7 +280,6 @@ def main() -> None:
     dataset = {item["key"]: item for item in items}
     keys = [item["key"] for item in items]
     enum_metadata, parse_map, instances_map = run.load_enum_artifacts(args.enum_run)
-    thinking_map = run.load_thinking(args.enum_run)
     predictions = load_json(args.predictions)
     prediction_fingerprint = _file_sha256(args.predictions)
 
@@ -330,7 +324,6 @@ def main() -> None:
             predictions.get(key),
             intent,
             payload,
-            thinking=thinking_map.get(key),
             depth_mm=depth,
             ir=infrared,
             image_size=size,
