@@ -1,13 +1,13 @@
-"""Run the census protocol over annotation source frames (v5 Phase 1 pilot).
+"""Run the census protocol over annotation source frames.
 
-Three passes per frame: findall x2 (independent enumeration through the
-red-anchored view) plus attr on the selected frames of each sequence.
-Everything the teacher returns is validated in code: the canary (GT target
-re-found) is the only frame-fatal gate; arrival order, near-identical
-duplicates and zero-area boxes are normalized instead. The run reports
-quality metrics and renders ability cards for human review. No queries are
-assembled here — this instrument measures the census, it does not produce
-training data.
+One enumeration call per frame: the teacher names the red-boxed category,
+counts its instances, then either lists every instance of it (two or more) or
+lists other confident objects instead (exactly one). Code validates the
+envelope -- schema, sequential indices, self-reported count -- and normalizes
+ordering, duplicates and degenerate boxes.
+
+Attributes are read for the selected frames of each sequence. No queries are
+assembled here.
 """
 
 from __future__ import annotations
@@ -28,17 +28,17 @@ if str(PROJECT_ROOT) not in sys.path:
 from PIL import Image, ImageDraw
 
 from foundry.pipeline.views import build_marked_annotation_view, jpeg_data_url
-from foundry.pipeline.api import APIError, OpenAIProtocolClient, SlidingWindowRateLimiter
+from foundry.pipeline.api import OpenAIProtocolClient, SlidingWindowRateLimiter
 from foundry.utils import stable_json_hash
 from foundry.pipeline.census import (
     ATTR_PROMPT_HASH,
     FINDALL_PROMPT_HASH,
     attr_messages,
     findall_messages,
-    pass_agreement,
     parse_attr_response,
     parse_findall_response,
     select_frames,
+    trusted_objects,
 )
 from foundry.pipeline.depth import frame_depth_facts, load_depth_millimeters, raw_depth_path
 from foundry.utils import (
@@ -50,13 +50,11 @@ from foundry.utils import (
     ANNOTATION_MODEL_WEIGHTS_URL,
     ANNOTATION_PROVIDER,
     ANNOTATION_REQUESTS_PER_MINUTE,
-    ANNOTATION_TEMPERATURE,
     ANNOTATION_TOKENS_PER_MINUTE,
 )
 from foundry.utils import atomic_write_json, load_json
 from foundry.pipeline.api import (
     APIKeyPool,
-    APIKeyPoolExhausted,
     DEFAULT_KEY_FILE,
     comment_out_key,
     load_api_keys,
@@ -65,21 +63,31 @@ from foundry.pipeline.contract import source_fingerprint
 from foundry.pipeline.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
 from foundry.pipeline.source import image_fingerprint, load_annotation_source, preparation_fingerprint
 
-CENSUS_PROTOCOL_VERSION = 3
-FINDALL_MAX_TOKENS = 2048
+CENSUS_PROTOCOL_VERSION = 4
+FINDALL_MAX_TOKENS = 4096
 ATTR_MAX_TOKENS = 1024
+#: Per-stage decoding.  ``temperature: None`` and ``do_sample: None`` send
+#: nothing, so the provider applies its own default; ``do_sample: False`` is
+#: greedy.
 GENERATION_CONFIG = {
-    "findall_max_tokens": FINDALL_MAX_TOKENS,
-    "attr_max_tokens": ATTR_MAX_TOKENS,
-    "temperature": ANNOTATION_TEMPERATURE,
-    "enable_thinking": None,
-    "thinking_mode": "disabled",
-    "response_format": None,
+    "enumeration": {
+        "max_tokens": FINDALL_MAX_TOKENS,
+        "temperature": None,
+        "do_sample": None,
+        "thinking_mode": "enabled",
+        "response_format": None,
+    },
+    "attr": {
+        "max_tokens": ATTR_MAX_TOKENS,
+        "temperature": None,
+        "do_sample": None,
+        "thinking_mode": "disabled",
+        "response_format": None,
+    },
     "image_detail": "high",
 }
 MAX_API_CONCURRENCY = 96  # 12 accounts x provider cap 8
 SELECTED_FRAMES_PER_SEQUENCE = 3
-ATTEMPTS_PER_PASS = 3
 
 
 def _validate_options(split, limit_sequences, concurrency) -> str:
@@ -206,39 +214,40 @@ def census_preflight(*, data_root, output_root, split, limit_sequences, seed, nu
     return {**plan, "completed_payloads": completed, "pending_shard_ids": pending}
 
 
-def _complete_with_repair(client, build_messages, *, max_tokens, previous_error, parse, parser_kwargs):
-    last_error = previous_error or ""
-    attempts = 0
-    api_calls: list[dict] = []
-    last_raw = ""
-    for attempt in range(1, ATTEMPTS_PER_PASS + 1):
-        attempts = attempt
-        try:
-            response = client.complete(
-                messages=build_messages(previous_error=last_error if attempt > 1 else ""),
-                max_tokens=max_tokens,
-                temperature=GENERATION_CONFIG["temperature"],
-            )
-        except APIKeyPoolExhausted:
-            raise
-        except APIError as exc:
-            last_error = f"API error: {exc}"
-            continue
-        api_calls.append(dict(response.record))
-        last_raw = response.content
-        try:
-            parsed = parse(response.content, **parser_kwargs)
-        except ValueError as exc:
-            last_error = str(exc)
-            continue
-        return {"status": "completed", "attempts": attempts, "error": "", "api_calls": api_calls, **parsed}
-    return {
-        "status": "failed",
-        "attempts": attempts,
-        "error": last_error or "census pass failed validation",
-        "api_calls": api_calls,
-        "last_raw": last_raw,
-    }
+def _complete_once(
+    client,
+    build_messages,
+    *,
+    max_tokens: int,
+    parse,
+    parser_kwargs: dict,
+    temperature: float | None,
+    do_sample: bool | None,
+) -> dict:
+    """Send one request and validate the reply. Transport retries, semantics do not.
+
+    ``client`` retries transport failures (timeouts, 5xx, resets, empty
+    content). A reply that arrives but fails validation is recorded as a
+    failure, not re-asked.
+    """
+    response = client.complete(
+        messages=build_messages(),
+        max_tokens=max_tokens,
+        temperature=temperature,
+        do_sample=do_sample,
+    )
+    api_calls = [dict(response.record)]
+    try:
+        parsed = parse(response.content, **parser_kwargs)
+    except ValueError as exc:
+        return {
+            "status": "failed",
+            "attempts": 1,
+            "error": str(exc),
+            "api_calls": api_calls,
+            "last_raw": response.content,
+        }
+    return {"status": "completed", "attempts": 1, "error": "", "api_calls": api_calls, **parsed}
 
 
 def _load_plain_frame(data_root: Path, item: dict) -> Image.Image:
@@ -257,39 +266,25 @@ def _numbered_view(plain: Image.Image, objects: list[dict]) -> Image.Image:
     return view
 
 
-def _run_findall_pass(client, marked_rgb, *, gt_bbox, pass_no, frame_ref) -> dict:
+def _run_findall_pass(client, marked_rgb, *, frame_ref) -> dict:
     url = jpeg_data_url(marked_rgb)
-    record = _complete_with_repair(
+    stage = GENERATION_CONFIG["enumeration"]
+    return _complete_once(
         client,
-        lambda previous_error="": findall_messages(url, previous_error=previous_error),
-        max_tokens=FINDALL_MAX_TOKENS,
-        previous_error="",
+        lambda: findall_messages(url),
+        max_tokens=stage["max_tokens"],
         parse=parse_findall_response,
-        parser_kwargs={"gt_bbox": gt_bbox, "image_size": marked_rgb.size},
+        parser_kwargs={},
+        temperature=stage["temperature"],
+        do_sample=stage["do_sample"],
     )
-    record["pass_no"] = pass_no
-    return record
-
-
-def _trusted_objects(frame: dict) -> list[dict]:
-    """Forwardable object list for a completed frame.
-
-    Two-pass frames contribute the cross-pass agreed subset; single-pass
-    frames (the other pass exhausted its attempts) contribute the surviving
-    pass's full list — it already passed convention detection, canary and
-    dedup on its own.
-    """
-    if frame.get("single_pass"):
-        good = frame["findall_1"] if frame["findall_1"]["status"] == "completed" else frame["findall_2"]
-        return good["objects"]
-    return pass_agreement(frame["findall_1"]["objects"], frame["findall_2"]["objects"])["agreed_objects"]
 
 
 def _aggregate_usage(results: dict) -> dict:
     totals = {"api_calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     for sequence in results.values():
         for frame in sequence.get("frames", {}).values():
-            for key in ("findall_1", "findall_2", "attr"):
+            for key in ("findall", "attr"):
                 record = frame.get(key)
                 if not isinstance(record, dict):
                     continue
@@ -326,16 +321,20 @@ def census_shard(
     if progress is not None:
         progress.sync(results)
 
-    client = OpenAIProtocolClient(
-        key_pool=key_pool,
-        model=metadata["model_name"],
-        base_url=metadata["api_base_url"],
-        timeout_seconds=timeout_seconds,
-        rate_limiter=rate_limiter,
-        enable_thinking=GENERATION_CONFIG["enable_thinking"],
-        thinking_mode=GENERATION_CONFIG["thinking_mode"],
-        json_mode=GENERATION_CONFIG["response_format"] == "json_object",
-    )
+    def _client(stage: dict) -> OpenAIProtocolClient:
+        return OpenAIProtocolClient(
+            key_pool=key_pool,
+            model=metadata["model_name"],
+            base_url=metadata["api_base_url"],
+            timeout_seconds=timeout_seconds,
+            rate_limiter=rate_limiter,
+            enable_thinking=None,
+            thinking_mode=stage["thinking_mode"],
+            json_mode=stage["response_format"] == "json_object",
+        )
+
+    enum_client = _client(GENERATION_CONFIG["enumeration"])
+    attr_client = _client(GENERATION_CONFIG["attr"])
     groups = group_keys_by_scene(list(dataset), dataset)
     todo = [
         seq for seq in sequence_ids
@@ -368,39 +367,24 @@ def census_shard(
                     continue
                 marked = build_marked_annotation_view(_load_plain_frame(data_root, item), item["bbox"])
                 frame_started = time.monotonic()
-                findall_1 = _run_findall_pass(client, marked, gt_bbox=item["bbox"], pass_no=1, frame_ref=sample_id)
-                findall_2 = _run_findall_pass(client, marked, gt_bbox=item["bbox"], pass_no=2, frame_ref=sample_id)
+                findall = _run_findall_pass(enum_client, marked, frame_ref=sample_id)
                 frame_latency = time.monotonic() - frame_started
-                both_done = findall_1["status"] == "completed" and findall_2["status"] == "completed"
-                any_done = findall_1["status"] == "completed" or findall_2["status"] == "completed"
+                completed = findall["status"] == "completed"
                 frame = {
-                    "findall_1": findall_1,
-                    "findall_2": findall_2,
-                    "status": "completed" if any_done else "failed",
-                    "error": "",
+                    "findall": findall,
+                    "status": "completed" if completed else "failed",
+                    "error": "" if completed else findall["error"],
                 }
-                if not any_done:
-                    frame["error"] = findall_1["error"] or findall_2["error"]
-                elif both_done:
-                    agreement = pass_agreement(findall_1["objects"], findall_2["objects"])
-                    frame["agreement"] = {k: agreement[k] for k in ("matched", "count_a", "count_b", "count_agree", "jaccard")}
-                    frame["object_count"] = agreement["matched"]
-                    frame["candidate"] = {"sample_id": sample_id, "frame_no": frame_no, "count": agreement["matched"]}
-                    candidates.append(frame["candidate"])
-                else:
-                    # Single surviving pass: it passed convention detection,
-                    # canary and dedup on its own — keep it as evidence
-                    # instead of discarding the frame.
-                    good = findall_1 if findall_1["status"] == "completed" else findall_2
-                    frame["single_pass"] = good["pass_no"]
-                    frame["object_count"] = len(good["objects"])
-                    frame["candidate"] = {"sample_id": sample_id, "frame_no": frame_no, "count": len(good["objects"])}
+                if completed:
+                    frame["object_count"] = len(findall["objects"])
+                    frame["mode"] = findall["mode"]
+                    frame["candidate"] = {"sample_id": sample_id, "frame_no": frame_no, "count": len(findall["objects"])}
                     candidates.append(frame["candidate"])
                 if frame["status"] == "completed":
                     depth_path = raw_depth_path(data_root, item["visible"])
                     if depth_path.is_file():
                         depth_mm = load_depth_millimeters(depth_path)
-                        frame["depth"] = frame_depth_facts(depth_mm, _trusted_objects(frame))
+                        frame["depth"] = frame_depth_facts(depth_mm, trusted_objects(frame))
                     else:
                         frame["depth"] = {"source": "unavailable"}
                 frames[sample_id] = frame
@@ -417,10 +401,9 @@ def census_shard(
                 else:
                     processed, passed, failed = progress.update(sample_id, frame["status"])
                 if frame["status"] == "completed":
-                    convention = (findall_1 if "bbox_convention" in findall_1 else findall_2).get("bbox_convention", "-")
                     detail = (
-                        f"attempts={findall_1.get('attempts', '-')}+{findall_2.get('attempts', '-')} "
-                        f"conv={convention} objects={frame.get('object_count', '-')} "
+                        f"conv={findall.get('bbox_convention', '-')} "
+                        f"mode={frame.get('mode', '-')} objects={frame.get('object_count', '-')} "
                         f"depth={'ok' if frame.get('depth', {}).get('source') == 'raw-uint16-mm' else '-'} "
                         f"lat={frame_latency:.1f}s"
                     )
@@ -440,7 +423,7 @@ def census_shard(
             for sample_id in chosen_ids:
                 frame = frames[sample_id]
                 frame["selected"] = True
-                agreed = _trusted_objects(frame)
+                agreed = trusted_objects(frame)
                 indices = [obj["i"] for obj in agreed]
                 item = dataset[sample_id]
                 previous_attr_status = frame.get("attr", {}).get("status")
@@ -449,13 +432,15 @@ def census_shard(
                     selected_records.append(frame)
                     continue
                 numbered = _numbered_view(_load_plain_frame(data_root, item), agreed)
-                attr = _complete_with_repair(
-                    client,
-                    lambda previous_error="", _url=jpeg_data_url(numbered), _idx=indices: attr_messages(_url, previous_error=previous_error),
-                    max_tokens=ATTR_MAX_TOKENS,
-                    previous_error="",
+                stage = GENERATION_CONFIG["attr"]
+                attr = _complete_once(
+                    attr_client,
+                    lambda: attr_messages(jpeg_data_url(numbered)),
+                    max_tokens=stage["max_tokens"],
                     parse=parse_attr_response,
                     parser_kwargs={"indices": indices},
+                    temperature=stage["temperature"],
+                    do_sample=stage["do_sample"],
                 )
                 frame["attr"] = attr
                 save_checkpoint()
@@ -523,37 +508,30 @@ def finalize_census(*, plan, payloads, output_root) -> dict:
 
     frames_all = [f for seq in results.values() for f in seq.get("frames", {}).values()]
     completed = [f for f in frames_all if f.get("status") == "completed"]
-    agreements = [f["agreement"] for f in completed if "agreement" in f]
+    counts = [f["object_count"] for f in completed if f.get("object_count") is not None]
+    modes = [f.get("mode", "-") for f in completed]
     report = {
         "run_id": metadata["run_id"],
         "frames_total": len(frames_all),
         "frames_completed": len(completed),
         "frames_failed": len(frames_all) - len(completed),
-        "single_pass_frames": sum(1 for f in completed if f.get("single_pass")),
-        "count_agree_rate": (sum(1 for a in agreements if a["count_agree"]) / len(agreements)) if agreements else 0.0,
-        "mean_jaccard": (sum(a["jaccard"] for a in agreements) / len(agreements)) if agreements else 0.0,
+        "enumeration_mode_distribution": {mode: modes.count(mode) for mode in sorted(set(modes))},
         "count_distribution": {},
         "sequences_ordinal_capable_ge3": 0,
         "attr_success_rate": 0.0,
         "usage": _aggregate_usage(results),
     }
-    counts = [a["matched"] for a in agreements]
     for count in sorted(set(counts)):
         report["count_distribution"][str(count)] = counts.count(count)
     capable = 0
     attr_done = attr_ok = 0
     for sequence in results.values():
         selected_counts = [
-            count
+            sequence["frames"][sid].get("object_count")
             for sid in sequence.get("selected", [])
             if sequence["frames"].get(sid, {}).get("status") == "completed"
-            for count in [
-                sequence["frames"][sid].get(
-                    "object_count", sequence["frames"][sid].get("agreement", {}).get("matched")
-                )
-            ]
-            if count is not None
         ]
+        selected_counts = [count for count in selected_counts if count is not None]
         if selected_counts and min(selected_counts) >= 3:
             capable += 1
         for sid in sequence.get("selected", []):
@@ -652,9 +630,10 @@ def run_census(
             payloads.append(future.result())
     report = finalize_census(plan=plan, payloads=payloads, output_root=output_root)
     print(f"Census run_id: {report['run_id']}")
+    modes = report["enumeration_mode_distribution"]
     print(
         f"Frames: {report['frames_completed']}/{report['frames_total']} completed | "
-        f"count_agree {report['count_agree_rate']:.1%} | mean jaccard {report['mean_jaccard']:.3f}"
+        f"enumeration modes: " + ", ".join(f"{k}={v}" for k, v in modes.items())
     )
     print(f"Ordinal-capable sequences (all 3 selected frames >=3 objects): {report['sequences_ordinal_capable_ge3']}")
     print(f"Attr success: {report['attr_success_rate']:.1%}")

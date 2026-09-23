@@ -31,8 +31,8 @@ Depth-Jet），输出可直接驱动下游模型微调的自包含标注产物 `
 | --- | --- | --- |
 | 训练/测试集重叠污染 | 训练帧与评测帧是同源画面，模型"见过答案"，离线指标虚高、线上崩 | 逐帧 SHA-256 与测试集全量比对，命中即剔除并留痕（`excluded_overlap.json`） |
 | 视频帧时序穿越 | 同一镜头的相邻帧分别落进 train 与 val，验证集等于"背题" | 按镜头序列整段分配 train/val，序列不跨 split；分配清单与指纹冻结在 `split_manifest.json` |
-| 自然语言指向歧义 | 同帧有多个同类目标（"the car"），描述无法唯一确定监督目标 | 组装期确定性唯一性门：描述必须在该帧内只指向一个被枚举物体，否则不产出 |
-| 教师模型自证与幻觉 | 让大模型"直接写标注"，错误无法被机械校验 | 教师只报事实（枚举 + 属性），所有门控在代码里，教师不写 query、不自我认证 |
+| 自然语言指向歧义 | 同帧有多个同类目标（"the car"），描述无法唯一确定监督目标 | 代码在该帧内选出唯一能区分目标的维度，挑不出就不产出；写回的句子再校验一次 |
+| 教师模型幻觉 | 让大模型"直接写标注"，加的属性无法被机械校验 | 代码只把事实（枚举 + 属性）交给教师，教师据此写表述；句子必须复现交给它的事实 |
 | 人审不可恢复 / 多人合并丢数据 | 崩溃丢进度、快照覆盖、多人分片合并时后写覆盖前写 | 追加日志（WAL）+ 进程锁 + 崩溃恢复重放；合并按传入顺序重放，后轮裁决覆盖前轮 |
 | 交付产物与训练端口径漂移 | 打包后才发现 schema、坐标或重复描述不合规 | 打包前全量契约自校验（协议 12）+ 4 重指纹，校验失败不产出交付文件 |
 
@@ -60,44 +60,59 @@ SHA-256，与测试集图像哈希集合比对，命中即从 train/val 候选�
 
 ### 3. 三模态物理与空间事实普查（Tri-modal Census）
 
-普查阶段（`scripts/run_census.py` + `foundry/pipeline/census.py`）对每个选中帧跑
-三遍：两遍独立的 `findall` 枚举（红框参考视图，最多 12 个最可信目标，多实例同类
-目标优先、从左到右排序）+ 一遍 `attr` 属性报告（编号框视图，报告颜色与一个可见
-特征）。教师**只报事实**，其余全部由代码判定：
+普查阶段（`scripts/run_census.py` + `foundry/pipeline/census.py`）对每个选中帧做
+**一次**枚举调用 + 选中帧的 `attr` 属性报告。枚举先认出红框所属类别并数出该类别在帧内
+有几个，然后分流：
 
-- **canary 门（唯一帧级致命门）**：返回集合必须重新找到真值框（IoU ≥ 0.5）——
-  教师指错目标无法修复，只有这一种情况判帧失败。
+- **两个及以上** → 列出该类别的**全部**实例，不设上限；
+- **恰好一个**（即红框本身）→ 不列该类别，改列帧内其他有把握的目标。
+
+代码判定的门与归一化：
+
+- **计数门**：自报 `count` 必须等于实际列出的个数。
 - **非致命归一化**：到达顺序按 x1 重排并重新编号；近重合框（IoU ≥ 0.95）判为同物
   重复列举而剔除；零面积框直接丢弃。
-- **双遍一致性**：两遍枚举做一对一 IoU ≥ 0.5 匹配，交集才是"可信物体集"
-  （第二遍本身就是复核）。
-- **坐标约定自动判别**：0–1 归一化 / 0–1000 per-mille / 所示图像像素三种约定同时
-  尝试，以 canary 为唯一判据选出生效的那个。
+- **坐标约定自动判别**：值都在 0–1 内直接用；否则按 0–1000 per-mille 归一化。
+- **语义失败不重试**：传输失败（超时、5xx、限流）退避重试；回复到了但没过门直接
+  记为失败，失败率计入统计。
 - **深度事实**（`foundry/pipeline/depth.py`）：直接读取原始 uint16 毫米深度
   （`0` = 无效读数），按 bbox 内有效像素取**中位数**，得到最近/最远（200 mm 余量）
-  与前景/后景（帧内有效深度按三分之一分带）判据——毫米语义精确，不经伪彩解码，
-  不做跨帧归一化。
+  与前景/后景（帧内有效深度按三分之一分带）判据。
 
 热红外在事实层不参与文本生成，它与 RGB、深度共同作为对齐模态随产物交付，在训练
 侧作为三模态输入之一进入模型。
 
+### 3b. 逆向通路（Reverse Pass）
+
+`scripts/run_reverse.py` + `foundry/pipeline/reverse.py` 是普查的镜像：输入一批
+query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 取第 k 个），入口与出口相反。
+
+- `parse`：纯文本，`do_sample=false`，结构化输出。
+- `enumerate`：开思考，服务方默认温度。
+- 解析不出秩位、或枚举过不了自己的门、或轴需要深度/红外而本次没送那两张图 →
+  退回 `direct`（模型直接读 query 出框）。
+
+产物逐题给出一个框。
+
 ### 4. 无歧义指向性文本质检（Text QC & Unambiguity Engine）
 
-两道机械门控保证"描述只指向一个目标"：
+机械门控保证"描述只指向一个目标"：
 
-- **组装期唯一性门**（`foundry/pipeline/assembly.py: realization_is_unique`）：
-  每个候选句都必须在该帧内被代码验证为唯一可解析——序数需在同类目标中有确定的
-  秩位与间距、极值需对同组其他目标保持严格余量、锚点参照物需自身唯一、属性描述
-  在有未知属性的目标存在时不成立（缺失属性不算作"不同"，绝不因信息缺失而放行）。
+- **维度选择门**（`foundry/pipeline/realize.py: choose_dimension`）：代码在该帧内
+  挑出唯一能区分该目标的那个维度——序数（取 `rank_left` / `rank_right` 中较小的
+  一侧）、极值、景深带、画面侧、颜色或特征。挑不出来就不产出。同类目标按
+  **左边缘 x1** 排序，与推理侧取第 k 个用的是同一个键。
+- **表述校验**（`verify_realization`）：教师写回的句子必须写出代码交给它的那些
+  事实（序数词、方向、颜色），且不得提到图像/框/画面；不吻合就作废。
 - **文本 QC**（`foundry/pipeline/text_qc.py`）：冠词引擎为
   `with/wearing/holding/carrying` 尾句补冠词（按元音字母取 a/an），命中人工裁定的
   KEEP / 复数-物质词 / 例外表则保持不变；echo 表按 `(item_id, before)` 键控，
-  只有当该条目当前文本仍等于记录的 before 时才生效，因此重放幂等、不会过度套用。
+  只有当该条目当前文本仍等于记录的 before 时才生效，因此重放幂等。
 
-此外还有脚手架词表（`red rectangle`、`annotated image`、`this frame`、
-`in the image`…）、坐标样文本、模型控制符与装饰格式的拦截；人群消歧由深度带词
-（`in the foreground` / `in the background`）承担，配额规划优先把这类句子分配给
-同类目标 ≥ 3 的帧。
+提示词只给事实，不含句式模板与示例句。另有脚手架词表（`red rectangle`、
+`annotated image`、`this frame`、`in the image`…）、坐标样文本、模型控制符与装饰格式
+的拦截；人群消歧由深度带词（`in the foreground` / `in the background`）承担，配额规划
+优先把这类句子分配给同类目标 ≥ 3 的帧。
 
 ### 5. 崩溃安全的人机协同审查（Crash-safe Review Server）
 
@@ -147,10 +162,10 @@ SHA-256，与测试集图像哈希集合比对，命中即从 train/val 候选�
         │                 测试集同帧哈希去重 → 序列级 train/val 冻结划分
         ▼
 [2] run_census.py ─────▶ outputs/census/census_<id>/（merged.json + 分片 checkpoint）
-        │                 红框/编号视图 → 双 findall + attr → 代码门控 → 深度事实
+        │                 红框/编号视图 → 单次枚举（开思考）+ attr → 代码门控 → 深度事实
         ▼
 [3] assemble_queries.py ▶ outputs/assembly/asm-<tag>/assembly.json（+ text QC 日志）
-        │                 事实层 → 句族实现 → 唯一性门 → 四桶配额规划
+        │                 代码选维度 → 教师造句（一次调用/目标）→ 表述校验 → 四桶配额规划
         ▼
 [4] review_server.py ──▶ outputs/review/<tag>/（annotations.jsonl + 三份快照）
         │                 人审：修正框 / 修订 query / 不存在裁决
@@ -176,9 +191,13 @@ python scripts/run_census.py --split train --limit-sequences 320 \
     --num-shards 96 --run-tag census-full-1 \
     --data-root /path/to/dataset --index-dir data/indexes
 
-# [3] 组装（纯本地，确定性）
+# [3] 组装（一次 API 调用 / 目标，代码选维度 + 教师造句；--no-realize 只跑本地短路）
 python scripts/assemble_queries.py --census-run outputs/census/census_<id> \
     --run-tag asm-<tag> --data-root /path/to/dataset --index-dir data/indexes
+
+# [3b] 逆向（query → 框）
+python scripts/run_reverse.py --queries /path/to/queries.json \
+    --data-root /path/to/dataset --run-tag reverse-<tag>
 
 # [4] 人审（见下节：最小会话 / 多人分片）
 
@@ -234,12 +253,12 @@ python offline/train.py --annotation-run-id annot_r6 \
 ### 环境
 
 ```bash
-pip install -e ".[pipeline]"   # 管线层（census / assembly）需要 Pillow + numpy
+pip install -e ".[pipeline]"   # 管线层（census / assembly / reverse）需要 Pillow + numpy
 ```
 
 - Python 3.12+；审查服务支持 Linux/macOS，Windows 使用 WSL。
 - **工具层零依赖**：审查器、`make_manifest`、`apply_review`、`package_approved`
-  纯标准库；只有普查/组装（读取图像与深度）需要 Pillow + numpy。
+  纯标准库；只有普查 / 组装 / 逆向（读取图像与深度）需要 Pillow + numpy。
 - 完整前端状态测试需要 Node.js，缺失时该测试项明确跳过。
 
 ### 最小审查会话（三步）
@@ -308,6 +327,7 @@ HTTP 接口：`GET /api/session`、`GET /api/progress`、`GET /image`、
 |---|---|
 | `outputs/census/census_<id>/` | 普查结果 `merged.json`、运行计划与分片 checkpoint |
 | `outputs/assembly/<tag>/assembly.json` | 组装后的语料（每条含 sample_id、object_index、query、bbox、family、bucket、facts） |
+| `outputs/reverse/<run_id>/` | 逆向通路产物：`predictions.json`、`routes.json`、`thinking.jsonl`、`metadata.json` |
 | `outputs/review/<run_tag>/annotations.jsonl` | 追加日志，apply 优先重放的状态来源 |
 | `outputs/review/<run_tag>/annotations.predictions.json` | 框结果：`{item_id: [x1,y1,x2,y2]}` 归一化 0–1 XYXY |
 | `outputs/review/<run_tag>/annotations.queries.json` | 人工修订后的 query 文本 |
@@ -327,9 +347,9 @@ GLM-4.6V，经 OpenAI 协议端点调用，account 级并发受服务方限制�
 `attribute_action` 256 / `distance` 151（即份额最大值在 `spatial`，`distance` 最小）。
 这两处没有通过 JSON 切换教师或桶规则的入口。
 
-实际读取的外置文件只有 `configs/default/prompts/`（findall / attr 提示词）与
-`configs/default/rules/qc.json`（冠词规则、KEEP 表与人工裁定的 echo 表）。
-提示词按设计不含示例 query、不含风格选项——教师没有可模仿的风格样本。
+实际读取的外置文件只有 `configs/default/prompts/`（findall / attr / realize /
+parse / enumerate / direct 提示词）与 `configs/default/rules/qc.json`（冠词规则、
+KEEP 表与人工裁定的 echo 表）。提示词不含示例 query 与风格选项。
 变更配方使用新的运行标签，不覆盖已有标注。
 
 密钥只走环境变量或 `keys/`（已 ignore），仓库内不含任何凭据。
@@ -356,10 +376,12 @@ foundry/
     web/              原生 HTML/JS/CSS 前端
   pipeline/         数据管线层（Pillow + numpy）
     api.py            OpenAI 协议客户端 + Key 池 + 限流 + 有界重试
-    census.py         普查协议：提示词、响应解析、确定性门
+    census.py         普查协议：提示词、响应解析、确定性门（单次枚举）
+    reverse.py        逆向通路：解析 / 枚举 / 取第 k 个 + 直出兜底
+    realize.py        维度选择 + 教师造句 + 表述校验
     facts.py          帧级事实提取（ObjectFacts / Realization）
     planner.py        四桶配额分配 + 句族多样性
-    assembly.py       句族实现 + 唯一性门 + 目标选择
+    assembly.py       维度选择 + 表述校验 + 目标选择
     buckets.py        冻结四桶分类与份额
     depth.py          16 位毫米深度事实
     text_qc.py        冠词引擎 + echo 表裁定
@@ -368,13 +390,14 @@ foundry/
     sharding.py       镜头感知的选择与分片
     source.py         标注源索引加载与校验
   bbox.py / utils.py  共享层：坐标与 IO/指纹（零 pip 依赖）
-scripts/              CLI 入口（prepare_split / run_census / assemble_queries /
-                      review_server / make_manifest / apply_review /
-                      package_approved / check_keys / review_report）
-configs/default/      实际读取的提示词与 QC 规则
+scripts/              CLI 入口（prepare_split / run_census / run_reverse /
+                      assemble_queries / review_server / make_manifest /
+                      apply_review / package_approved / check_keys / review_report）
+configs/default/      实际读取的提示词与 QC 规则（findall / attr / realize /
+                      parse / enumerate / direct）
 data/indexes/         划分索引与清单（纳入 Git 追踪）
 tests/                离线逻辑、HTTP 服务与前端状态测试
-outputs/              产物（census / assembly / review / approved，已 ignore）
+outputs/              产物（census / assembly / reverse / review / approved，已 ignore）
 ```
 
 ## 测试
@@ -383,7 +406,7 @@ outputs/              产物（census / assembly / review / approved，已 ignor
 python -m unittest discover -s tests
 ```
 
-156 项测试，覆盖划分与去重、普查门控、事实与规划、组装唯一性、文本 QC、契约打包、
+157 项测试，覆盖划分与去重、普查门控、事实与规划、维度选择与表述校验、文本 QC、契约打包、
 审查器 HTTP 与存储恢复、Key 池。HTTP 测试只监听本机临时端口，API 测试使用假响应，
 不消耗真实额度。
 

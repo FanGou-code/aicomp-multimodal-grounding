@@ -151,15 +151,25 @@ class OpenAIProtocolClient:
         *,
         messages: list[dict],
         max_tokens: int,
-        temperature: float,
+        temperature: float | None,
+        do_sample: bool | None = None,
     ) -> APIResponse:
+        """One chat completion.
+
+        ``temperature=None`` and ``do_sample=None`` omit the field so the
+        provider applies its own default.  ``do_sample=False`` is greedy and
+        ignores temperature.
+        """
         payload = {
             "model": self.model,
             "messages": messages,
             "stream": False,
             "max_tokens": max_tokens,
-            "temperature": temperature,
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if do_sample is not None:
+            payload["do_sample"] = do_sample
         if self.enable_thinking is not None:
             payload["enable_thinking"] = self.enable_thinking
         if self.thinking_mode is not None:
@@ -297,6 +307,7 @@ class OpenAIProtocolClient:
         content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, str) or not content.strip():
             raise APIError("API response has no final content")
+        reasoning = message.get("reasoning_content") if isinstance(message, dict) else None
         trace_id = headers.get("x-siliconcloud-trace-id", "") if hasattr(headers, "get") else ""
         return APIResponse(
             content=content,
@@ -305,6 +316,7 @@ class OpenAIProtocolClient:
                 "trace_id": trace_id or "",
                 "model": payload.get("model", self.model),
                 "finish_reason": finish_reason or "",
+                "reasoning": reasoning if isinstance(reasoning, str) else "",
                 "usage": _usage(payload.get("usage")),
             },
         )

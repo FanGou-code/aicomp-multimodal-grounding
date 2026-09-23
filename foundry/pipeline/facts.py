@@ -172,6 +172,8 @@ def extract_frame_facts(
     centers_x = [(c["bbox"][0] + c["bbox"][2]) / 2 for c in cleaned]
     centers_y = [(c["bbox"][1] + c["bbox"][3]) / 2 for c in cleaned]
     bottoms = [c["bbox"][3] for c in cleaned]
+    # Ordinal ranks use the LEFT EDGE, the same key the serving side sorts on.
+    lefts_x = [c["bbox"][0] for c in cleaned]
     head_counts: dict[str, int] = {}
     for c in cleaned:
         head = category_head(c["category"])
@@ -187,12 +189,12 @@ def extract_frame_facts(
         group = by_head[head]
         rank_left = rank_right = None
         if len(group) >= 2:
-            ordered = sorted(group, key=lambda p: centers_x[p])
+            ordered = sorted(group, key=lambda p: lefts_x[p])
             rank = ordered.index(pos) + 1
             gap_ok = True
             for neighbour in (rank - 2, rank):
                 if 0 <= neighbour < len(ordered):
-                    if abs(centers_x[ordered[neighbour]] - centers_x[pos]) < ORDINAL_GAP:
+                    if abs(lefts_x[ordered[neighbour]] - lefts_x[pos]) < ORDINAL_GAP:
                         gap_ok = False
                         break
             if gap_ok:

@@ -1,31 +1,24 @@
-"""Census protocol: the teacher only reports facts, code validates everything.
+"""Census protocol: one enumeration call per frame, code validates the envelope.
 
-Passes (prompts in ``configs/default/prompts/``):
-- ``findall`` x2 independent passes per frame: enumerate up to 12 objects the
-  teacher is most confident about (clear outline, nameable at a glance), the
-  red-boxed category first when multiple instances exist, ordered left to
-  right, each with its own category name and a normalized bbox. The red-boxed
-  GT object must be included (it is the canary anchor, nothing more).
-- ``attr``: numbered-box attribute report for the agreed object set of
-  selected frames.
+Pass (prompt in ``configs/default/prompts/``):
+- ``findall`` once per frame: recognise the red-boxed category, count how many
+  instances of it the frame holds, then branch --
+  * two or more: list every instance of that category, no cap
+  * exactly one (the red-boxed object itself): skip that category and list
+    other objects in the frame the teacher is confident about instead
+  Either branch reports the count it listed.
 
 Deterministic gates in code (the teacher never self-certifies):
-- canary: the returned set must re-find the GT box (IoU >= 0.5) — the only
-  frame-fatal gate (the teacher pointing at the wrong target is unfixable)
-- everything else is normalized in code, never fatal:
-  ordering -> sorted by x1 and renumbered (v1 pilot: a fatal ordering gate
-  killed 27/146 panoramic frames); near-identical boxes (IoU >= 0.95, the
-  same object listed twice, e.g. nested trolley+robot listings) -> dedup;
-  zero-area boxes -> dropped (degenerate under every convention)
-- cross-pass agreement: one-to-one IoU >= 0.5 matching between the passes;
-  the intersection is the trusted object set (the second pass IS the review)
+- schema: ``{mode, category, count, objects}``, indices sequential 1..N
+- self-reported ``count`` must equal the number of listed objects
+- everything else is normalized in code, never fatal: ordering -> sorted by x1
+  and renumbered; near-identical boxes (IoU >= 0.95) -> dedup; zero-area boxes
+  -> dropped
 
-Category naming may drift between passes/frames (swan/duck); normalization
-is an assembler concern, not a census gate. Object identity across frames is
-NOT established: every sample is fact-supported by its own frame only.
+The red box names the category to start from; it is not re-found and not
+verified against.
 
-Prompts contain no example queries and no style options by design — the
-teacher has nothing stylistic to imitate.
+Prompts contain no example queries and no style options.
 """
 
 from __future__ import annotations
@@ -47,12 +40,20 @@ def _load_prompt(name: str, default: str) -> str:
         pass
     return default
 
-_FINDALL_DEFAULT = """The red rectangle marks one object in the scene.
-Task: list up to 12 objects you are MOST CONFIDENT about — clear outline, nameable at a glance — regardless of category, ordered from left to right. If multiple instances of the red-boxed category exist, include them all first, then fill the remaining slots with other confident objects. Skip tiny clutter, blurry ground debris, and anything you cannot identify precisely.
-You must include the object inside the red rectangle. Number them 1..N (N is the total count).
-For each object give a short common category name and its bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
+_FINDALL_DEFAULT = """The red rectangle marks one reference object in the scene.
+
+Step 1. Name the category of the object inside the red rectangle, then count how many instances of that category the whole frame contains.
+
+Step 2. Branch on that count:
+- If the frame contains TWO OR MORE instances of that category: list EVERY instance of it — small, distant, blurry, partially occluded, cut off by the image edge. Do not stop at any number. Do not cap the list.
+- If the frame contains EXACTLY ONE instance (the reference object itself): do not list that category. Instead list the other objects in the frame you are most confident about — clear outline, nameable at a glance, any category. Skip tiny clutter and anything you cannot identify precisely.
+
+Order the list from left to right. Number them 1..N. For each object give a short common category name and its bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
+
 Output JSON only:
-{"objects": [{"i": 1, "category": "<category name>", "bbox": [x1, y1, x2, y2]}, ...]}"""
+{"mode": "instances" or "other", "category": "<the red-boxed category>", "count": <int>, "objects": [{"i": 1, "category": "<category name>", "bbox": [x1, y1, x2, y2]}, ...]}
+
+"mode" is "instances" when you listed every instance of the red-boxed category, "other" when you listed other confident objects instead. "count" must equal the number of objects you listed."""
 
 _ATTR_DEFAULT = """The image shows numbered boxes around objects in the scene.
 For each numbered object report only what is directly visible: its color and one notable visible feature.
@@ -66,11 +67,13 @@ ATTR_PROMPT = _load_prompt("attr", _ATTR_DEFAULT)
 FINDALL_PROMPT_HASH = hashlib.sha256(FINDALL_PROMPT.encode("utf-8")).hexdigest()
 ATTR_PROMPT_HASH = hashlib.sha256(ATTR_PROMPT.encode("utf-8")).hexdigest()
 
-CANARY_IOU = 0.5
-MATCH_IOU = 0.5
 SELF_DUP_IOU = 0.95
 BBOX_SLACK = 0.02
-MAX_OBJECTS = 12
+
+#: Which branch the enumeration took; ``instances`` means "I listed every
+#: instance of the reference category", ``other`` means "that category was a
+#: single object, so I listed other confident objects instead".
+ENUM_MODES = ("instances", "other")
 
 
 def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
@@ -122,12 +125,11 @@ def _scale_bbox(raw: object, scale: tuple[float, float]) -> list[float] | None:
     return values
 
 
-def _normalize_objects(cleaned: list[dict], gt_bbox: list[float]) -> list[dict]:
-    """Sort by x1, drop near-identical duplicates, verify the canary.
+def _normalize_objects(cleaned: list[dict]) -> list[dict]:
+    """Sort by x1, drop near-identical duplicates, renumber 1..N.
 
-    All three steps are invariant under the uniform scaling that separates
-    the coordinate conventions, so the canary remains the sole convention
-    discriminator.
+    All steps are invariant under the uniform scaling that separates the
+    coordinate conventions, so ordering and dedup stay convention-agnostic.
     """
     cleaned.sort(key=lambda item: item["bbox"][0])
     kept: list[dict] = []
@@ -135,8 +137,6 @@ def _normalize_objects(cleaned: list[dict], gt_bbox: list[float]) -> list[dict]:
         if any(compute_iou(prev["bbox"], item["bbox"]) >= SELF_DUP_IOU for prev in kept):
             continue
         kept.append(item)
-    if not any(compute_iou(item["bbox"], gt_bbox) >= CANARY_IOU for item in kept):
-        raise ValueError("Census canary failed: red-boxed target not re-found")
     for index, item in enumerate(kept, start=1):
         item["i"] = index
     return kept
@@ -144,26 +144,35 @@ def _normalize_objects(cleaned: list[dict], gt_bbox: list[float]) -> list[dict]:
 
 def parse_findall_response(
     text: object,
-    *,
-    gt_bbox: list[float],
-    image_size: tuple[int, int] | None = None,
 ) -> dict:
-    """Validate one findall response through every deterministic gate.
+    """Validate one enumeration response through every deterministic gate.
 
-    The response is a panoramic enumeration: every entry carries its own
-    category name. The teacher's coordinate convention is auto-detected: if
-    all values are within [0, 1] the response is used directly; otherwise the
-    per-mille (0-1000, GLM/Qwen family convention) and shown-image-pixel
-    candidates are both normalized and the canary acts as the oracle — the
-    first candidate whose set survives normalization (sort, dedup, degenerate
-    drop) and passes the canary wins.
+    The response carries the branch it took, the reference category, the count
+    it claims, and the objects.  The teacher's coordinate convention is
+    auto-detected: values within [0, 1] are used directly, otherwise the
+    per-mille (0-1000, GLM/Qwen family convention) is applied. The prompt asks
+    for normalized fractions and forbids pixels, so there is no pixel
+    convention to fall back on.
     """
     payload = _parse_json_object(text, label="Census findall")
-    if set(payload) != {"objects"}:
-        raise ValueError("Census findall schema must be exactly {objects}")
+    if set(payload) != {"mode", "category", "count", "objects"}:
+        raise ValueError("Census findall schema must be exactly {mode, category, count, objects}")
+    mode = payload["mode"]
+    if mode not in ENUM_MODES:
+        raise ValueError(f"Census findall mode must be one of {ENUM_MODES}")
+    category = payload["category"]
+    if not isinstance(category, str) or not category.strip() or len(category) > 64:
+        raise ValueError("Census findall category is missing or oversized")
+    count = payload["count"]
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise ValueError("Census findall count must be a non-negative integer")
     objects = payload["objects"]
-    if not isinstance(objects, list) or not 1 <= len(objects) <= MAX_OBJECTS:
-        raise ValueError(f"Census findall must list 1..{MAX_OBJECTS} objects")
+    if not isinstance(objects, list) or not objects:
+        raise ValueError("Census findall must list at least one object")
+    if count != len(objects):
+        raise ValueError(
+            f"Census findall count {count} does not match the {len(objects)} objects listed"
+        )
     raw_boxes: list[dict] = []
     for expected_i, item in enumerate(objects, start=1):
         if not isinstance(item, dict) or set(item) != {"i", "category", "bbox"}:
@@ -171,22 +180,19 @@ def parse_findall_response(
         index = item["i"]
         if isinstance(index, bool) or not isinstance(index, int) or index != expected_i:
             raise ValueError("Census object indices must be sequential 1..N")
-        category = item["category"]
-        if not isinstance(category, str) or not category.strip() or len(category) > 64:
+        name = item["category"]
+        if not isinstance(name, str) or not name.strip() or len(name) > 64:
             raise ValueError(f"Census object {index} category is missing or oversized")
-        raw_boxes.append({"i": index, "category": category.strip(), "bbox": item["bbox"]})
+        raw_boxes.append({"i": index, "category": name.strip(), "bbox": item["bbox"]})
 
     flat = [value for item in raw_boxes for value in item["bbox"]]
     numeric = all(
         isinstance(value, (int, float)) and not isinstance(value, bool) for value in flat
     )
-    candidates: list[tuple[str, tuple[float, float]]] = []
     if numeric and all(-BBOX_SLACK <= value <= 1.0 + BBOX_SLACK for value in flat):
-        candidates.append(("normalized-0-1", (1.0, 1.0)))
+        candidates = [("normalized-0-1", (1.0, 1.0))]
     else:
-        candidates.append(("per-mille-0-1000", (1.0 / 1000.0, 1.0 / 1000.0)))
-        if image_size is not None:
-            candidates.append(("pixels-of-shown-image", (1.0 / image_size[0], 1.0 / image_size[1])))
+        candidates = [("per-mille-0-1000", (1.0 / 1000.0, 1.0 / 1000.0))]
 
     errors: list[str] = []
     for name, scale in candidates:
@@ -203,12 +209,14 @@ def parse_findall_response(
         if not cleaned:
             errors.append(f"[{name}] census response has no non-degenerate boxes")
             continue
-        try:
-            cleaned = _normalize_objects(cleaned, gt_bbox)
-        except ValueError as exc:
-            errors.append(f"[{name}] {exc}")
-            continue
-        return {"objects": cleaned, "bbox_convention": name}
+        cleaned = _normalize_objects(cleaned)
+        return {
+            "mode": mode,
+            "category": category.strip(),
+            "count": count,
+            "objects": cleaned,
+            "bbox_convention": name,
+        }
     raise ValueError(
         "Census response failed under every coordinate convention: " + " | ".join(errors)
     )
@@ -237,38 +245,18 @@ def parse_attr_response(text: object, *, indices: list[int]) -> dict:
     return result
 
 
-def pass_agreement(objects_a: list[dict], objects_b: list[dict]) -> dict:
-    """One-to-one greedy IoU matching between two independent findall passes."""
-    pairs = []
-    for a_index, a_item in enumerate(objects_a):
-        for b_index, b_item in enumerate(objects_b):
-            iou = compute_iou(a_item["bbox"], b_item["bbox"])
-            if iou >= MATCH_IOU:
-                pairs.append((iou, a_index, b_index))
-    pairs.sort(reverse=True)
-    used_a: set[int] = set()
-    used_b: set[int] = set()
-    matched_boxes: list[dict] = []
-    for iou, a_index, b_index in pairs:
-        if a_index in used_a or b_index in used_b:
-            continue
-        used_a.add(a_index)
-        used_b.add(b_index)
-        matched_boxes.append(objects_a[a_index])
-    count_a, count_b = len(objects_a), len(objects_b)
-    union = count_a + count_b - len(matched_boxes)
-    return {
-        "matched": len(matched_boxes),
-        "count_a": count_a,
-        "count_b": count_b,
-        "count_agree": count_a == count_b,
-        "jaccard": len(matched_boxes) / union if union else 0.0,
-        "agreed_objects": matched_boxes,
-    }
+def trusted_objects(frame: dict) -> list[dict]:
+    """Trusted object set of one completed frame: the single enumeration's list.
+
+    The one definition of "which boxes of this frame may carry facts",
+    consumed by the assembler, the reranker, the review session builder,
+    and the adjustment report.
+    """
+    return frame["findall"]["objects"]
 
 
 def select_frames(candidates: list[dict], k: int = 3) -> list[dict]:
-    """Pick k frames: highest agreed-object count, ties broken by spread.
+    """Pick k frames: highest object count, ties broken by spread.
 
     Deterministic: primary key count descending, then greatest minimum
     distance to the already-chosen frames, then lowest frame number.
@@ -292,27 +280,7 @@ def select_frames(candidates: list[dict], k: int = 3) -> list[dict]:
     return chosen
 
 
-def trusted_objects(frame: dict) -> list[dict]:
-    """Trusted object set of one completed frame: the surviving pass's set
-    when only one findall completed, else the two-pass intersection.
-
-    The one definition of "which boxes of this frame may carry facts",
-    consumed by the assembler, the reranker, the review session builder,
-    and the adjustment report.
-    """
-    if frame.get("single_pass"):
-        good = frame["findall_1"] if frame["findall_1"]["status"] == "completed" else frame["findall_2"]
-        return good["objects"]
-    return pass_agreement(frame["findall_1"]["objects"], frame["findall_2"]["objects"])["agreed_objects"]
-
-
-def findall_messages(marked_jpeg_url: str, *, previous_error: str = "", prompt: str | None = None) -> list[dict]:
-    repair = ""
-    if previous_error:
-        repair = (
-            "\nThe previous response failed deterministic validation for this reason: "
-            f"{previous_error}. Correct that failure and regenerate the complete JSON object."
-        )
+def findall_messages(marked_jpeg_url: str, *, prompt: str | None = None) -> list[dict]:
     return [
         {"role": "system", "content": "You are a precise visual-grounding enumerator. Return only valid JSON."},
         {
@@ -320,19 +288,13 @@ def findall_messages(marked_jpeg_url: str, *, previous_error: str = "", prompt: 
             "content": [
                 {"type": "text", "text": "One complete RGB scene; the red rectangle marks the reference object."},
                 {"type": "image_url", "image_url": {"url": marked_jpeg_url, "detail": "high"}},
-                {"type": "text", "text": (prompt or FINDALL_PROMPT) + repair},
+                {"type": "text", "text": prompt or FINDALL_PROMPT},
             ],
         },
     ]
 
 
-def attr_messages(numbered_jpeg_url: str, *, previous_error: str = "") -> list[dict]:
-    repair = ""
-    if previous_error:
-        repair = (
-            "\nThe previous response failed deterministic validation for this reason: "
-            f"{previous_error}. Correct that failure and regenerate the complete JSON object."
-        )
+def attr_messages(numbered_jpeg_url: str) -> list[dict]:
     return [
         {"role": "system", "content": "You are a precise visual inspector. Return only valid JSON."},
         {
@@ -340,7 +302,7 @@ def attr_messages(numbered_jpeg_url: str, *, previous_error: str = "") -> list[d
             "content": [
                 {"type": "text", "text": "One complete RGB scene with numbered boxes around the enumerated objects."},
                 {"type": "image_url", "image_url": {"url": numbered_jpeg_url, "detail": "high"}},
-                {"type": "text", "text": ATTR_PROMPT + repair},
+                {"type": "text", "text": ATTR_PROMPT},
             ],
         },
     ]
