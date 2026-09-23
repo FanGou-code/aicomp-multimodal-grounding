@@ -13,7 +13,7 @@ class ApplyReviewTest(unittest.TestCase):
     def _one_record(self):
         return {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
                 "category": "car", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
-                "query": "The red car beside the tree", "bucket": "spatial"}
+                "query": "The red car beside the tree", }
 
     def test_apply_uses_durable_journal_when_snapshots_are_stale_or_missing(self):
         from unittest.mock import patch
@@ -79,7 +79,7 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The first deer from left to right", "family": "ordinal_direction",
-            "bucket": "ordinal", "quota_state": "quota", "facts": ["rank:1"], "words": 7,
+            "facts": ["rank:1"], "words": 7,
             "edited": False,
         }]
         asm = self._write_assembly(records)
@@ -95,7 +95,7 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The first deer from left to right", "family": "ordinal_direction",
-            "bucket": "ordinal", "quota_state": "quota", "facts": ["rank:1"], "words": 7,
+            "facts": ["rank:1"], "words": 7,
             "edited": False,
         }]
         asm = self._write_assembly(records)
@@ -106,33 +106,14 @@ class ApplyReviewTest(unittest.TestCase):
         self.assertEqual(result["records"][0]["query"], "The first deer from left to right")
         self.assertEqual(result["records"][0]["review_source"], "original")
 
-    def test_bucket_reclassification(self):
-        records = [{
-            "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
-            "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
-            "query": "The first deer from left to right", "family": "ordinal_direction",
-            "bucket": "ordinal", "quota_state": "quota", "facts": ["rank:1"], "words": 7,
-            "edited": False,
-        }]
-        asm = self._write_assembly(records)
-        # Human edits to a non-ordinal query
-        queries = self._write_queries({"001_00000001#01": "The deer with antlers"})
-
-        result = apply(asm, queries, "asm-test-r6", self.tmp_path, force=True)
-        self.assertEqual(result["records"][0]["bucket"], "attribute_action")
-        self.assertEqual(result["records"][0]["original_bucket"], "ordinal")
-        self.assertEqual(result["stats"]["bucket_changed"], 1)
-
     def test_collision_detection(self):
         records = [
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
              "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
-             "query": "the deer", "family": "plain_attribute", "bucket": "attribute_action",
-             "quota_state": "quota", "facts": [], "words": 2, "edited": False},
+             "query": "the deer", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "teacher",
              "category": "deer", "bbox": [0.5, 0.2, 0.7, 0.4], "object_index": 2,
-             "query": "the deer", "family": "plain_attribute", "bucket": "attribute_action",
-             "quota_state": "quota", "facts": [], "words": 2, "edited": False},
+             "query": "the deer", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
         ]
         asm = self._write_assembly(records)
         queries = self._write_queries({})
@@ -145,8 +126,7 @@ class ApplyReviewTest(unittest.TestCase):
     def test_output_dir_exists_no_force(self):
         records = [{"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
                      "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
-                     "query": "test", "family": "plain_attribute", "bucket": "attribute_action",
-                     "quota_state": "quota", "facts": [], "words": 1, "edited": False}]
+                     "query": "test", "family": "plain_attribute",                     "facts": [], "words": 1, "edited": False}]
         asm = self._write_assembly(records)
         queries = self._write_queries({})
         # Create output dir first
@@ -170,12 +150,12 @@ class ApplyReviewTest(unittest.TestCase):
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
              "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
              "query": "The first deer from left to right", "family": "ordinal_direction",
-             "bucket": "ordinal", "quota_state": "quota", "facts": ["rank:1"], "words": 7,
+             "facts": ["rank:1"], "words": 7,
              "edited": False},
             {"sample_id": "001_00000002", "sequence_id": "001", "source": "real",
              "category": "deer", "bbox": [0.4, 0.5, 0.6, 0.7], "object_index": 2,
              "query": "The second deer from left to right", "family": "ordinal_direction",
-             "bucket": "ordinal", "quota_state": "quota", "facts": ["rank:2"], "words": 7,
+             "facts": ["rank:2"], "words": 7,
              "edited": False},
         ]
         asm = self._write_assembly(records)
@@ -193,16 +173,13 @@ class ApplyReviewTest(unittest.TestCase):
         records = [
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
              "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
-             "query": "the deer", "family": "plain_attribute", "bucket": "attribute_action",
-             "quota_state": "quota", "facts": [], "words": 2, "edited": False},
+             "query": "the deer", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
              "category": "fox", "bbox": [0.5, 0.2, 0.7, 0.4], "object_index": 2,
-             "query": "the fox", "family": "plain_attribute", "bucket": "attribute_action",
-             "quota_state": "quota", "facts": [], "words": 2, "edited": False},
+             "query": "the fox", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "teacher",
              "category": "boar", "bbox": [0.2, 0.2, 0.4, 0.4], "object_index": 3,
-             "query": "the boar", "family": "plain_attribute", "bucket": "attribute_action",
-             "quota_state": "quota", "facts": [], "words": 2, "edited": False},
+             "query": "the boar", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
         ]
         asm = self._write_assembly(records)
         self._write_queries({})
@@ -234,7 +211,7 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The ambiguous deer", "family": "plain_attribute",
-            "bucket": "attribute_action", "quota_state": "quota", "facts": [],
+            "facts": [],
             "words": 3, "edited": False,
         }]
         asm = self._write_assembly(records)
@@ -256,7 +233,7 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The deer", "family": "plain_attribute",
-            "bucket": "attribute_action", "quota_state": "quota", "facts": [],
+            "facts": [],
             "words": 2, "edited": False,
         }]
         asm = self._write_assembly(records)
@@ -295,7 +272,7 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The deer", "family": "plain_attribute",
-            "bucket": "attribute_action", "quota_state": "quota", "facts": [],
+            "facts": [],
             "words": 2, "edited": False,
         }]
         asm = self._write_assembly(records)

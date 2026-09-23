@@ -3,15 +3,15 @@
 For each selected target, code picks the dimension that disambiguates it inside
 its own frame (``foundry.pipeline.realize``), the teacher turns that dimension
 into one sentence, and code verifies the sentence names the facts it was handed.
-The planner then allocates under the frozen spec quotas.
+Every sentence the teacher returns is emitted as-is; the planner only
+deduplicates.
 
 Head groups are keyed on the category HEAD noun (last word): "swan" and
 "black swan" share the head "swan" and are one group for ranks and uniqueness.
 Geometric facts are computed in ``foundry.pipeline.facts``.
 
-The bucket classifier is imported from the frozen Phase 0 mining script so
-acceptance shares stay byte-identical with the published test-side counts
-(ordinal > distance > spatial > attribute_action).
+How the corpus is composed is whatever the frames and the teacher produce;
+nothing here steers it, and no share of any kind is computed.
 """
 
 from __future__ import annotations
@@ -26,8 +26,6 @@ from foundry.pipeline.facts import (
     extract_frame_facts,
 )
 from foundry.pipeline.planner import TargetSupply, plan as planner_plan
-from foundry.pipeline.depth import DEPTH_SOURCE
-from foundry.pipeline.buckets import FROZEN_BUCKETS
 from foundry.pipeline.realize import choose_dimension
 
 MIN_TEACHER_AREA = 0.002
@@ -48,8 +46,6 @@ class AssemblyRecord:
     object_index: int
     query: str
     family: str
-    bucket: str
-    quota_state: str  # "quota" | "overshoot"
     facts: list[str]
     words: int
     edited: bool = False  # text QC modified the query (foundry.text_qc)
@@ -99,24 +95,21 @@ class _SupplyItem:
     """One allocatable target with its pre-verified realization variants."""
 
     __slots__ = ("sample_id", "sequence_id", "source", "facts", "gt_bbox",
-                 "variants", "depth_available")
+                 "variants")
 
-    def __init__(self, sample_id, sequence_id, source, facts, gt_bbox, variants,
-                 depth_available):
+    def __init__(self, sample_id, sequence_id, source, facts, gt_bbox, variants):
         self.sample_id = sample_id
         self.sequence_id = sequence_id
         self.source = source
         self.facts = facts
         self.gt_bbox = gt_bbox
         self.variants = variants
-        self.depth_available = depth_available
 
 
 
 def assemble_run(
     merged: dict,
     index: dict,
-    spec: dict | None = None,
     *,
     max_teacher_per_frame: int = 2,
     realize=None,
@@ -168,7 +161,6 @@ def assemble_run(
                 for f in facts
             ]
             result.sequences.append(sequence_id)
-            depth_available = (frame.get("depth") or {}).get("source") == DEPTH_SOURCE
             for source, target_facts in select_targets(facts, max_teacher=max_teacher_per_frame):
                 dimension = choose_dimension(target_facts, facts)
                 if dimension is None:
@@ -195,7 +187,6 @@ def assemble_run(
                     variants=[_variant(
                         sentence, dimension["family"], tuple(dimension["facts"])
                     )],
-                    depth_available=depth_available,
                 ))
 
     target_supplies = [
@@ -206,11 +197,10 @@ def assemble_run(
             facts=item.facts,
             gt_bbox=item.gt_bbox,
             realizations=item.variants,
-            depth_available=item.depth_available,
         )
         for item in supply
     ]
-    plan_result = planner_plan(target_supplies, spec)
+    plan_result = planner_plan(target_supplies)
     for allocation in plan_result.allocations:
         chosen = allocation.realization
         item = allocation.supply
@@ -226,8 +216,6 @@ def assemble_run(
                 object_index=item.facts.index,
                 query=chosen.text,
                 family=chosen.family,
-                bucket=allocation.bucket,
-                quota_state=allocation.quota_state,
                 facts=list(chosen.facts),
                 words=chosen.words,
             )
@@ -238,16 +226,13 @@ def assemble_run(
 
 
 def audit_assembly(records: list[AssemblyRecord]) -> dict:
-    """Acceptance metrics: repeat rate, bucket shares, word counts, sources."""
+    """Acceptance metrics: repeat rate, word counts, sources."""
     total = len(records)
     if not total:
         raise ValueError("No assembled records to audit")
     texts = [r.query for r in records]
     verbatim = len(set(texts))
     lower = len(set(t.lower() for t in texts))
-    buckets = {bucket: 0 for bucket in FROZEN_BUCKETS}
-    for r in records:
-        buckets[r.bucket] += 1
     words = [r.words for r in records]
     sources = {"real": 0, "teacher": 0}
     for r in records:
@@ -258,11 +243,8 @@ def audit_assembly(records: list[AssemblyRecord]) -> dict:
         "verbatim_unique": verbatim,
         "verbatim_repeat_rate": round(repeat_rate, 4),
         "lower_repeat_rate": round(1 - lower / total, 4),
-        "bucket_counts": buckets,
-        "bucket_per_mille": {b: round(c / total * 1000) for b, c in buckets.items()},
         "mean_words": round(sum(words) / total, 2),
         "median_words": sorted(words)[total // 2],
         "sources": sources,
-        "overshoot_records": sum(1 for r in records if r.quota_state == "overshoot"),
         "acceptance": {"verbatim_repeat_le_0_10": repeat_rate <= 0.10},
     }

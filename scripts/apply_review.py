@@ -5,8 +5,8 @@ Produces ``asm-*-r6`` as the packaging baseline for the R6 chain.
 
 Merge: human-edited query text, human-corrected target boxes and human-confirmed
 absence verdicts (from the review journal, or legacy snapshots) take priority; un-reviewed
-items keep their original assembled values. Re-validates bucket classifier
-and text QC for changed queries. Detects same-frame collisions.
+items keep their original assembled values. Re-runs text QC for changed
+queries. Detects same-frame collisions.
 
 Output: ``outputs/assembly/asm-{train,val}-r6/assembly.json``
 """
@@ -22,7 +22,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from foundry.pipeline.buckets import classify_frozen  # noqa: E402
 from foundry.utils import (  # noqa: E402
     ANNOTATION_MODEL_NAME,
     atomic_write_json,
@@ -169,7 +168,7 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
 
     # --- Merge ---
     stats: dict[str, int] = Counter(
-        total=len(records), human=0, original=0, collision=0, bucket_changed=0,
+        total=len(records), human=0, original=0, collision=0,
         qc_edited=0, box_seen=0, box_changed=0, absent_removed=0, todo_excluded=0,
     )
     flagged: list[dict] = []
@@ -192,7 +191,6 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
             continue
 
         original_query = rec["query"]
-        original_bucket = rec.get("bucket", "")
         source = "original"
 
         # Priority: human > original
@@ -207,14 +205,6 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
         rec["query"] = new_query
         rec["review_source"] = source
         rec["original_query"] = original_query if new_query != original_query else None
-
-        # Re-classify bucket for changed queries
-        if new_query != original_query:
-            new_bucket = classify_frozen(new_query)
-            if new_bucket != original_bucket:
-                rec["bucket"] = new_bucket
-                rec["original_bucket"] = original_bucket
-                stats["bucket_changed"] += 1
 
         # Human-corrected target box (the review store snapshot is the final
         # box per annotated item; untouched seeds equal the assembly bbox, so
@@ -314,7 +304,6 @@ def main() -> None:
     print(f"  human:       {stats['human']:>5}")
     print(f"  original:    {stats['original']:>5}")
     print(f"  collision:   {stats['collision']:>5}")
-    print(f"  bucket_chg:  {stats['bucket_changed']:>5}")
     print(f"  qc_edited:   {stats['qc_edited']:>5}")
     print(f"  box_seen:    {stats['box_seen']:>5} | box_changed: {stats['box_changed']:>5}")
     print(f"  absent_rm:   {stats['absent_removed']:>5} | todo_excluded: {stats['todo_excluded']:>5}")

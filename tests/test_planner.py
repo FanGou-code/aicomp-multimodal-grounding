@@ -6,22 +6,10 @@ from foundry.pipeline.facts import ObjectFacts, extract_frame_facts
 from foundry.pipeline.planner import TargetSupply, plan
 
 
-SPEC = {
-    "style_buckets_draft": {
-        "shares": {
-            "ordinal": "3201 (335 per-mille)",
-            "spatial": "2465 (258 per-mille)",
-            "attribute_action": "2450 (256 per-mille)",
-            "distance": "1439 (151 per-mille)",
-        }
-    }
-}
-
-
-def make_target(sample_id, realizations, count_in_head=1, depth=False):
+def make_target(sample_id, realizations):
     facts = ObjectFacts(
         index=1, category="swan", bbox=(0.3, 0.4, 0.4, 0.6), color=None,
-        features=None, is_canary=False, count_in_head=count_in_head,
+        features=None, is_canary=False, count_in_head=1,
         rank_left=None, rank_right=None,
         is_leftmost=False, is_rightmost=False, is_topmost=False,
         is_bottommost=False, is_closest=False, is_farthest=False,
@@ -30,7 +18,7 @@ def make_target(sample_id, realizations, count_in_head=1, depth=False):
     return TargetSupply(
         sample_id=sample_id, sequence_id=sample_id.split("_", 1)[0],
         source="teacher", facts=facts, gt_bbox=[0.3, 0.4, 0.4, 0.6],
-        realizations=realizations, depth_available=depth,
+        realizations=realizations,
     )
 
 
@@ -40,67 +28,61 @@ def realization(text, family="plain_attribute", facts=("color",)):
     return R(text, family, facts, len(text.split()))
 
 
-class PlannerPolicyTest(unittest.TestCase):
-    def test_deterministic(self):
+class PlannerTest(unittest.TestCase):
+    def test_one_sentence_per_target_in_supply_order(self):
         supply = [
-            make_target("070_00000001", [realization("The white swan")]),
-            make_target("070_00000043", [realization("The black swan", facts=("area-comparative",))]),
+            make_target("001_00000001", [realization("the white swan")]),
+            make_target("001_00000002", [realization("the black swan")]),
         ]
-        first = plan(supply, SPEC)
-        second = plan(supply, SPEC)
-        self.assertEqual(
-            [(a.supply.sample_id, a.realization.text, a.bucket) for a in first.allocations],
-            [(a.supply.sample_id, a.realization.text, a.bucket) for a in second.allocations],
-        )
+        result = plan(supply)
+        self.assertEqual([a.realization.text for a in result.allocations],
+                         ["the white swan", "the black swan"])
+        self.assertEqual(result.unallocated, [])
 
-    def test_verbatim_uniqueness_across_targets(self):
+    def test_the_same_sentence_is_never_emitted_twice(self):
         supply = [
-            make_target("070_00000001", [realization("The white swan")]),
-            make_target("070_00000043", [realization("The white swan")]),
+            make_target("001_00000001", [realization("the white swan")]),
+            make_target("001_00000002", [realization("the white swan")]),
         ]
-        result = plan(supply, SPEC)
+        result = plan(supply)
         self.assertEqual(len(result.allocations), 1)
         self.assertEqual(result.unallocated[0]["reason"], "sentence-already-used")
+        self.assertEqual(result.unallocated[0]["sample_id"], "001_00000002")
 
-    def _crowd_supply(self, crowd_count_in_head):
-        band = realization("The swan in the foreground", "superlative_camera", ("foreground",))
-        ordinal = realization("The first swan from the left", "ordinal_direction", ("rank:1",))
+    def test_deduplication_ignores_case(self):
         supply = [
-            make_target("070_00000001", [ordinal, band], count_in_head=crowd_count_in_head, depth=True)
+            make_target("001_00000001", [realization("The white swan")]),
+            make_target("001_00000002", [realization("the WHITE swan")]),
         ]
-        for n in range(2, 21):
-            supply.append(
-                make_target(f"070_{n:08d}", [realization(f"The white swan number {n}")])
-            )
-        return supply
+        self.assertEqual(len(plan(supply).allocations), 1)
 
-    def test_crowd_frame_prefers_distance_bucket(self):
-        # A crowd frame (3+ same-head) with a band realization: the distance
-        # bucket gets first pick even though ordinal has more remaining quota.
-        result = plan(self._crowd_supply(3), SPEC)
-        # "in the foreground" lands in attribute_action under the frozen rule
-        self.assertEqual(result.allocations[0].bucket, "attribute_action")
-        self.assertEqual(result.allocations[0].realization.text, "The swan in the foreground")
+    def test_a_target_with_no_sentence_is_reported(self):
+        supply = [make_target("001_00000001", [])]
+        result = plan(supply)
+        self.assertEqual(result.allocations, [])
+        self.assertEqual(result.unallocated[0]["reason"], "sentence-already-used")
 
-    def test_non_crowd_frame_keeps_quota_order(self):
-        result = plan(self._crowd_supply(1), SPEC)
-        self.assertEqual(result.allocations[0].bucket, "ordinal")
-
-    def test_family_diversity_within_sequence(self):
-        # Same family twice in a sequence: the second pick prefers the other
-        # family when word counts are equal.
+    def test_deterministic(self):
         supply = [
-            make_target("070_00000001", [realization("The white swan pair one")]),
-            make_target("070_00000002", [
-                realization("The white swan pair two"),
-                realization("The swan on the left side of the image", "side_of_anchor",
-                            ("image:left",)),
-            ]),
+            make_target("001_00000001", [realization("the white swan")]),
+            make_target("002_00000001", [realization("the boat")]),
         ]
-        result = plan(supply, SPEC)
-        self.assertNotEqual(
-            result.allocations[0].realization.family,
-            result.allocations[1].realization.family,
+        first, second = plan(supply), plan(supply)
+        self.assertEqual(
+            [(a.supply.sample_id, a.realization.text) for a in first.allocations],
+            [(a.supply.sample_id, a.realization.text) for a in second.allocations],
+        )
+
+    def test_only_the_order_follows_the_input(self):
+        a = make_target("001_00000001", [realization("the white swan")])
+        b = make_target("001_00000002", [realization("the black swan")])
+        self.assertEqual(
+            [x.realization.text for x in plan([a, b]).allocations],
+            ["the white swan", "the black swan"],
+        )
+        self.assertEqual(
+            [x.realization.text for x in plan([b, a]).allocations],
+            ["the black swan", "the white swan"],
         )
 
 

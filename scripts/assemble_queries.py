@@ -29,7 +29,6 @@ from foundry.pipeline.api import (  # noqa: E402
 )
 from foundry.pipeline.api import APIKeyPool  # noqa: E402
 from foundry.pipeline.assembly import assemble_run, audit_assembly  # noqa: E402
-from foundry.pipeline.buckets import classify_frozen  # noqa: E402
 from foundry.pipeline.realize import (  # noqa: E402
     REALIZE_PROMPT_HASH,
     REALIZE_STAGE,
@@ -146,12 +145,10 @@ def main() -> None:
         raise SystemExit(f"merged.json not found under {args.census_run}")
     merged = load_json(merged_path)
     index = load_json(resolve_index_dir(args.data_root, args.index_dir) / f"{args.split}.json")
-    spec = None  # bucket shares use frozen constants
     realize = None if args.no_realize else build_realizer(args.data_root, index)
     result = assemble_run(
         merged,
         index,
-        spec,
         max_teacher_per_frame=args.max_teacher_per_frame,
         realize=realize,
     )
@@ -159,7 +156,6 @@ def main() -> None:
     audit = audit_assembly(result.records) if result.records else {
         "count": 0, "sources": {"real": 0, "teacher": 0},
         "verbatim_repeat_rate": 0.0, "mean_words": 0.0,
-        "bucket_per_mille": {}, "overshoot_records": 0,
     }
 
     metadata = merged.get("metadata", {})
@@ -176,8 +172,6 @@ def main() -> None:
             "census_run_id": run_id,
             "census_source_fingerprint": metadata.get("source_fingerprint"),
             "census_preparation_fingerprint": metadata.get("preparation_fingerprint"),
-            "spec_status": (spec or {}).get("status"),
-            "spec_version": (spec or {}).get("version"),
             "split": args.split,
             "all_frames": bool(args.all_frames),
             "max_teacher_per_frame": args.max_teacher_per_frame,
@@ -199,20 +193,12 @@ def main() -> None:
           f"from {len(result.sequences)} sequences")
     print(f"verbatim repeat {audit['verbatim_repeat_rate']}, "
           f"mean words {audit['mean_words']}")
-    print("bucket per-mille (assembled):")
-    for bucket, per_mille in audit["bucket_per_mille"].items():
-        print(f"  {bucket:<18} {per_mille:>4}")
     print(f"shortfall: {len(result.shortfall)} target(s)")
     print(f"wrote {out_dir / 'assembly.json'}")
     print(f"wrote {out_dir / 'audit.json'}")
     print("\nsample records:")
     for record in result.records[: args.show]:
         print(f"  [{record.source:<7}] {record.query}   ({record.sample_id}, {record.family})")
-    buckets_seen = sorted({record.bucket for record in result.records})
-    print("\nclassifier sanity (frozen rule):")
-    for bucket in buckets_seen:
-        example = next(r for r in result.records if r.bucket == bucket)
-        print(f"  {bucket}: {example.query} -> {classify_frozen(example.query)}")
 
 
 if __name__ == "__main__":

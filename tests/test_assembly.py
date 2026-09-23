@@ -7,7 +7,6 @@ from foundry.pipeline.assembly import (
     audit_assembly,
     select_targets,
 )
-from foundry.pipeline.buckets import classify_frozen, parse_spec_shares
 from foundry.pipeline.facts import ObjectFacts, extract_frame_facts
 from foundry.pipeline.realize import (
     DIRECTION_SIDE,
@@ -23,18 +22,6 @@ TEACHER_ORDINALS = (
     "first", "second", "third", "fourth", "fifth",
     "sixth", "seventh", "eighth", "ninth", "tenth",
 )
-
-SPEC = {
-    "style_buckets_draft": {
-        "shares": {
-            "ordinal": "3201 (335 per-mille)",
-            "spatial": "2465 (258 per-mille)",
-            "attribute_action": "2450 (256 per-mille)",
-            "distance": "1439 (151 per-mille)",
-        }
-    }
-}
-
 
 def obj(index, category, bbox, color=None, features=None):
     entry = {"i": index, "category": category, "bbox": bbox}
@@ -85,17 +72,6 @@ def realize(dimension, _bbox, _sample_id):
     if fields.get("feature"):
         return f"The {head} with {fields['feature']}"
     return f"The {head}"
-
-
-class ClassifyFrozenTest(unittest.TestCase):
-    def test_frozen_bucket_rule(self):
-        # Frozen rule: ordinal > distance > spatial > attribute_action, and
-        # superlatives fall in the ordinal bucket (RE_ORD includes them).
-        self.assertEqual(classify_frozen("The first swan from the left"), "ordinal")
-        self.assertEqual(classify_frozen("The swan closest to the camera"), "ordinal")
-        self.assertEqual(classify_frozen("The swan on the left side of the boat"), "spatial")
-        self.assertEqual(classify_frozen("The white swan"), "attribute_action")
-        self.assertEqual(classify_frozen("The person wearing a hat"), "attribute_action")
 
 
 class ExtractFactsTest(unittest.TestCase):
@@ -351,13 +327,14 @@ class AssembleRunTest(unittest.TestCase):
 
     def test_end_to_end_deterministic_and_accepted(self):
         merged = make_merged(self.frames)
-        first = assemble_run(merged, self.index, SPEC, realize=realize)
-        second = assemble_run(merged, self.index, SPEC, realize=realize)
+        first = assemble_run(merged, self.index, realize=realize)
+        second = assemble_run(merged, self.index, realize=realize)
         self.assertEqual([r.__dict__ for r in first.records], [r.__dict__ for r in second.records])
         self.assertLessEqual(len(first.records), 6)
         self.assertTrue(all(r.query[0].isupper() for r in first.records))
         audit = audit_assembly(first.records)
         self.assertTrue(audit["acceptance"]["verbatim_repeat_le_0_10"])
+        self.assertNotIn("bucket_counts", audit)
         self.assertEqual(audit["sources"]["real"] + audit["sources"]["teacher"], audit["count"])
         # Real targets must carry the organizer GT box.
         for record in first.records:
@@ -367,10 +344,10 @@ class AssembleRunTest(unittest.TestCase):
     def test_shortfall_when_frame_incomplete_or_unmapped(self):
         merged = make_merged(self.frames)
         merged["results"]["070"]["frames"]["070_00000043"]["status"] = "failed"
-        result = assemble_run(merged, self.index, SPEC, realize=realize)
+        result = assemble_run(merged, self.index, realize=realize)
         self.assertIn("frame-not-completed", {s["reason"] for s in result.shortfall})
         missing = make_merged({"099_00000001": self.frames["070_00000001"]})
-        result = assemble_run(missing, self.index, SPEC, realize=realize)
+        result = assemble_run(missing, self.index, realize=realize)
         self.assertIn("sample-missing-from-index", {s["reason"] for s in result.shortfall})
 
     def test_a_missing_reference_still_yields_teacher_targets(self):
@@ -385,15 +362,15 @@ class AssembleRunTest(unittest.TestCase):
             ),
         }
         index = {"070_00000001": {"bbox": [0.9, 0.9, 0.95, 0.95], "visible": "x"}}
-        result = assemble_run(make_merged(frames), index, SPEC, realize=realize)
+        result = assemble_run(make_merged(frames), index, realize=realize)
         self.assertTrue(all(r.source == "teacher" for r in result.records))
         self.assertTrue(result.records)
 
     def test_no_records_without_a_realizer(self):
-        result = assemble_run(make_merged(self.frames), self.index, SPEC)
+        result = assemble_run(make_merged(self.frames), self.index)
         self.assertEqual(result.records, [])
 
-    def test_quota_overshoot_reported(self):
+    def test_every_distinct_sentence_is_kept(self):
         frames = {
             f"070_{i:08d}": (
                 [
@@ -406,9 +383,6 @@ class AssembleRunTest(unittest.TestCase):
         }
         index = {sid: {"bbox": o[0]["bbox"], "visible": "x"} for sid, (o, _) in frames.items()}
 
-        # A stub that writes a distinct ordinal sentence per target, so the
-        # planner's verbatim-dedup does not collapse them and the quota really
-        # fills up and overshoots.
         def unique_realize(dimension, _bbox, sample_id):
             fields = dimension["fields"]
             return (
@@ -416,23 +390,12 @@ class AssembleRunTest(unittest.TestCase):
                 f"from the {DIRECTION_SIDE[fields['direction']]} {sample_id}"
             )
 
-        result = assemble_run(make_merged(frames), index, SPEC, realize=unique_realize)
+        result = assemble_run(make_merged(frames), index, realize=unique_realize)
         self.assertTrue(result.records)
-        self.assertTrue(any(r.quota_state == "overshoot" for r in result.records))
+        self.assertTrue(all(r.family == "ordinal_direction" for r in result.records))
         audit = audit_assembly(result.records)
-        self.assertEqual(
-            audit["overshoot_records"],
-            sum(1 for r in result.records if r.quota_state == "overshoot"),
-        )
-
-    def test_parse_spec_shares_and_fallback(self):
-        self.assertEqual(
-            parse_spec_shares(SPEC),
-            {"ordinal": 335, "spatial": 258, "attribute_action": 256, "distance": 151},
-        )
-        self.assertEqual(parse_spec_shares(None), parse_spec_shares({}))
-        broken = {"style_buckets_draft": {"shares": {"ordinal": "oops"}}}
-        self.assertEqual(parse_spec_shares(broken), parse_spec_shares(None))
+        self.assertEqual(audit["count"], len(result.records))
+        self.assertNotIn("bucket_counts", audit)
 
     def test_select_targets_quality_order_and_area_gate(self):
         objects = [
