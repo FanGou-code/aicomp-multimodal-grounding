@@ -55,6 +55,27 @@ def decode_run(text: object) -> dict | None:
     return payload
 
 
+def select_pending(items: list[dict], parse_out: dict, instances_out: dict) -> list[dict]:
+    """The items still needing work, in path order.
+
+    A run interrupted between the two artifact writes leaves an intent without
+    its enumeration, and only rank queries have one to miss.
+    """
+    def needs_work(item: dict) -> bool:
+        entry = parse_out.get(item["key"])
+        if entry is None:
+            return True
+        intent = entry.get("intent")
+        selection = intent.get("selection") if isinstance(intent, dict) else None
+        is_rank = isinstance(selection, dict) and selection.get("mode") == "rank"
+        return is_rank and item["key"] not in instances_out
+
+    return sorted(
+        (item for item in items if needs_work(item)),
+        key=lambda item: (item.get("visible", item["key"]), item["key"]),
+    )
+
+
 def _image_path(relative: str, data_dir: Path) -> Path:
     path = Path(relative)
     return path if path.is_absolute() else (data_dir / path).resolve()
@@ -84,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
-        "--max-new-tokens", type=int, default=4096,
+        "--max-new-tokens", type=int, default=8192,
         help="budget for one enumeration reply, thinking included",
     )
     parser.add_argument("--parse-max-new-tokens", type=int, default=256)
@@ -149,10 +170,7 @@ def main() -> None:
     instances_out = load_json(instances_path) if args.resume and instances_path.is_file() else {}
     thinking_out = run.load_thinking(run_dir) if args.resume else {}
 
-    pending = sorted(
-        (item for item in items if item["key"] not in parse_out),
-        key=lambda item: (item.get("visible", item["key"]), item["key"]),
-    )
+    pending = select_pending(items, parse_out, instances_out)
     stats = {
         "parsed": len(parse_out), "rank": len(instances_out), "parse_failed": 0,
         "enum_runs": 0, "enum_decode_failed": 0, "enum_thought": 0,
@@ -164,17 +182,20 @@ def main() -> None:
         cache: OrderedDict = OrderedDict()
         for index, item in enumerate(pending, start=1):
             key = item["key"]
-            raw = adapter.generate_messages(
-                [build_parse_messages(item["query"])],
-                max_new_tokens=args.parse_max_new_tokens,
-                temperature=0.0,
-                template_kwargs={"enable_thinking": False},
-            )[0]
-            intent = strict_json_object(raw)
-            parse_out[key] = {"query": item["query"], "raw": raw, "intent": intent}
-            stats["parsed"] += 1
+            stored = parse_out.get(key)
+            selection = parse_selection(stored["intent"]) if stored else None
+            if selection is None:
+                raw = adapter.generate_messages(
+                    [build_parse_messages(item["query"])],
+                    max_new_tokens=args.parse_max_new_tokens,
+                    temperature=0.0,
+                    template_kwargs={"enable_thinking": False},
+                )[0]
+                intent = strict_json_object(raw)
+                parse_out[key] = {"query": item["query"], "raw": raw, "intent": intent}
+                stats["parsed"] += 1
+                selection = parse_selection(intent)
 
-            selection = parse_selection(intent)
             if selection is None:
                 stats["parse_failed"] += 1
             elif selection.mode == "rank":

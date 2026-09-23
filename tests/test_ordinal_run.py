@@ -133,6 +133,34 @@ class AxisArrayTests(unittest.TestCase):
             self.assertIsNone(missing)
             self.assertIsNone(missing_ir)
 
+    def test_a_raw_depth_path_is_skipped_not_fatal(self):
+        # A dataset that already points at Test/Images/depth cannot be mapped
+        # back from Processed/: that axis is unsupported, not a crash.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Test/Images/depth").mkdir(parents=True)
+            Image.fromarray(np.full((4, 6), 500, dtype=np.uint16)).save(
+                root / "Test/Images/depth/x.png"
+            )
+            depth, infrared, size = run.load_axis_arrays(
+                {"depth": "Test/Images/depth/x.png"}, root
+            )
+            self.assertIsNone(depth)
+            self.assertIsNone(infrared)
+            self.assertIsNone(size)
+
+    def test_the_infrared_image_supplies_the_size_when_depth_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Test/Images/infrared").mkdir(parents=True)
+            Image.new("RGB", (300, 200)).save(root / "Test/Images/infrared/x.png")
+            depth, infrared, size = run.load_axis_arrays(
+                {"infrared": "Test/Images/infrared/x.png"}, root
+            )
+            self.assertIsNone(depth)
+            self.assertIsNotNone(infrared)
+            self.assertEqual(size, (300, 200))
+
 
 if __name__ == "__main__":
     unittest.main()

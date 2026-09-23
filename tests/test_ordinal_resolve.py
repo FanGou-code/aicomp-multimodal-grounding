@@ -6,10 +6,7 @@ import unittest
 
 import numpy as np
 
-from aicomp_grounding.ordinal.parse import (
-    split_thinking,
-    thinking_reported_counts,
-)
+from aicomp_grounding.ordinal.parse import split_thinking, strict_json_object
 from aicomp_grounding.ordinal.resolve import (
     Decision,
     axis_value,
@@ -87,23 +84,16 @@ class SplitThinkingTests(unittest.TestCase):
     def test_non_strings_are_not_thinking(self):
         self.assertEqual(split_thinking(None), (None, ""))
 
+    def test_chatter_before_the_block_does_not_spoil_the_answer(self):
+        thinking, answer = split_thinking(
+            'Certainly! <think>two cars</think>```json\n{"count": 2, "instances": []}\n```'
+        )
+        self.assertEqual(thinking, "two cars")
+        self.assertEqual(strict_json_object(answer), {"count": 2, "instances": []})
 
-class ReportedCountsTests(unittest.TestCase):
-    def test_explicit_claims_are_read(self):
-        for text in (
-            "I count 3 people here.",
-            "There are 3 in the frame.",
-            "a total of 3 instances",
-            "3 instances visible",
-            "in total 3",
-        ):
-            with self.subTest(text=text):
-                self.assertEqual(thinking_reported_counts(text), {3})
-
-    def test_incidental_digits_are_not_claims(self):
-        self.assertEqual(thinking_reported_counts("the box is [0.12, 0.34]"), set())
-        self.assertEqual(thinking_reported_counts(""), set())
-        self.assertEqual(thinking_reported_counts(None), set())
+    def test_text_before_the_block_is_used_when_nothing_follows(self):
+        _thinking, answer = split_thinking('{"count": 1} <think>one car</think>')
+        self.assertEqual(strict_json_object(answer), {"count": 1})
 
 
 class AxisValueTests(unittest.TestCase):
@@ -187,22 +177,21 @@ class ResolveQueryTests(unittest.TestCase):
             ("count-missing", I1, rank_payload(1), {"instances": run(I1)}, None),
             ("truncated", I1, rank_payload(1), enumeration(I1, I2, count=1), None),
             ("count-zero", I1, rank_payload(1), enumeration(count=0), None),
-            ("thinking-mismatch", I1, rank_payload(1), enumeration(I1, I2), "I count 3 people."),
             ("k-out-of-range", I1, rank_payload(4), enumeration(I1, I2), None),
             ("axis-unsupported", I1, rank_payload(1, axis="depth"), enumeration(I1, I2), None),
         ]
-        for reason, base, payload, enum_payload, thinking in cases:
+        for reason, base, payload, enum_payload, _thinking in cases:
             with self.subTest(reason=reason):
-                decision = resolve_query(base, payload, enum_payload, thinking=thinking)
+                decision = resolve_query(base, payload, enum_payload)
                 self.assertEqual(decision.action, "keep", reason)
                 self.assertIsNone(decision.bbox, reason)
                 self.assertEqual(decision.reason, reason)
 
-    def test_thinking_that_agrees_or_claims_nothing_passes(self):
-        for thinking in ("I count 2 people.", "There are 2 in total.", "left to right", None):
-            with self.subTest(thinking=thinking):
-                decision = resolve_query(I1, rank_payload(2), enumeration(I1, I2), thinking=thinking)
-                self.assertEqual(decision.reason, "replaced")
+    def test_a_self_corrected_thinking_pass_does_not_change_the_decision(self):
+        # The gate that read numbers out of the thinking block is gone: the
+        # model's reasoning is never used to veto its own enumeration.
+        decision = resolve_query(I1, rank_payload(2), enumeration(I1, I2))
+        self.assertEqual(decision.reason, "replaced")
 
     def test_unusable_base_box_is_replaced_by_the_kth_instance(self):
         decision = resolve_query([0.5, 0.5, 0.4, 0.6], rank_payload(1), enumeration(I1, I2))
