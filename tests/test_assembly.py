@@ -1,16 +1,22 @@
-"""Tests for the Phase 2 local query assembler (foundry.assembly)."""
+"""Tests for the local query assembler (foundry.pipeline.assembly)."""
 
 import unittest
 
 from foundry.pipeline.assembly import (
     assemble_run,
     audit_assembly,
-    realization_is_unique,
-    realizations_for,
     select_targets,
 )
 from foundry.pipeline.buckets import classify_frozen, parse_spec_shares
 from foundry.pipeline.facts import ObjectFacts, extract_frame_facts
+from foundry.pipeline.realize import (
+    DIRECTION_SIDE,
+    ORDINAL_WORDS,
+    choose_dimension,
+    parse_realize_response,
+    rank_and_direction,
+    verify_realization,
+)
 
 SPEC = {
     "style_buckets_draft": {
@@ -41,6 +47,39 @@ def facts_from(objects, gt_bbox, attr=None):
     return extract_frame_facts(objects, gt_bbox, attr_map)
 
 
+def realize(dimension, _bbox, _sample_id):
+    """Stand-in for the teacher: says the facts back in fixed order."""
+    fields = dimension["fields"]
+    head = fields["category"]
+    k = fields.get("k")
+    if k is not None:
+        bits = [f"The {ORDINAL_WORDS[k - 1]}"]
+        if fields.get("color"):
+            bits.append(fields["color"])
+        bits.append(head)
+        bits.append(f"from the {DIRECTION_SIDE[fields['direction']]}")
+        return " ".join(bits)
+    position = fields.get("position")
+    if position is not None:
+        word = {
+            "y2-max": "closest", "y2-min": "farthest",
+            "x-min": "leftmost", "x-max": "rightmost",
+            "y-min": "topmost", "y-max": "bottommost",
+        }[position]
+        return f"The {word} {head}"
+    band = fields.get("depth_band")
+    if band is not None:
+        return f"The {head} in the {band}"
+    side = fields.get("side_of_image")
+    if side is not None:
+        return f"The {head} on the {side} side"
+    if fields.get("color"):
+        return f"The {fields['color']} {head}"
+    if fields.get("feature"):
+        return f"The {head} with {fields['feature']}"
+    return f"The {head}"
+
+
 class ClassifyFrozenTest(unittest.TestCase):
     def test_frozen_bucket_rule(self):
         # Frozen rule: ordinal > distance > spatial > attribute_action, and
@@ -53,7 +92,7 @@ class ClassifyFrozenTest(unittest.TestCase):
 
 
 class ExtractFactsTest(unittest.TestCase):
-    def test_ordinal_ranks_and_gap_gate(self):
+    def test_ordinal_ranks_use_the_left_edge(self):
         objects = [
             obj(1, "car", [0.0, 0.5, 0.1, 0.7]),
             obj(2, "car", [0.2, 0.5, 0.3, 0.7]),
@@ -65,7 +104,7 @@ class ExtractFactsTest(unittest.TestCase):
         self.assertEqual(by_index[2].rank_left, 2)
         self.assertEqual(by_index[2].rank_right, 2)
         self.assertEqual(by_index[3].rank_right, 1)
-        # Two cars nearly side by side (center-x gap 0.015 < ORDINAL_GAP):
+        # Two cars nearly side by side (left-edge gap 0.015 < ORDINAL_GAP):
         # rank becomes ambiguous -> None; the distant car keeps its rank.
         objects[1] = obj(2, "car", [0.015, 0.5, 0.115, 0.7])
         facts = facts_from(objects, gt_bbox=[0.0, 0.5, 0.1, 0.7])
@@ -122,11 +161,10 @@ class ExtractFactsTest(unittest.TestCase):
         objects.pop()
         facts = facts_from(objects, gt_bbox=[0.0, 0.4, 0.1, 0.6])
         swan = facts[0]
-        # The boat sits wholly right of the swan -> phrase "left side of the boat".
         self.assertEqual([category for _, category in swan.anchors_left], ["boat"])
         self.assertEqual(swan.anchors_right, ())
 
-    def test_canary_and_side_of_image(self):
+    def test_reference_and_side_of_image(self):
         objects = [
             obj(1, "swan", [0.0, 0.4, 0.1, 0.6]),
             obj(2, "duck", [0.95, 0.4, 1.0, 0.6]),
@@ -138,122 +176,72 @@ class ExtractFactsTest(unittest.TestCase):
         self.assertEqual(facts[1].side_of_image, "right")
 
 
-class RealizationTest(unittest.TestCase):
-    def test_ordinal_text_and_color_order(self):
-        f = ObjectFacts(
-            index=2, category="swan", bbox=(0.3, 0.4, 0.4, 0.6), color="white",
-            features=None, is_canary=False, count_in_head=3, rank_left=1, rank_right=3,
-            is_leftmost=False, is_rightmost=False, is_topmost=False, is_bottommost=False,
-            is_closest=False, is_farthest=False, side_of_image=None,
-            anchors_left=(), anchors_right=(),
+class DimensionTest(unittest.TestCase):
+    def _target(self, **overrides) -> ObjectFacts:
+        base = dict(
+            index=1, category="swan", bbox=(0.3, 0.4, 0.4, 0.6), color=None,
+            features=None, is_canary=False, count_in_head=1, rank_left=None,
+            rank_right=None, is_leftmost=False, is_rightmost=False,
+            is_topmost=False, is_bottommost=False, is_closest=False,
+            is_farthest=False, side_of_image=None, anchors_left=(), anchors_right=(),
         )
-        texts = [r.text for r in realizations_for(f)]
-        self.assertIn("The first white swan from the left", texts)
-        self.assertIn("The first white swan from left to right", texts)
-        self.assertIn("The third white swan from right to left", texts)
-        self.assertNotIn("The white first swan from the left", texts)
+        base.update(overrides)
+        return ObjectFacts(**base)
 
-    def test_superlative_realization(self):
-        f = ObjectFacts(
-            index=1, category="crane", bbox=(0.3, 0.4, 0.4, 0.6), color="white",
-            features=None, is_canary=False, count_in_head=1, rank_left=None, rank_right=None,
-            is_leftmost=False, is_rightmost=False, is_topmost=False, is_bottommost=False,
-            is_closest=True, is_farthest=False, side_of_image=None,
-            anchors_left=(), anchors_right=(),
-        )
-        texts = [r.text for r in realizations_for(f)]
-        self.assertIn("The white crane closest to the camera", texts)
-        self.assertIn("The closest white crane", texts)
+    def test_rank_uses_the_smaller_side(self):
+        target = self._target(rank_left=1, rank_right=4, count_in_head=4)
+        self.assertEqual(rank_and_direction(target), (1, "asc"))
+        target = self._target(rank_left=4, rank_right=2, count_in_head=5)
+        self.assertEqual(rank_and_direction(target), (2, "desc"))
+        # Ties go to "from the left".
+        self.assertEqual(rank_and_direction(self._target(rank_left=2, rank_right=2)), (2, "asc"))
+        self.assertIsNone(rank_and_direction(self._target()))
 
-    def test_attribute_realization_articles(self):
-        f = ObjectFacts(
-            index=1, category="orange ball", bbox=(0.3, 0.4, 0.4, 0.6), color="red",
-            features=None, is_canary=False, count_in_head=1, rank_left=None, rank_right=None,
-            is_leftmost=False, is_rightmost=False, is_topmost=False, is_bottommost=False,
-            is_closest=False, is_farthest=False, side_of_image=None,
-            anchors_left=(), anchors_right=(),
-        )
-        texts = [r.text for r in realizations_for(f)]
-        self.assertIn("The red ball", texts)
-        self.assertIn("A red ball", texts)
-        self.assertNotIn("The red orange", texts)
+    def test_ordinal_wins_when_a_rank_exists(self):
+        target = self._target(rank_left=2, rank_right=1, count_in_head=2, is_closest=True)
+        dimension = choose_dimension(target, [target])
+        self.assertEqual(dimension["family"], "ordinal_direction")
+        self.assertEqual(dimension["fields"]["k"], 1)
+        self.assertEqual(dimension["fields"]["direction"], "desc")
 
-    def test_action_feature_realization(self):
-        f = ObjectFacts(
-            index=1, category="person", bbox=(0.3, 0.4, 0.4, 0.6), color=None,
-            features="wearing a hat", is_canary=False, count_in_head=1,
-            rank_left=None, rank_right=None,
-            is_leftmost=False, is_rightmost=False, is_topmost=False, is_bottommost=False,
-            is_closest=False, is_farthest=False, side_of_image=None,
-            anchors_left=(), anchors_right=(),
-        )
-        texts = [r.text for r in realizations_for(f)]
-        self.assertIn("The person wearing a hat", texts)
+    def test_falls_back_to_an_exclusive_extreme(self):
+        target = self._target(is_leftmost=True)
+        dimension = choose_dimension(target, [target])
+        self.assertEqual(dimension["facts"], ("x-min",))
 
-    def test_any_ing_feature_uses_action_form(self):
-        facts = facts_from(
-            [obj(1, "swan", [0.0, 0.4, 0.1, 0.6])],
-            gt_bbox=[0.0, 0.4, 0.1, 0.6],
-            attr={1: {"color": "white", "features": "swimming in water"}},
-        )
-        texts = [r.text for r in realizations_for(facts[0])]
-        self.assertIn("The swan swimming in water", texts)
-        self.assertNotIn("The swan with swimming in water", texts)
+    def test_person_head_never_gets_a_bare_color(self):
+        target = self._target(category="person", color="white", count_in_head=1)
+        dimension = choose_dimension(target, [target])
+        self.assertIsNone(dimension["fields"].get("color"))
 
-    def test_features_head_prefix_stripped(self):
-        facts = facts_from(
-            [obj(1, "swan", [0.0, 0.4, 0.1, 0.6])],
-            gt_bbox=[0.0, 0.4, 0.1, 0.6],
-            attr={1: {"color": "white", "features": "swan with neck curved downward"}},
-        )
-        texts = [r.text for r in realizations_for(facts[0])]
-        self.assertIn("The swan with neck curved downward", texts)
-        self.assertFalse(any("swan with swan" in t for t in texts))
+    def test_no_dimension_when_nothing_disambiguates(self):
+        a = self._target(index=1, category="swan", bbox=(0.1, 0.4, 0.2, 0.6), count_in_head=2)
+        b = self._target(index=2, category="swan", bbox=(0.5, 0.4, 0.6, 0.6), count_in_head=2)
+        self.assertIsNone(choose_dimension(a, [a, b]))
 
-    def test_person_head_suppresses_bare_color(self):
-        facts = facts_from(
-            [obj(1, "person", [0.0, 0.4, 0.1, 0.6]), obj(2, "car", [0.4, 0.4, 0.5, 0.6])],
-            gt_bbox=[0.0, 0.4, 0.1, 0.6],
-            attr={1: {"color": "white", "features": ""}, 2: {"color": "red", "features": ""}},
-        )
-        person = next(f for f in facts if f.head == "person")
-        car = next(f for f in facts if f.head == "car")
-        person_texts = [r.text for r in realizations_for(person)]
-        car_texts = [r.text for r in realizations_for(car)]
-        self.assertFalse(any("white person" in t for t in person_texts))
-        self.assertNotIn("The white person", person_texts)
-        self.assertIn("The red car", car_texts)
 
-    def test_uniqueness_rejects_ambiguous_color(self):
-        objects = [
-            obj(1, "swan", [0.0, 0.4, 0.1, 0.6], color="white"),
-            obj(2, "swan", [0.4, 0.4, 0.5, 0.6], color="white"),
-        ]
-        frame = facts_from(objects, gt_bbox=[0.0, 0.4, 0.1, 0.6])
-        target = next(f for f in frame if f.index == 1)
-        color_variant = next(r for r in realizations_for(target) if r.facts == ("color",))
-        self.assertFalse(realization_is_unique(color_variant, frame, target))
+class RealizeResponseTest(unittest.TestCase):
+    def test_a_well_formed_reply_is_read(self):
+        self.assertEqual(parse_realize_response('{"query": "The third swan"}'), "The third swan")
 
-    def test_uniqueness_conservative_unknown_color(self):
-        # A same-head object with unknown color counts as a potential match.
-        objects = [
-            obj(1, "swan", [0.0, 0.4, 0.1, 0.6], color="white"),
-            obj(2, "swan", [0.4, 0.4, 0.5, 0.6], color=None),
-        ]
-        frame = facts_from(objects, gt_bbox=[0.0, 0.4, 0.1, 0.6])
-        target = next(f for f in frame if f.index == 1)
-        color_variant = next(r for r in realizations_for(target) if r.facts == ("color",))
-        self.assertFalse(realization_is_unique(color_variant, frame, target))
+    def test_anything_else_is_rejected(self):
+        for bad in ('{"query": ""}', '{"text": "x"}', "not json", None, "[1]"):
+            with self.subTest(bad=bad):
+                self.assertIsNone(parse_realize_response(bad))
 
-    def test_uniqueness_unique_color_passes(self):
-        objects = [
-            obj(1, "swan", [0.0, 0.4, 0.1, 0.6], color="white"),
-            obj(2, "swan", [0.4, 0.4, 0.5, 0.6], color="black"),
-        ]
-        frame = facts_from(objects, gt_bbox=[0.0, 0.4, 0.1, 0.6])
-        target = next(f for f in frame if f.index == 1)
-        color_variant = next(r for r in realizations_for(target) if r.facts == ("color",))
-        self.assertTrue(realization_is_unique(color_variant, frame, target))
+    def test_verification_rejects_a_sentence_that_names_other_facts(self):
+        dimension = {
+            "fields": {"category": "swan", "k": 3, "axis": "x", "direction": "asc", "count": 5},
+        }
+        self.assertTrue(verify_realization("The third swan from the left", dimension))
+        self.assertFalse(verify_realization("The second swan from the left", dimension))
+        self.assertFalse(verify_realization("The third swan from the right", dimension))
+        self.assertFalse(verify_realization("The third swan in the image", dimension))
+
+    def test_verification_rejects_an_unlisted_color(self):
+        dimension = {"fields": {"category": "swan", "color": "white"}}
+        self.assertTrue(verify_realization("The white swan", dimension))
+        self.assertFalse(verify_realization("The black swan", dimension))
 
 
 def make_merged(frames_spec):
@@ -263,27 +251,18 @@ def make_merged(frames_spec):
         sequence_id = sample_id.split("_", 1)[0]
         seq = results.setdefault(sequence_id, {"status": "completed", "frames": {}, "selected": []})
         frame = {
-            "findall_1": {"status": "completed", "attempts": 1, "error": "", "objects": objects},
-            "findall_2": {"status": "completed", "attempts": 1, "error": "", "objects": objects},
+            "findall": {
+                "status": "completed", "attempts": 1, "error": "",
+                "mode": "instances", "objects": objects,
+            },
             "status": "completed",
             "error": "",
-            "agreement": {
-                "matched": len(objects), "count_a": len(objects), "count_b": len(objects),
-                "count_agree": True, "jaccard": 1.0,
-            },
         }
         if attr is not None:
             frame["attr"] = {"status": "completed", **{str(k): v for k, v in attr.items()}}
         seq["frames"][sample_id] = frame
         seq["selected"].append(sample_id)
     return {"metadata": {"run_id": "census_test"}, "results": results}
-
-
-def make_index(frames_spec):
-    return {
-        sample_id: {"bbox": objects[0]["bbox"], "visible": "Train/x/color.png"}
-        for sample_id, (objects, _) in frames_spec.items()
-    }
 
 
 class AssembleRunTest(unittest.TestCase):
@@ -317,10 +296,9 @@ class AssembleRunTest(unittest.TestCase):
 
     def test_end_to_end_deterministic_and_accepted(self):
         merged = make_merged(self.frames)
-        first = assemble_run(merged, self.index, SPEC)
-        second = assemble_run(merged, self.index, SPEC)
+        first = assemble_run(merged, self.index, SPEC, realize=realize)
+        second = assemble_run(merged, self.index, SPEC, realize=realize)
         self.assertEqual([r.__dict__ for r in first.records], [r.__dict__ for r in second.records])
-        # 2 frames x (1 real + up to 2 teachers)
         self.assertLessEqual(len(first.records), 6)
         self.assertTrue(all(r.query[0].isupper() for r in first.records))
         self.assertTrue(all(3 <= r.words <= 18 for r in first.records))
@@ -328,25 +306,20 @@ class AssembleRunTest(unittest.TestCase):
         self.assertTrue(audit["acceptance"]["verbatim_repeat_le_0_10"])
         self.assertEqual(audit["sources"]["real"] + audit["sources"]["teacher"], audit["count"])
         # Real targets must carry the organizer GT box.
-        real_records = [r for r in first.records if r.source == "real"]
-        for record in real_records:
-            self.assertEqual(record.bbox, self.index[record.sample_id]["bbox"])
+        for record in first.records:
+            if record.source == "real":
+                self.assertEqual(record.bbox, self.index[record.sample_id]["bbox"])
 
     def test_shortfall_when_frame_incomplete_or_unmapped(self):
         merged = make_merged(self.frames)
         merged["results"]["070"]["frames"]["070_00000043"]["status"] = "failed"
-        result = assemble_run(merged, self.index, SPEC)
-        reasons = {s["reason"] for s in result.shortfall}
-        self.assertIn("frame-not-completed", reasons)
+        result = assemble_run(merged, self.index, SPEC, realize=realize)
+        self.assertIn("frame-not-completed", {s["reason"] for s in result.shortfall})
         missing = make_merged({"099_00000001": self.frames["070_00000001"]})
-        result = assemble_run(missing, self.index, SPEC)
-        self.assertIn(
-            "sample-missing-from-index", {s["reason"] for s in result.shortfall}
-        )
+        result = assemble_run(missing, self.index, SPEC, realize=realize)
+        self.assertIn("sample-missing-from-index", {s["reason"] for s in result.shortfall})
 
-    def test_canary_absence_reported_and_teachers_kept(self):
-        # GT box matches nothing in the agreed set: no real target, but the
-        # teacher targets must still assemble, and the gap must be visible.
+    def test_a_missing_reference_still_yields_teacher_targets(self):
         frames = {
             "070_00000001": (
                 [
@@ -358,15 +331,15 @@ class AssembleRunTest(unittest.TestCase):
             ),
         }
         index = {"070_00000001": {"bbox": [0.9, 0.9, 0.95, 0.95], "visible": "x"}}
-        result = assemble_run(make_merged(frames), index, SPEC)
-        self.assertIn(
-            "no-canary-in-agreed-objects", {s["reason"] for s in result.shortfall}
-        )
+        result = assemble_run(make_merged(frames), index, SPEC, realize=realize)
         self.assertTrue(all(r.source == "teacher" for r in result.records))
-        self.assertEqual(len(result.records), 2)
+        self.assertTrue(result.records)
+
+    def test_no_records_without_a_realizer(self):
+        result = assemble_run(make_merged(self.frames), self.index, SPEC)
+        self.assertEqual(result.records, [])
 
     def test_quota_overshoot_reported(self):
-        # Only ordinal-supported targets: ordinal quota fills, rest overshoots.
         frames = {
             f"070_{i:08d}": (
                 [
@@ -378,12 +351,20 @@ class AssembleRunTest(unittest.TestCase):
             for i in range(1, 6)
         }
         index = {sid: {"bbox": o[0]["bbox"], "visible": "x"} for sid, (o, _) in frames.items()}
-        result = assemble_run(make_merged(frames), index, SPEC)
+
+        # A stub that writes a distinct ordinal sentence per target, so the
+        # planner's verbatim-dedup does not collapse them and the quota really
+        # fills up and overshoots.
+        def unique_realize(dimension, _bbox, sample_id):
+            fields = dimension["fields"]
+            return (
+                f"The {ORDINAL_WORDS[fields['k'] - 1]} {fields['category']} "
+                f"from the {DIRECTION_SIDE[fields['direction']]} {sample_id}"
+            )
+
+        result = assemble_run(make_merged(frames), index, SPEC, realize=unique_realize)
         self.assertTrue(result.records)
-        self.assertTrue(
-            any(r.quota_state == "overshoot" for r in result.records),
-            "supply skewed to one bucket should produce overshoot records",
-        )
+        self.assertTrue(any(r.quota_state == "overshoot" for r in result.records))
         audit = audit_assembly(result.records)
         self.assertEqual(
             audit["overshoot_records"],

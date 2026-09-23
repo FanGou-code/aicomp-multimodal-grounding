@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Phase 2: assemble v5 queries from a census run — local only, zero API calls.
+"""Phase 2: assemble queries from a census run.
 
-Consumes a census run directory (merged.json + the dataset index) and the
-frozen style spec, selects per-frame targets (1 real + up to N teacher
-objects), and emits code-assembled, fact-supported, uniqueness-verified
-query records plus an acceptance audit. Nothing here publishes an
-annotation run; the manifest is the input for human review and the Phase 3
-planner.
+Consumes a census run directory (merged.json + the dataset index), selects
+per-frame targets, and for each target lets code choose the dimension that
+disambiguates it inside its own frame. The wording is one API call per target,
+unless ``--no-realize`` is passed. Code verifies every sentence against the
+facts it handed over.
+
+The manifest is the input for human review.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -19,10 +21,86 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from foundry.pipeline.api import (  # noqa: E402
+    DEFAULT_KEY_FILE,
+    OpenAIProtocolClient,
+    comment_out_key,
+    load_api_keys,
+)
+from foundry.pipeline.api import APIKeyPool  # noqa: E402
 from foundry.pipeline.assembly import assemble_run, audit_assembly  # noqa: E402
 from foundry.pipeline.buckets import classify_frozen  # noqa: E402
-from foundry.utils import atomic_write_json, load_json, resolve_index_dir  # noqa: E402
+from foundry.pipeline.realize import (  # noqa: E402
+    REALIZE_PROMPT_HASH,
+    REALIZE_STAGE,
+    parse_realize_response,
+    realize_messages,
+)
+from foundry.utils import (  # noqa: E402
+    ANNOTATION_API_BASE_URL,
+    ANNOTATION_MODEL_NAME,
+    atomic_write_json,
+    load_json,
+    resolve_index_dir,
+)
 from foundry.pipeline.text_qc import apply_text_qc  # noqa: E402
+from foundry.pipeline.views import jpeg_data_url  # noqa: E402
+
+
+def _target_view(image, bbox) -> str:
+    """The frame with one box drawn around this target only.
+
+    Only the target is boxed: the teacher's job here is to look inside that box
+    and describe it, not to re-count the scene.
+    """
+    from PIL import ImageDraw
+
+    view = image.convert("RGB").copy()
+    draw = ImageDraw.Draw(view)
+    width, height = view.size
+    x1, y1, x2, y2 = bbox
+    draw.rectangle((x1 * width, y1 * height, x2 * width, y2 * height), outline=(220, 40, 40), width=3)
+    return jpeg_data_url(view)
+
+
+def build_realizer(data_root: Path, index: dict):
+    """One API call per target: the chosen dimension in, one sentence out."""
+    from PIL import Image
+
+    keys = load_api_keys()
+    if not keys:
+        raise SystemExit("No API keys found; write one per line into keys/api_keys.txt")
+    key_file = Path(os.environ.get("ANNOTATION_API_KEY_FILE", str(DEFAULT_KEY_FILE)))
+    pool = APIKeyPool(
+        keys, notify=print,
+        persist_retire=lambda key, reason: comment_out_key(key_file, key, reason),
+    )
+    client = OpenAIProtocolClient(
+        key_pool=pool,
+        model=ANNOTATION_MODEL_NAME,
+        base_url=ANNOTATION_API_BASE_URL,
+        timeout_seconds=180.0,
+        rate_limiter=None,
+        enable_thinking=None,
+        thinking_mode=REALIZE_STAGE["thinking_mode"],
+        json_mode=REALIZE_STAGE["response_format"] == "json_object",
+    )
+    cache: dict[str, object] = {}
+
+    def realize(dimension, bbox, sample_id):
+        if sample_id not in cache:
+            with Image.open(data_root / index[sample_id]["visible"]) as opened:
+                cache[sample_id] = opened.convert("RGB")
+        url = _target_view(cache[sample_id], bbox)
+        response = client.complete(
+            messages=realize_messages(url, dimension),
+            max_tokens=REALIZE_STAGE["max_tokens"],
+            temperature=REALIZE_STAGE["temperature"],
+            do_sample=REALIZE_STAGE["do_sample"],
+        )
+        return parse_realize_response(response.content)
+
+    return realize
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,6 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "downstream review session's sampling mode.")
     parser.add_argument("--force", action="store_true",
                         help="allow writing into an existing output dir (default: refuse)")
+    parser.add_argument("--no-realize", action="store_true",
+                        help="skip the wording call; produces no records, only shortfall")
     return parser
 
 
@@ -69,6 +149,7 @@ def main() -> None:
     merged = load_json(merged_path)
     index = load_json(resolve_index_dir(args.data_root, args.index_dir) / f"{args.split}.json")
     spec = None  # bucket shares use frozen constants
+    realize = None if args.no_realize else build_realizer(args.data_root, index)
     result = assemble_run(
         merged,
         index,
@@ -76,9 +157,14 @@ def main() -> None:
         max_teacher_per_frame=args.max_teacher_per_frame,
         min_words=args.min_words,
         max_words=args.max_words,
+        realize=realize,
     )
     text_edits = apply_text_qc(result.records)
-    audit = audit_assembly(result.records)
+    audit = audit_assembly(result.records) if result.records else {
+        "count": 0, "sources": {"real": 0, "teacher": 0},
+        "verbatim_repeat_rate": 0.0, "mean_words": 0.0,
+        "bucket_per_mille": {}, "overshoot_records": 0,
+    }
 
     metadata = merged.get("metadata", {})
     run_id = metadata.get("run_id", args.census_run.name)
@@ -100,6 +186,9 @@ def main() -> None:
             "all_frames": bool(args.all_frames),
             "max_teacher_per_frame": args.max_teacher_per_frame,
             "word_window": [args.min_words, args.max_words],
+            "realized": not args.no_realize,
+            "realize_prompt_hash": REALIZE_PROMPT_HASH,
+            "realize_stage": REALIZE_STAGE,
             "text_qc_edits": len(text_edits),
         },
         "records": [record.__dict__ for record in result.records],

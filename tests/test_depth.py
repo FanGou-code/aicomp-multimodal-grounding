@@ -7,11 +7,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from foundry.pipeline.assembly import (
-    extract_frame_facts,
-    realizations_for,
-    realization_is_unique,
-)
+from foundry.pipeline.facts import extract_frame_facts
 from foundry.pipeline.depth import (
     depth_ranks,
     frame_depth_facts,
@@ -126,23 +122,6 @@ class AssemblyDepthTest(unittest.TestCase):
         self.assertTrue(facts[0].is_in_foreground)
         self.assertTrue(facts[2].is_in_background)
         self.assertFalse(facts[1].is_in_foreground or facts[1].is_in_background)
-        texts = [r.text for r in realizations_for(facts[0])]
-        self.assertIn("The swan in the foreground", texts)
-        bg = [r.text for r in realizations_for(facts[2])]
-        self.assertIn("The swan in the background", bg)
-
-    def test_foreground_claim_requires_band_uniqueness(self):
-        # Two same-head objects in the near band: the foreground claim is
-        # ambiguous and must be rejected by the uniqueness gate.
-        facts = extract_frame_facts(
-            self.make_objects(),
-            gt_bbox=[0.0, 0.4, 0.1, 0.6],
-            attr=None,
-            depth_facts=self.depth_facts({1: 500, 2: 800, 3: 9900}),
-        )
-        target = facts[0]
-        fg = next(r for r in realizations_for(target) if r.facts == ("foreground",))
-        self.assertFalse(realization_is_unique(fg, facts, target))
 
     def test_no_depth_record_falls_back_to_y2(self):
         facts = extract_frame_facts(

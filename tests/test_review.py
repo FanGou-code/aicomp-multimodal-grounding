@@ -30,11 +30,12 @@ def make_census_run(tmp: Path) -> tuple[Path, Path]:
         {"i": 2, "category": "swan", "bbox": [0.50, 0.40, 0.60, 0.60]},
     ]
     frame = {
-        "findall_1": {"status": "completed", "attempts": 1, "error": "", "objects": objects},
-        "findall_2": {"status": "completed", "attempts": 1, "error": "", "objects": objects},
+        "findall": {
+            "status": "completed", "attempts": 1, "error": "",
+            "mode": "instances", "objects": objects,
+        },
         "status": "completed",
         "error": "",
-        "agreement": {"matched": 2, "count_a": 2, "count_b": 2, "count_agree": True, "jaccard": 1.0},
         "candidate": {"sample_id": "070_00000001", "frame_no": 1, "count": 2},
     }
     merged = {

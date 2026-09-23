@@ -2,8 +2,7 @@
 
 import unittest
 
-from foundry.pipeline.assembly import extract_frame_facts, realizations_for
-from foundry.pipeline.facts import ObjectFacts
+from foundry.pipeline.facts import ObjectFacts, extract_frame_facts
 from foundry.pipeline.planner import TargetSupply, plan
 
 
@@ -36,7 +35,7 @@ def make_target(sample_id, realizations, count_in_head=1, depth=False):
 
 
 def realization(text, family="plain_attribute", facts=("color",)):
-    from foundry.pipeline.assembly import Realization as R
+    from foundry.pipeline.facts import Realization as R
 
     return R(text, family, facts, len(text.split()))
 
@@ -115,7 +114,7 @@ class AreaComparativeTest(unittest.TestCase):
             objects.append({"i": 3, "category": "rock", "bbox": bbox3})
         return objects
 
-    def test_area_ratio_fact_and_realizations(self):
+    def test_area_ratio_fact_still_computed(self):
         # Object 1 covers 4x the area of object 2.
         facts = extract_frame_facts(
             self.make_objects([0.0, 0.0, 0.4, 0.4], [0.5, 0.0, 0.6, 0.1]),
@@ -123,9 +122,6 @@ class AreaComparativeTest(unittest.TestCase):
             attr=None,
         )
         self.assertEqual(facts[0].area_ratio_lead, 16.0)
-        texts = [r.text for r in realizations_for(facts[0])]
-        self.assertIn("The larger rock", texts)
-        self.assertNotIn("The largest rock", texts)  # only 2 rivals
 
     def test_comparative_needs_strict_ratio(self):
         # Ratio 2.0 vs 1.2: only the strict one earns the comparative.
@@ -135,30 +131,6 @@ class AreaComparativeTest(unittest.TestCase):
             attr=None,
         )
         self.assertLess(facts[1].area_ratio_lead, 1.5)
-        texts2 = [r.text for r in realizations_for(facts[1])]
-        self.assertNotIn("The larger rock", texts2)
-
-    def test_superlative_with_three(self):
-        facts = extract_frame_facts(
-            self.make_objects([0.0, 0.0, 0.4, 0.4], [0.5, 0.0, 0.6, 0.1], [0.7, 0.0, 0.8, 0.1]),
-            gt_bbox=[0.0, 0.0, 0.4, 0.4],
-            attr=None,
-        )
-        texts = [r.text for r in realizations_for(facts[0])]
-        self.assertIn("The largest rock", texts)
-        self.assertIn("The larger rock", texts)
-
-    def test_comparative_unique_by_construction(self):
-        from foundry.pipeline.assembly import realization_is_unique
-
-        facts = extract_frame_facts(
-            self.make_objects([0.0, 0.0, 0.4, 0.4], [0.5, 0.0, 0.6, 0.1]),
-            gt_bbox=[0.0, 0.0, 0.4, 0.4],
-            attr=None,
-        )
-        target = facts[0]
-        comp = next(r for r in realizations_for(target) if r.facts == ("area-comparative",))
-        self.assertTrue(realization_is_unique(comp, facts, target))
 
 
 if __name__ == "__main__":
