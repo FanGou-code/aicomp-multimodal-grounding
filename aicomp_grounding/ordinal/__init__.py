@@ -32,7 +32,7 @@ Gates
 
     1. parse valid: category non-empty, ``k >= 1``, axis in the set, direction asc/desc
     2. the reply is a well-formed instance list
-    3. self-reported count == number of listed instances
+    3. the self-reported count is an integer and equals the number of listed instances
     4. count > 0
     5. a thinking block that commits to a number names that same count
     6. ``k <= N``
