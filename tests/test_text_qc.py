@@ -10,8 +10,8 @@ def record(sample_id: str, object_index: int, query: str) -> AssemblyRecord:
     return AssemblyRecord(
         sample_id=sample_id, sequence_id=sample_id.split("_")[0], source="teacher",
         category="swan", bbox=[0.1, 0.4, 0.2, 0.6], object_index=object_index,
-        query=query, family="plain_attribute",
-        facts=["feature"], words=len(query.split()),
+        query=query,
+        words=len(query.split()),
     )
 
 

@@ -79,7 +79,7 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The first deer from left to right", "family": "ordinal_direction",
-            "facts": ["rank:1"], "words": 7,
+            "words": 7,
             "edited": False,
         }]
         asm = self._write_assembly(records)
@@ -95,7 +95,7 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The first deer from left to right", "family": "ordinal_direction",
-            "facts": ["rank:1"], "words": 7,
+            "words": 7,
             "edited": False,
         }]
         asm = self._write_assembly(records)
@@ -110,10 +110,10 @@ class ApplyReviewTest(unittest.TestCase):
         records = [
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
              "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
-             "query": "the deer", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
+             "query": "the deer", "family": "plain_attribute",             "words": 2, "edited": False},
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "teacher",
              "category": "deer", "bbox": [0.5, 0.2, 0.7, 0.4], "object_index": 2,
-             "query": "the deer", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
+             "query": "the deer", "family": "plain_attribute",             "words": 2, "edited": False},
         ]
         asm = self._write_assembly(records)
         queries = self._write_queries({})
@@ -126,7 +126,7 @@ class ApplyReviewTest(unittest.TestCase):
     def test_output_dir_exists_no_force(self):
         records = [{"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
                      "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
-                     "query": "test", "family": "plain_attribute",                     "facts": [], "words": 1, "edited": False}]
+                     "query": "test", "family": "plain_attribute",                     "words": 1, "edited": False}]
         asm = self._write_assembly(records)
         queries = self._write_queries({})
         # Create output dir first
@@ -150,12 +150,11 @@ class ApplyReviewTest(unittest.TestCase):
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
              "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
              "query": "The first deer from left to right", "family": "ordinal_direction",
-             "facts": ["rank:1"], "words": 7,
+             "words": 7,
              "edited": False},
             {"sample_id": "001_00000002", "sequence_id": "001", "source": "real",
              "category": "deer", "bbox": [0.4, 0.5, 0.6, 0.7], "object_index": 2,
-             "query": "The second deer from left to right", "family": "ordinal_direction",
-             "facts": ["rank:2"], "words": 7,
+             "query": "The second deer from left to right", "family": "ordinal_direction", "words": 7,
              "edited": False},
         ]
         asm = self._write_assembly(records)
@@ -173,13 +172,13 @@ class ApplyReviewTest(unittest.TestCase):
         records = [
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
              "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
-             "query": "the deer", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
+             "query": "the deer", "family": "plain_attribute",             "words": 2, "edited": False},
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
              "category": "fox", "bbox": [0.5, 0.2, 0.7, 0.4], "object_index": 2,
-             "query": "the fox", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
+             "query": "the fox", "family": "plain_attribute",             "words": 2, "edited": False},
             {"sample_id": "001_00000001", "sequence_id": "001", "source": "teacher",
              "category": "boar", "bbox": [0.2, 0.2, 0.4, 0.4], "object_index": 3,
-             "query": "the boar", "family": "plain_attribute",             "facts": [], "words": 2, "edited": False},
+             "query": "the boar", "family": "plain_attribute",             "words": 2, "edited": False},
         ]
         asm = self._write_assembly(records)
         self._write_queries({})
@@ -211,7 +210,6 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The ambiguous deer", "family": "plain_attribute",
-            "facts": [],
             "words": 3, "edited": False,
         }]
         asm = self._write_assembly(records)
@@ -233,7 +231,6 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The deer", "family": "plain_attribute",
-            "facts": [],
             "words": 2, "edited": False,
         }]
         asm = self._write_assembly(records)
@@ -272,7 +269,6 @@ class ApplyReviewTest(unittest.TestCase):
             "sample_id": "001_00000001", "sequence_id": "001", "source": "real",
             "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
             "query": "The deer", "family": "plain_attribute",
-            "facts": [],
             "words": 2, "edited": False,
         }]
         asm = self._write_assembly(records)

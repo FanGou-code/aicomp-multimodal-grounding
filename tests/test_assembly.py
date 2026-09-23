@@ -9,11 +9,9 @@ from foundry.pipeline.assembly import (
 )
 from foundry.pipeline.facts import ObjectFacts, extract_frame_facts
 from foundry.pipeline.realize import (
-    DIRECTION_SIDE,
-    choose_dimension,
-    dimension_prompt_text,
+    fact_lines,
+    facts_prompt_text,
     parse_realize_response,
-    rank_and_direction,
 )
 
 #: The teacher's own English, not the module's: it receives a number and picks
@@ -40,38 +38,30 @@ def facts_from(objects, gt_bbox, attr=None):
     return extract_frame_facts(objects, gt_bbox, attr_map)
 
 
-def realize(dimension, _bbox, _sample_id):
-    """Stand-in for the teacher: says the facts back in fixed order."""
-    fields = dimension["fields"]
-    head = fields["category"]
-    k = fields.get("k")
-    if k is not None:
+def realize(target, _sample_id):
+    """Stand-in for the teacher: reads the fact list and writes one phrase."""
+    lines = facts_prompt_text(target)
+
+    def value_of(prefix):
+        for line in lines.splitlines():
+            if line.startswith(f"- {prefix}"):
+                rest = line[len(prefix) + 2:]
+                return rest[2:] if rest.startswith(": ") else rest
+        return None
+
+    color = value_of("its color is")
+    rank = value_of("counting from the left, it is number")
+    if rank is not None:
+        k = int(rank)
         word = TEACHER_ORDINALS[k - 1] if k <= len(TEACHER_ORDINALS) else f"number {k}"
         bits = [f"The {word}"]
-        if fields.get("color"):
-            bits.append(fields["color"])
-        bits.append(head)
-        bits.append(f"from the {DIRECTION_SIDE[fields['direction']]}")
-        return " ".join(bits)
-    position = fields.get("position")
-    if position is not None:
-        word = {
-            "y2-max": "closest", "y2-min": "farthest",
-            "x-min": "leftmost", "x-max": "rightmost",
-            "y-min": "topmost", "y-max": "bottommost",
-        }[position]
-        return f"The {word} {head}"
-    band = fields.get("depth_band")
-    if band is not None:
-        return f"The {head} in the {band}"
-    side = fields.get("side_of_image")
-    if side is not None:
-        return f"The {head} on the {side} side"
-    if fields.get("color"):
-        return f"The {fields['color']} {head}"
-    if fields.get("feature"):
-        return f"The {head} with {fields['feature']}"
-    return f"The {head}"
+        if color:
+            bits.append(color)
+        bits.append(target.head)
+        return " ".join(bits) + " from the left"
+    if color:
+        return f"The {color} {target.head}"
+    return f"The {target.head}"
 
 
 class ExtractFactsTest(unittest.TestCase):
@@ -181,7 +171,7 @@ class ExtractFactsTest(unittest.TestCase):
         self.assertEqual(facts[1].side_of_image, "right")
 
 
-class DimensionTest(unittest.TestCase):
+class FactLinesTest(unittest.TestCase):
     def _target(self, **overrides) -> ObjectFacts:
         base = dict(
             index=1, category="swan", bbox=(0.3, 0.4, 0.4, 0.6), color=None,
@@ -193,76 +183,49 @@ class DimensionTest(unittest.TestCase):
         base.update(overrides)
         return ObjectFacts(**base)
 
-    def test_rank_uses_the_smaller_side(self):
-        target = self._target(rank_left=1, rank_right=4, count_in_head=4)
-        self.assertEqual(rank_and_direction(target), (1, "asc"))
-        target = self._target(rank_left=4, rank_right=2, count_in_head=5)
-        self.assertEqual(rank_and_direction(target), (2, "desc"))
-        # Ties go to "from the left".
-        self.assertEqual(rank_and_direction(self._target(rank_left=2, rank_right=2)), (2, "asc"))
-        self.assertIsNone(rank_and_direction(self._target()))
+    def test_every_true_fact_is_listed(self):
+        target = self._target(
+            color="white", features="an open beak", count_in_head=4,
+            rank_left=3, rank_right=2, side_of_image="left",
+            anchors_left=((7, "boat"),), is_leftmost=True, median_mm=2400,
+        )
+        rendered = facts_prompt_text(target)
+        for expected in (
+            "the object is a: swan",
+            "its color is: white",
+            "notable features: an open beak",
+            "the frame contains 4 of that category",
+            "counting from the left, it is number 3",
+            "counting from the right, it is number 2",
+            "it is on the left side of the image",
+            "it is on the left side of the boat",
+            "no other object in the frame is further left",
+            "it is about 2400 mm from the camera",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, rendered)
 
-    def test_ordinal_wins_when_a_rank_exists(self):
-        target = self._target(rank_left=2, rank_right=1, count_in_head=2, is_closest=True)
-        dimension = choose_dimension(target, [target])
-        self.assertEqual(dimension["family"], "ordinal_direction")
-        self.assertEqual(dimension["fields"]["k"], 1)
-        self.assertEqual(dimension["fields"]["direction"], "desc")
+    def test_a_shared_color_is_still_handed_over(self):
+        # Two white swans in the frame: the color is ambiguous on its own, but
+        # the teacher can combine it with a rank. Nothing strips it.
+        objects = [
+            obj(1, "swan", [0.0, 0.4, 0.1, 0.6], color="white"),
+            obj(2, "swan", [0.3, 0.4, 0.4, 0.6], color="white"),
+        ]
+        facts = facts_from(objects, gt_bbox=[0.0, 0.4, 0.1, 0.6])
+        self.assertIn("its color is: white", facts_prompt_text(facts[0]))
 
-    def test_falls_back_to_an_exclusive_extreme(self):
-        target = self._target(is_leftmost=True)
-        dimension = choose_dimension(target, [target])
-        self.assertEqual(dimension["facts"], ("x-min",))
+    def test_nothing_is_stripped_for_frames_without_those_facts(self):
+        rendered = facts_prompt_text(self._target())
+        self.assertNotIn("color", rendered)
+        self.assertNotIn("counting", rendered)
+        self.assertNotIn("foreground", rendered)
 
-    def test_anchor_relation_when_the_target_is_alone_on_that_side(self):
-        target = self._target(anchors_left=((7, "boat"),))
-        dimension = choose_dimension(target, [target])
-        self.assertEqual(dimension["family"], "side_of_anchor")
-        self.assertEqual(dimension["fields"]["anchor"], "boat")
-        self.assertEqual(dimension["fields"]["anchor_side"], "left")
-        self.assertIn("it is on the: left side of the boat", dimension_prompt_text(dimension))
-
-    def test_anchor_relation_dropped_when_a_peer_shares_the_side(self):
-        # Two swans flank the same boat: "on the left side of the boat" names
-        # neither of them.
-        a = self._target(index=1, bbox=(0.0, 0.4, 0.1, 0.6), anchors_left=((7, "boat"),))
-        b = self._target(index=2, bbox=(0.2, 0.4, 0.3, 0.6), anchors_left=((7, "boat"),))
-        self.assertIsNone(choose_dimension(a, [a, b]))
-
-    def test_anchor_outranks_an_extreme(self):
-        target = self._target(anchors_left=((7, "boat"),), is_leftmost=True)
-        dimension = choose_dimension(target, [target])
-        self.assertEqual(dimension["family"], "side_of_anchor")
-
-    def test_person_head_never_gets_a_bare_color(self):
-        target = self._target(category="person", color="white", count_in_head=1)
-        dimension = choose_dimension(target, [target])
-        self.assertIsNone(dimension["fields"].get("color"))
-
-    def test_no_dimension_when_nothing_disambiguates(self):
-        a = self._target(index=1, category="swan", bbox=(0.1, 0.4, 0.2, 0.6), count_in_head=2)
-        b = self._target(index=2, category="swan", bbox=(0.5, 0.4, 0.6, 0.6), count_in_head=2)
-        self.assertIsNone(choose_dimension(a, [a, b]))
-
-    def test_the_teacher_receives_a_number_not_a_word(self):
-        target = self._target(rank_left=3, rank_right=3, count_in_head=5, color="white")
-        dimension = choose_dimension(target, [target])
-        rendered = dimension_prompt_text(dimension)
-        self.assertIn("its position: 3", rendered)
-        self.assertIn("counting: from the left", rendered)
-        self.assertIn("its color is: white", rendered)
-        self.assertNotIn("third", rendered)
-        self.assertNotIn("ordered along", rendered)
-        self.assertNotIn("there are", rendered)
-
-    def test_a_rank_past_ten_is_still_offered(self):
-        # 21 same-head objects: the middle target is rank 11 from both sides and
-        # is handed over as the number 11.
-        target = self._target(rank_left=11, rank_right=11, count_in_head=21, is_rightmost=True)
-        dimension = choose_dimension(target, [target])
-        self.assertEqual(dimension["family"], "ordinal_direction")
-        self.assertEqual(dimension["fields"]["k"], 11)
-        self.assertIn("its position: 11", dimension_prompt_text(dimension))
+    def test_every_line_is_a_fact_not_an_instruction(self):
+        # No ranking of facts, no "use this one": the list is flat.
+        target = self._target(color="white", is_leftmost=True, rank_left=1, rank_right=1)
+        lines = fact_lines(target)
+        self.assertTrue(all(line.startswith("- ") for line in lines))
 
 
 class RealizeResponseTest(unittest.TestCase):
@@ -383,16 +346,12 @@ class AssembleRunTest(unittest.TestCase):
         }
         index = {sid: {"bbox": o[0]["bbox"], "visible": "x"} for sid, (o, _) in frames.items()}
 
-        def unique_realize(dimension, _bbox, sample_id):
-            fields = dimension["fields"]
-            return (
-                f"The {TEACHER_ORDINALS[fields['k'] - 1]} {fields['category']} "
-                f"from the {DIRECTION_SIDE[fields['direction']]} {sample_id}"
-            )
+        def unique_realize(target, sample_id):
+            word = TEACHER_ORDINALS[target.rank_left - 1] if target.rank_left else "first"
+            return f"The {word} {target.head} from the left {sample_id}"
 
         result = assemble_run(make_merged(frames), index, realize=unique_realize)
         self.assertTrue(result.records)
-        self.assertTrue(all(r.family == "ordinal_direction" for r in result.records))
         audit = audit_assembly(result.records)
         self.assertEqual(audit["count"], len(result.records))
         self.assertNotIn("bucket_counts", audit)

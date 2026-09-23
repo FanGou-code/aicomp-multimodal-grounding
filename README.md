@@ -31,7 +31,7 @@ Depth-Jet），输出可直接驱动下游模型微调的自包含标注产物 `
 | --- | --- | --- |
 | 训练/测试集重叠污染 | 训练帧与评测帧是同源画面，模型"见过答案"，离线指标虚高、线上崩 | 逐帧 SHA-256 与测试集全量比对，命中即剔除并留痕（`excluded_overlap.json`） |
 | 视频帧时序穿越 | 同一镜头的相邻帧分别落进 train 与 val，验证集等于"背题" | 按镜头序列整段分配 train/val，序列不跨 split；分配清单与指纹冻结在 `split_manifest.json` |
-| 自然语言指向歧义 | 同帧有多个同类目标（"the car"），描述无法唯一确定监督目标 | 代码在该帧内选出唯一能区分目标的维度，挑不出就不产出 |
+| 自然语言指向歧义 | 同帧有多个同类目标（"the car"），描述无法唯一确定监督目标 | 代码把该目标在该帧内成立的全部事实交给教师，由它组合出一句能唯一指认的话 |
 | 教师模型幻觉 | 让大模型"直接写标注"，加的属性无法被机械校验 | 代码只把事实（枚举结果 + 属性）交给教师，教师只负责措辞；框与事实来自枚举，措辞逐条过人审 |
 | 人审不可恢复 / 多人合并丢数据 | 崩溃丢进度、快照覆盖、多人分片合并时后写覆盖前写 | 追加日志（WAL）+ 进程锁 + 崩溃恢复重放；合并按传入顺序重放，后轮裁决覆盖前轮 |
 | 交付产物与训练端口径漂移 | 打包后才发现 schema、坐标或重复描述不合规 | 打包前全量契约自校验（协议 12）+ 4 重指纹，校验失败不产出交付文件 |
@@ -96,12 +96,12 @@ query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 
 
 ### 4. 事实计算与组句分离（Facts by Code, Wording by Teacher）
 
-- **维度选择**（`foundry/pipeline/realize.py: choose_dimension`）：代码在该帧内挑出
-  唯一能区分该目标的那个维度——序数（取 `rank_left` / `rank_right` 中较小的一侧）、
-  极值、景深带、画面侧、颜色或特征。挑不出来就不产出。同类目标按**左边缘 x1**
-  排序，与推理侧取第 k 个用的是同一个键。
-- **交给教师的只有事实**：类别、第几个（数字）、方向、景深带、颜色、特征。措辞不加
-  约束——写 "third" 还是 "3rd" 由教师决定。代码不校验写回的句子，措辞由人审逐条过。
+- **代码列出全部事实**（`foundry/pipeline/realize.py: fact_lines`）：目标在该帧内成立的
+  每一条都写出来——类别、颜色、特征、同类数量、从左数/从右数第几个、画面侧、与哪个
+  物体相邻、极值（最左/最上/最近…）、景深带、深度值。不筛选、不排序、不指定用哪条。
+  同类目标的序号按**左边缘 x1** 排，与推理侧取第 k 个用的是同一个键。
+- **挑哪条、挑几条、怎么说，全是教师的事**：教师看着画面和这份清单，自己决定写一句
+  能唯一指认它的话。代码不校验措辞，全部由人审逐条过。
 - **文本 QC**（`foundry/pipeline/text_qc.py`）：只做冠词与格式层面的机械修补——冠词
   引擎为 `with/wearing/holding/carrying` 尾句补冠词（按元音字母取 a/an），命中人工
   裁定的 KEEP / 复数-物质词 / 例外表则保持不变；echo 表按 `(item_id, before)` 键控，
@@ -162,7 +162,7 @@ query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 
         │                 红框/编号视图 → 单次枚举（开思考）+ attr → 代码门控 → 深度事实
         ▼
 [3] assemble_queries.py ▶ outputs/assembly/asm-<tag>/assembly.json（+ text QC 日志）
-        │                 代码选维度 → 教师造句（一次调用/目标）→ 同句去重
+        │                 代码列事实 → 教师据此写一句（一次调用/目标）→ 同句去重
         ▼
 [4] review_server.py ──▶ outputs/review/<tag>/（annotations.jsonl + 三份快照）
         │                 人审：修正框 / 修订 query / 不存在裁决
@@ -188,7 +188,7 @@ python scripts/run_census.py --split train --limit-sequences 320 \
     --num-shards 96 --run-tag census-full-1 \
     --data-root /path/to/dataset --index-dir data/indexes
 
-# [3] 组装（一次 API 调用 / 目标，代码选维度 + 教师造句；--no-realize 只跑本地短路）
+# [3] 组装（一次 API 调用 / 目标，代码列事实 + 教师造句；--no-realize 只跑本地短路）
 python scripts/assemble_queries.py --census-run outputs/census/census_<id> \
     --run-tag asm-<tag> --data-root /path/to/dataset --index-dir data/indexes
 
@@ -372,10 +372,10 @@ foundry/
     api.py            OpenAI 协议客户端 + Key 池 + 限流 + 有界重试
     census.py         普查协议：提示词、响应解析、确定性门（单次枚举）
     reverse.py        逆向通路：解析 / 枚举 / 取第 k 个 + 直出兜底
-    realize.py        维度选择 + 教师造句 + 表述校验
+    realize.py        全部事实清单 + 教师造句
     facts.py          帧级事实提取（ObjectFacts / Realization）
     planner.py        逐目标取句 + 全run去重
-    assembly.py       维度选择 + 表述校验 + 目标选择
+    assembly.py       事实清单 + 目标选择 + 同句去重
     depth.py          16 位毫米深度事实
     text_qc.py        冠词引擎 + echo 表裁定
     contract.py       下游训练合同校验与指纹（协议 12）
@@ -399,7 +399,7 @@ outputs/              产物（census / assembly / reverse / review / approved�
 python -m unittest discover -s tests
 ```
 
-181 项测试，覆盖划分与去重、普查门控、事实与规划、维度选择与组句、逆向通路、文本 QC、契约打包、
+175 项测试，覆盖划分与去重、普查门控、事实与规划、事实清单与组句、逆向通路、文本 QC、契约打包、
 审查器 HTTP 与存储恢复、Key 池。HTTP 测试只监听本机临时端口，API 测试使用假响应，
 不消耗真实额度。
 

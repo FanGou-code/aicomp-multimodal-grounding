@@ -76,8 +76,6 @@ class ObjectFacts:
 @dataclass(frozen=True)
 class Realization:
     text: str
-    family: str
-    facts: tuple[str, ...]
     words: int
 
 

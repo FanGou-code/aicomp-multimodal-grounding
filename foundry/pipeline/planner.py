@@ -1,7 +1,7 @@
 """Phase 3 planner: turn per-target candidates into the corpus.
 
-Each target carries the sentence the teacher wrote for the dimension code
-chose. The planner keeps one sentence per target, refuses to emit the same
+Each target carries the one sentence the teacher wrote from the facts code
+listed. The planner keeps one sentence per target, refuses to emit the same
 sentence twice in a run, and reports what it could not use. What the corpus
 ends up looking like is whatever the frames and the teacher produce: nothing
 here steers composition.
