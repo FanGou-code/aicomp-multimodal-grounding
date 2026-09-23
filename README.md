@@ -162,7 +162,7 @@ query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 
         │                 红框/编号视图 → 单次枚举（开思考）+ attr → 代码门控 → 深度事实
         ▼
 [3] assemble_queries.py ▶ outputs/assembly/asm-<tag>/assembly.json（+ text QC 日志）
-        │                 代码选维度 → 教师造句（一次调用/目标）→ 表述校验 → 四桶配额规划
+        │                 代码选维度 → 教师造句（一次调用/目标）→ 同句去重
         ▼
 [4] review_server.py ──▶ outputs/review/<tag>/（annotations.jsonl + 三份快照）
         │                 人审：修正框 / 修订 query / 不存在裁决
@@ -323,7 +323,7 @@ HTTP 接口：`GET /api/session`、`GET /api/progress`、`GET /image`、
 | 文件 | 内容 |
 |---|---|
 | `outputs/census/census_<id>/` | 普查结果 `merged.json`、运行计划与分片 checkpoint |
-| `outputs/assembly/<tag>/assembly.json` | 组装后的语料（每条含 sample_id、object_index、query、bbox、family、bucket、facts） |
+| `outputs/assembly/<tag>/assembly.json` | 组装后的语料（每条含 sample_id、object_index、query、bbox、family、facts） |
 | `outputs/reverse/<run_id>/` | 逆向通路产物：`predictions.json`、`routes.json`、`thinking.jsonl`、`metadata.json` |
 | `outputs/review/<run_tag>/annotations.jsonl` | 追加日志，apply 优先重放的状态来源 |
 | `outputs/review/<run_tag>/annotations.predictions.json` | 框结果：`{item_id: [x1,y1,x2,y2]}` 归一化 0–1 XYXY |
@@ -338,11 +338,8 @@ HTTP 接口：`GET /api/session`、`GET /api/progress`、`GET /image`、
 
 教师身份、服务地址与限流参数固化在 `foundry/utils.py`（教师为托管开源权重模型
 GLM-4.6V，经 OpenAI 协议端点调用，account 级并发受服务方限制，可用
-`--requests-per-minute` / `--tokens-per-minute` 对齐账号配额）；四桶分类与配额份额
-固化在 `foundry/pipeline/buckets.py`：分类优先序为 `ordinal` → `distance` → `spatial`
-→ `attribute_action`，配额份额（per-mille）分别为 `ordinal` 335 / `spatial` 258 /
-`attribute_action` 256 / `distance` 151（即份额最大值在 `spatial`，`distance` 最小）。
-这两处没有通过 JSON 切换教师或桶规则的入口。
+`--requests-per-minute` / `--tokens-per-minute` 对齐账号配额）。教师身份没有通过 JSON
+切换的入口。产出语料由帧本身与教师措辞决定，不做任何按类别的配额或比例控制。
 
 实际读取的外置文件只有 `configs/default/prompts/`（findall / attr / realize /
 parse / enumerate / direct 提示词）与 `configs/default/rules/qc.json`（冠词规则、
@@ -377,9 +374,8 @@ foundry/
     reverse.py        逆向通路：解析 / 枚举 / 取第 k 个 + 直出兜底
     realize.py        维度选择 + 教师造句 + 表述校验
     facts.py          帧级事实提取（ObjectFacts / Realization）
-    planner.py        四桶配额分配 + 句族多样性
+    planner.py        逐目标取句 + 全run去重
     assembly.py       维度选择 + 表述校验 + 目标选择
-    buckets.py        冻结四桶分类与份额
     depth.py          16 位毫米深度事实
     text_qc.py        冠词引擎 + echo 表裁定
     contract.py       下游训练合同校验与指纹（协议 12）
@@ -403,7 +399,7 @@ outputs/              产物（census / assembly / reverse / review / approved�
 python -m unittest discover -s tests
 ```
 
-183 项测试，覆盖划分与去重、普查门控、事实与规划、维度选择与组句、逆向通路、文本 QC、契约打包、
+181 项测试，覆盖划分与去重、普查门控、事实与规划、维度选择与组句、逆向通路、文本 QC、契约打包、
 审查器 HTTP 与存储恢复、Key 池。HTTP 测试只监听本机临时端口，API 测试使用假响应，
 不消耗真实额度。
 

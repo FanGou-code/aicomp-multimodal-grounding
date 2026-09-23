@@ -308,10 +308,10 @@ def make_assembly_manifest(tmp: Path, split: str = "train") -> tuple[Path, Path]
     records = [
         {"sequence_id": sequence, "sample_id": sample, "object_index": 1,
          "query": "the white swan on the left side of the image", "bbox": [0.10, 0.40, 0.20, 0.60],
-         "source": "real", "category": "swan", "bucket": "spatial"},
+         "source": "real", "category": "swan"},
         {"sequence_id": sequence, "sample_id": sample, "object_index": 2,
          "query": "a duck closest to the camera", "bbox": [0.50, 0.40, 0.60, 0.60],
-         "source": "teacher", "category": "duck", "bucket": "distance"},
+         "source": "teacher", "category": "duck"},
     ]
     assembly_path = tmp / f"assembly-{split}.json"
     assembly_path.write_text(

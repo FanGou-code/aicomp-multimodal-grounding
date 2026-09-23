@@ -75,7 +75,6 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
             "frame_id": entry.get("frame_id", ""),
             "gt_bbox": entry["bbox"] if entry.get("source") == "real" else None,
             "category": entry.get("category", ""),
-            "bucket": "",
             "family": "",
             "corpus": corpus,
         }
@@ -170,7 +169,6 @@ class AnnotatorState:
                     "ordinal": item["ordinal"],
                     "frame_id": item["frame_id"],
                     "gt_bbox": item["gt_bbox"],
-                    "bucket": item.get("bucket", ""),
                     "category": item.get("category", ""),
                     "corpus": item.get("corpus", ""),
                     "ai_verdict": item.get("ai_verdict", ""),
