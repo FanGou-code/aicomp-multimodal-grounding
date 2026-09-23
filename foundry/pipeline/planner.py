@@ -84,7 +84,7 @@ def plan(supply: list[TargetSupply], spec: dict | None) -> PlanResult:
         if not variants:
             result.unallocated.append(
                 {"sample_id": target.sample_id, "source": target.source,
-                 "reason": "no-unique-realization"}
+                 "reason": "sentence-already-used"}
             )
             continue
 

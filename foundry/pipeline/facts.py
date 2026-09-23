@@ -170,10 +170,12 @@ def extract_frame_facts(
         )
 
     centers_x = [(c["bbox"][0] + c["bbox"][2]) / 2 for c in cleaned]
-    centers_y = [(c["bbox"][1] + c["bbox"][3]) / 2 for c in cleaned]
     bottoms = [c["bbox"][3] for c in cleaned]
-    # Ordinal ranks use the LEFT EDGE, the same key the serving side sorts on.
+    # One key per axis, shared with the serving side: x ranks and sides read the
+    # LEFT EDGE, y extremes read the TOP EDGE, so "leftmost" here and "asc, k=1"
+    # there pick the same object.
     lefts_x = [c["bbox"][0] for c in cleaned]
+    tops_y = [c["bbox"][1] for c in cleaned]
     head_counts: dict[str, int] = {}
     for c in cleaned:
         head = category_head(c["category"])
@@ -267,21 +269,21 @@ def extract_frame_facts(
                 rank_left=rank_left,
                 rank_right=rank_right,
                 is_leftmost=_exclusive(
-                    centers_x[pos], centers_x[:pos] + centers_x[pos + 1:], EXTREME_MARGIN, higher=False
+                    lefts_x[pos], lefts_x[:pos] + lefts_x[pos + 1:], EXTREME_MARGIN, higher=False
                 ),
                 is_rightmost=_exclusive(
-                    centers_x[pos], centers_x[:pos] + centers_x[pos + 1:], EXTREME_MARGIN, higher=True
+                    lefts_x[pos], lefts_x[:pos] + lefts_x[pos + 1:], EXTREME_MARGIN, higher=True
                 ),
                 is_topmost=_exclusive(
-                    centers_y[pos], centers_y[:pos] + centers_y[pos + 1:], EXTREME_MARGIN, higher=False
+                    tops_y[pos], tops_y[:pos] + tops_y[pos + 1:], EXTREME_MARGIN, higher=False
                 ),
                 is_bottommost=_exclusive(
-                    centers_y[pos], centers_y[:pos] + centers_y[pos + 1:], EXTREME_MARGIN, higher=True
+                    tops_y[pos], tops_y[:pos] + tops_y[pos + 1:], EXTREME_MARGIN, higher=True
                 ),
                 is_closest=is_closest,
                 is_farthest=is_farthest,
                 side_of_image=(
-                    "left" if centers_x[pos] < lo_x else "right" if centers_x[pos] > hi_x else None
+                    "left" if lefts_x[pos] < lo_x else "right" if lefts_x[pos] > hi_x else None
                 ),
                 anchors_left=anchors("left"),
                 anchors_right=anchors("right"),

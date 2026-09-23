@@ -126,8 +126,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "outputs" / "assembly")
     parser.add_argument("--max-teacher-per-frame", type=int, default=2,
                         help="teacher targets per frame; -1 = take all quality-sorted")
-    parser.add_argument("--min-words", type=int, default=3)
-    parser.add_argument("--max-words", type=int, default=18)
     parser.add_argument("--show", type=int, default=15, help="sample records to print")
     parser.add_argument("--all-frames", action="store_true",
                         help="mark this assembly as full-frame (review all frames, "
@@ -155,8 +153,6 @@ def main() -> None:
         index,
         spec,
         max_teacher_per_frame=args.max_teacher_per_frame,
-        min_words=args.min_words,
-        max_words=args.max_words,
         realize=realize,
     )
     text_edits = apply_text_qc(result.records)
@@ -185,7 +181,6 @@ def main() -> None:
             "split": args.split,
             "all_frames": bool(args.all_frames),
             "max_teacher_per_frame": args.max_teacher_per_frame,
-            "word_window": [args.min_words, args.max_words],
             "realized": not args.no_realize,
             "realize_prompt_hash": REALIZE_PROMPT_HASH,
             "realize_stage": REALIZE_STAGE,

@@ -184,17 +184,22 @@ def axis_value(axis: str, bbox: list[float]) -> float:
         return bbox[0]
     if axis == "y":
         return bbox[1]
-    return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+    if axis == "area":
+        return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+    raise ValueError(f"Unsupported axis: {axis!r}")
 
 
 def pick_kth(boxes: list[list[float]], *, k: int, axis: str, direction: str) -> list[float] | None:
-    """The k-th box along ``axis``; None when there are fewer than k of them."""
-    if k > len(boxes):
+    """The k-th box along ``axis``; None when k is out of range.
+
+    Ties keep the box tuple ascending whatever the direction, matching
+    ``aicomp_grounding.ordinal.resolve.rank_instances``.
+    """
+    if k < 1 or k > len(boxes):
         return None
-    ordered = sorted(boxes, key=lambda box: (axis_value(axis, box), box[0], box[1]))
-    if direction == "desc":
-        ordered.reverse()
-    return list(ordered[k - 1])
+    order = sorted(boxes, key=lambda box: (box[0], box[1]))
+    order.sort(key=lambda box: axis_value(axis, box), reverse=(direction == "desc"))
+    return list(order[k - 1])
 
 
 def parse_messages(query: str) -> list[dict]:

@@ -60,7 +60,7 @@ class PlannerPolicyTest(unittest.TestCase):
         ]
         result = plan(supply, SPEC)
         self.assertEqual(len(result.allocations), 1)
-        self.assertEqual(result.unallocated[0]["reason"], "no-unique-realization")
+        self.assertEqual(result.unallocated[0]["reason"], "sentence-already-used")
 
     def _crowd_supply(self, crowd_count_in_head):
         band = realization("The swan in the foreground", "superlative_camera", ("foreground",))

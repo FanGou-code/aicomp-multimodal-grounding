@@ -64,7 +64,7 @@ STAGE_CONFIG = {
         "response_format": "json_object",
     },
     "enumerate": {
-        "max_tokens": 4096,
+        "max_tokens": 8192,
         "temperature": None,
         "do_sample": None,
         "thinking_mode": "enabled",

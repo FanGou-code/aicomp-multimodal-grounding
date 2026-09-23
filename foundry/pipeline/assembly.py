@@ -28,7 +28,7 @@ from foundry.pipeline.facts import (
 from foundry.pipeline.planner import TargetSupply, plan as planner_plan
 from foundry.pipeline.depth import DEPTH_SOURCE
 from foundry.pipeline.buckets import FROZEN_BUCKETS
-from foundry.pipeline.realize import choose_dimension, verify_realization
+from foundry.pipeline.realize import choose_dimension
 
 MIN_TEACHER_AREA = 0.002
 MAX_TEACHER_AREA = 0.6
@@ -118,18 +118,14 @@ def assemble_run(
     index: dict,
     spec: dict | None = None,
     *,
-
     max_teacher_per_frame: int = 2,
-    min_words: int = 3,
-    max_words: int = 18,
     realize=None,
 ) -> AssemblyResult:
     """Assemble query records from a census merged.json + dataset index.
 
     ``realize`` is a callable ``(dimension, bbox, sample_id) -> str | None``.
-    A sentence that does not name the facts it was handed is rejected; a target
-    with no usable dimension, or no sentence that passes verification, is
-    reported as shortfall.
+    Whatever it returns goes to human review unjudged; a target with no usable
+    dimension, or whose reply carried no sentence, is reported as shortfall.
     """
     result = AssemblyResult()
     sequences = merged.get("results", {})
@@ -175,22 +171,30 @@ def assemble_run(
             depth_available = (frame.get("depth") or {}).get("source") == DEPTH_SOURCE
             for source, target_facts in select_targets(facts, max_teacher=max_teacher_per_frame):
                 dimension = choose_dimension(target_facts, facts)
-                variants: list[Realization] = []
-                if dimension is not None and realize is not None:
-                    sentence = realize(dimension, list(target_facts.bbox), sample_id)
-                    if sentence is not None and verify_realization(sentence, dimension):
-                        candidate = _variant(
-                            sentence, dimension["family"], tuple(dimension["facts"])
-                        )
-                        if min_words <= candidate.words <= max_words:
-                            variants = [candidate]
+                if dimension is None:
+                    result.shortfall.append(
+                        {"sample_id": sample_id, "reason": "no-dimension"}
+                    )
+                    continue
+                sentence = (
+                    realize(dimension, list(target_facts.bbox), sample_id)
+                    if realize is not None
+                    else None
+                )
+                if sentence is None:
+                    result.shortfall.append(
+                        {"sample_id": sample_id, "reason": "no-sentence"}
+                    )
+                    continue
                 supply.append(_SupplyItem(
                     sample_id=sample_id,
                     sequence_id=sequence_id,
                     source=source,
                     facts=target_facts,
                     gt_bbox=list(entry["bbox"]),
-                    variants=variants,
+                    variants=[_variant(
+                        sentence, dimension["family"], tuple(dimension["facts"])
+                    )],
                     depth_available=depth_available,
                 ))
 
