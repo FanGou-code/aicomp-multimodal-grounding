@@ -19,12 +19,6 @@ from foundry.pipeline.facts import ObjectFacts
 #: Which way a direction reads.
 DIRECTION_SIDE = {"asc": "left", "desc": "right"}
 
-#: Heads that are not described by a bare color: "the white person" reads as a
-#: race descriptor. These are described by a feature or a position instead.
-COLOR_SUPPRESSED_HEADS = frozenset(
-    {"person", "child", "man", "woman", "men", "women", "people", "couple"}
-)
-
 
 def _load_prompt(name: str, default: str) -> str:
     try:
@@ -58,13 +52,6 @@ REALIZE_STAGE = {
 }
 
 
-def color_field(target: ObjectFacts) -> str | None:
-    """The color to hand over; None for suppressed heads."""
-    if target.head in COLOR_SUPPRESSED_HEADS:
-        return None
-    return target.color
-
-
 def fact_lines(target: ObjectFacts) -> list[str]:
     """Every fact that is true of ``target`` inside its frame, one per line.
 
@@ -72,9 +59,8 @@ def fact_lines(target: ObjectFacts) -> list[str]:
     """
     lines = [f"- the object is a: {target.head}"]
 
-    color = color_field(target)
-    if color:
-        lines.append(f"- its color is: {color}")
+    if target.color:
+        lines.append(f"- its color is: {target.color}")
     if target.features:
         lines.append(f"- notable features: {target.features}")
 
