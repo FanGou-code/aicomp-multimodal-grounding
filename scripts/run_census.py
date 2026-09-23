@@ -64,7 +64,7 @@ from foundry.pipeline.sharding import group_keys_by_scene, select_scene_ids, sha
 from foundry.pipeline.source import image_fingerprint, load_annotation_source, preparation_fingerprint
 
 CENSUS_PROTOCOL_VERSION = 4
-FINDALL_MAX_TOKENS = 4096
+FINDALL_MAX_TOKENS = 8192
 ATTR_MAX_TOKENS = 1024
 #: Per-stage decoding.  ``temperature: None`` and ``do_sample: None`` send
 #: nothing, so the provider applies its own default; ``do_sample: False`` is

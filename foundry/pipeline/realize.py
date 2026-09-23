@@ -2,9 +2,8 @@
 
 Code decides which dimension disambiguates the target inside its own frame; the
 teacher words it. The prompt carries facts only -- no sentence template and no
-worked example.
-
-The ordinal vocabulary below is used for verification, not generation.
+worked example. How the sentence is phrased is not checked: whatever comes back
+goes to human review, which is the only review pass.
 """
 
 from __future__ import annotations
@@ -14,12 +13,7 @@ import json
 import re
 from pathlib import Path
 
-from foundry.pipeline.facts import ObjectFacts, category_head
-
-ORDINAL_WORDS = (
-    "first", "second", "third", "fourth", "fifth",
-    "sixth", "seventh", "eighth", "ninth", "tenth",
-)
+from foundry.pipeline.facts import ObjectFacts
 
 #: Which way a direction reads.
 DIRECTION_SIDE = {"asc": "left", "desc": "right"}
@@ -29,8 +23,6 @@ DIRECTION_SIDE = {"asc": "left", "desc": "right"}
 COLOR_SUPPRESSED_HEADS = frozenset(
     {"person", "child", "man", "woman", "men", "women", "people", "couple"}
 )
-
-_FORBIDDEN_RE = re.compile(r"\b(image|photo|picture|frame|red box|rectangle|scene)\b", re.IGNORECASE)
 
 
 def _load_prompt(name: str, default: str) -> str:
@@ -109,6 +101,24 @@ def choose_dimension(target: ObjectFacts, frame: list[ObjectFacts]) -> dict | No
             },
         }
 
+    for side, attr in (("left", "anchors_left"), ("right", "anchors_right")):
+        for anchor in getattr(target, attr):
+            # The anchor head is unique in the frame (facts.py guarantees it);
+            # the phrase is unambiguous only if this target is the sole
+            # same-head object on that side of that anchor.
+            if sum(1 for o in peers if anchor in getattr(o, attr)) == 1:
+                return {
+                    "family": "side_of_anchor",
+                    "facts": (f"anchor:{side}:{anchor[0]}",),
+                    "fields": {
+                        "category": target.head,
+                        "anchor": anchor[1],
+                        "anchor_side": side,
+                        "color": color_field(target),
+                        "feature": target.features,
+                    },
+                }
+
     for flag, family, fact in (
         ("is_closest", "superlative_camera", "y2-max"),
         ("is_farthest", "superlative_camera", "y2-min"),
@@ -186,17 +196,20 @@ def choose_dimension(target: ObjectFacts, frame: list[ObjectFacts]) -> dict | No
 
 
 def dimension_prompt_text(dimension: dict) -> str:
-    """Render a dimension as the fact list the teacher is allowed to use."""
+    """Render a dimension as the fact list the teacher is allowed to use.
+
+    Numbers stay numbers: the teacher picks the wording (``third``, ``3rd``,
+    ``number 3``) and nothing here constrains it.
+    """
     fields = dimension["fields"]
     labels = {
         "category": "the object is a",
-        "k": "it is number",
-        "axis": "ordered along",
-        "direction": "counting from the",
-        "count": "there are",
+        "k": "its position",
+        "direction": "counting",
         "position": "it is the",
         "depth_band": "it is in the",
         "side_of_image": "it is on the",
+        "anchor": "it is on the",
         "color": "its color is",
         "feature": "one notable feature:",
     }
@@ -204,8 +217,12 @@ def dimension_prompt_text(dimension: dict) -> str:
     for key, value in fields.items():
         if value is None or value == "":
             continue
+        if key in ("axis", "count", "anchor_side"):
+            continue
         if key == "direction":
-            value = DIRECTION_SIDE[value]
+            value = "from the " + DIRECTION_SIDE[value]
+        if key == "anchor":
+            value = f"{fields['anchor_side']} side of the {value}"
         if key == "position":
             value = {
                 "y2-max": "closest to the camera",
@@ -252,38 +269,3 @@ def parse_realize_response(text: object) -> str | None:
     if not isinstance(query, str) or not query.strip():
         return None
     return " ".join(query.split())
-
-
-def verify_realization(sentence: str, dimension: dict) -> bool:
-    """The sentence must name the facts it was given, and nothing else."""
-    if not sentence or _FORBIDDEN_RE.search(sentence):
-        return False
-    fields = dimension["fields"]
-    low = sentence.lower()
-    if category_head(str(fields["category"])).split()[-1] not in low:
-        return False
-    rank = fields.get("k")
-    if rank is not None:
-        word = ORDINAL_WORDS[rank - 1] if 1 <= rank <= len(ORDINAL_WORDS) else None
-        if word is None or word not in low:
-            return False
-        if DIRECTION_SIDE[fields["direction"]] not in low:
-            return False
-    position = fields.get("position")
-    if position is not None:
-        expected = {
-            "y2-max": "closest", "y2-min": "farthest", "x-min": "left",
-            "x-max": "right", "y-min": "top", "y-max": "bottom",
-        }[position]
-        if expected not in low:
-            return False
-    band = fields.get("depth_band")
-    if band is not None and band not in low:
-        return False
-    side = fields.get("side_of_image")
-    if side is not None and side not in low:
-        return False
-    color = fields.get("color")
-    if color is not None and str(color) not in low:
-        return False
-    return True

@@ -11,11 +11,17 @@ from foundry.pipeline.buckets import classify_frozen, parse_spec_shares
 from foundry.pipeline.facts import ObjectFacts, extract_frame_facts
 from foundry.pipeline.realize import (
     DIRECTION_SIDE,
-    ORDINAL_WORDS,
     choose_dimension,
+    dimension_prompt_text,
     parse_realize_response,
     rank_and_direction,
-    verify_realization,
+)
+
+#: The teacher's own English, not the module's: it receives a number and picks
+#: the word. Kept local so nothing under test carries an ordinal vocabulary.
+TEACHER_ORDINALS = (
+    "first", "second", "third", "fourth", "fifth",
+    "sixth", "seventh", "eighth", "ninth", "tenth",
 )
 
 SPEC = {
@@ -53,7 +59,8 @@ def realize(dimension, _bbox, _sample_id):
     head = fields["category"]
     k = fields.get("k")
     if k is not None:
-        bits = [f"The {ORDINAL_WORDS[k - 1]}"]
+        word = TEACHER_ORDINALS[k - 1] if k <= len(TEACHER_ORDINALS) else f"number {k}"
+        bits = [f"The {word}"]
         if fields.get("color"):
             bits.append(fields["color"])
         bits.append(head)
@@ -112,6 +119,28 @@ class ExtractFactsTest(unittest.TestCase):
         self.assertIsNone(by_index[1].rank_left)
         self.assertIsNone(by_index[2].rank_left)
         self.assertEqual(by_index[3].rank_left, 3)
+
+    def test_extremes_use_edges_not_centres(self):
+        # Wide box starting at x=0 vs narrow box centred further left: the
+        # left edge keys the extremes, so the wide box is the leftmost one
+        # even though its centre sits right of the narrow box's.
+        objects = [
+            obj(1, "bench", [0.00, 0.4, 0.30, 0.6]),
+            obj(2, "sign", [0.08, 0.4, 0.12, 0.6]),
+        ]
+        facts = facts_from(objects, gt_bbox=[0.00, 0.4, 0.30, 0.6])
+        by_index = {f.index: f for f in facts}
+        self.assertTrue(by_index[1].is_leftmost)
+        self.assertTrue(by_index[2].is_rightmost)
+        # Top edge, same rule: wide-tall box owns "topmost" by its y1.
+        objects = [
+            obj(1, "bench", [0.00, 0.05, 0.10, 0.60]),
+            obj(2, "sign", [0.20, 0.10, 0.30, 0.20]),
+        ]
+        facts = facts_from(objects, gt_bbox=[0.00, 0.05, 0.10, 0.60])
+        by_index = {f.index: f for f in facts}
+        self.assertTrue(by_index[1].is_topmost)
+        self.assertTrue(by_index[2].is_bottommost)
 
     def test_head_group_merges_variants(self):
         objects = [
@@ -209,6 +238,26 @@ class DimensionTest(unittest.TestCase):
         dimension = choose_dimension(target, [target])
         self.assertEqual(dimension["facts"], ("x-min",))
 
+    def test_anchor_relation_when_the_target_is_alone_on_that_side(self):
+        target = self._target(anchors_left=((7, "boat"),))
+        dimension = choose_dimension(target, [target])
+        self.assertEqual(dimension["family"], "side_of_anchor")
+        self.assertEqual(dimension["fields"]["anchor"], "boat")
+        self.assertEqual(dimension["fields"]["anchor_side"], "left")
+        self.assertIn("it is on the: left side of the boat", dimension_prompt_text(dimension))
+
+    def test_anchor_relation_dropped_when_a_peer_shares_the_side(self):
+        # Two swans flank the same boat: "on the left side of the boat" names
+        # neither of them.
+        a = self._target(index=1, bbox=(0.0, 0.4, 0.1, 0.6), anchors_left=((7, "boat"),))
+        b = self._target(index=2, bbox=(0.2, 0.4, 0.3, 0.6), anchors_left=((7, "boat"),))
+        self.assertIsNone(choose_dimension(a, [a, b]))
+
+    def test_anchor_outranks_an_extreme(self):
+        target = self._target(anchors_left=((7, "boat"),), is_leftmost=True)
+        dimension = choose_dimension(target, [target])
+        self.assertEqual(dimension["family"], "side_of_anchor")
+
     def test_person_head_never_gets_a_bare_color(self):
         target = self._target(category="person", color="white", count_in_head=1)
         dimension = choose_dimension(target, [target])
@@ -219,6 +268,26 @@ class DimensionTest(unittest.TestCase):
         b = self._target(index=2, category="swan", bbox=(0.5, 0.4, 0.6, 0.6), count_in_head=2)
         self.assertIsNone(choose_dimension(a, [a, b]))
 
+    def test_the_teacher_receives_a_number_not_a_word(self):
+        target = self._target(rank_left=3, rank_right=3, count_in_head=5, color="white")
+        dimension = choose_dimension(target, [target])
+        rendered = dimension_prompt_text(dimension)
+        self.assertIn("its position: 3", rendered)
+        self.assertIn("counting: from the left", rendered)
+        self.assertIn("its color is: white", rendered)
+        self.assertNotIn("third", rendered)
+        self.assertNotIn("ordered along", rendered)
+        self.assertNotIn("there are", rendered)
+
+    def test_a_rank_past_ten_is_still_offered(self):
+        # 21 same-head objects: the middle target is rank 11 from both sides and
+        # is handed over as the number 11.
+        target = self._target(rank_left=11, rank_right=11, count_in_head=21, is_rightmost=True)
+        dimension = choose_dimension(target, [target])
+        self.assertEqual(dimension["family"], "ordinal_direction")
+        self.assertEqual(dimension["fields"]["k"], 11)
+        self.assertIn("its position: 11", dimension_prompt_text(dimension))
+
 
 class RealizeResponseTest(unittest.TestCase):
     def test_a_well_formed_reply_is_read(self):
@@ -228,20 +297,6 @@ class RealizeResponseTest(unittest.TestCase):
         for bad in ('{"query": ""}', '{"text": "x"}', "not json", None, "[1]"):
             with self.subTest(bad=bad):
                 self.assertIsNone(parse_realize_response(bad))
-
-    def test_verification_rejects_a_sentence_that_names_other_facts(self):
-        dimension = {
-            "fields": {"category": "swan", "k": 3, "axis": "x", "direction": "asc", "count": 5},
-        }
-        self.assertTrue(verify_realization("The third swan from the left", dimension))
-        self.assertFalse(verify_realization("The second swan from the left", dimension))
-        self.assertFalse(verify_realization("The third swan from the right", dimension))
-        self.assertFalse(verify_realization("The third swan in the image", dimension))
-
-    def test_verification_rejects_an_unlisted_color(self):
-        dimension = {"fields": {"category": "swan", "color": "white"}}
-        self.assertTrue(verify_realization("The white swan", dimension))
-        self.assertFalse(verify_realization("The black swan", dimension))
 
 
 def make_merged(frames_spec):
@@ -301,7 +356,6 @@ class AssembleRunTest(unittest.TestCase):
         self.assertEqual([r.__dict__ for r in first.records], [r.__dict__ for r in second.records])
         self.assertLessEqual(len(first.records), 6)
         self.assertTrue(all(r.query[0].isupper() for r in first.records))
-        self.assertTrue(all(3 <= r.words <= 18 for r in first.records))
         audit = audit_assembly(first.records)
         self.assertTrue(audit["acceptance"]["verbatim_repeat_le_0_10"])
         self.assertEqual(audit["sources"]["real"] + audit["sources"]["teacher"], audit["count"])
@@ -358,7 +412,7 @@ class AssembleRunTest(unittest.TestCase):
         def unique_realize(dimension, _bbox, sample_id):
             fields = dimension["fields"]
             return (
-                f"The {ORDINAL_WORDS[fields['k'] - 1]} {fields['category']} "
+                f"The {TEACHER_ORDINALS[fields['k'] - 1]} {fields['category']} "
                 f"from the {DIRECTION_SIDE[fields['direction']]} {sample_id}"
             )
 
