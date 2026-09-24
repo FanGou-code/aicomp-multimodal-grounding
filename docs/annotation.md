@@ -14,7 +14,7 @@ Depth-Jet），输出可直接驱动下游模型微调的自包含标注产物 `
 主仓 scripts/prepare_rgbdt.py                本仓（数据工程）                      主仓（训练）
 ├─ 三模态存在性/尺寸对齐校验            ┌──────────────────────────┐
 ├─ 16 位深度 → JET 伪彩（Processed/）   │ prepare_split → census    │
-└─ groundtruth.txt → 归一化 XYXY   ───▶ │ → assembly → text_qc      │ ───▶ outputs/annotations/
+└─ groundtruth.txt → 归一化 XYXY   ───▶ │ → generation → text_qc      │ ───▶ outputs/annotations/
                                        │ → review → apply          │      <run_id>/{train,val}/
                                        │ → package_approved        │      approved.json
                                        └──────────────────────────┘            │
@@ -125,7 +125,7 @@ query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 
   标注立即对读者可见。
 - **前端防竞态**：保存响应只更新发起请求的条目，跳转后到达的旧响应不覆盖当前画布。
 - **三种会话模式**：`--census-run`（普查框审，教师框预置为 AI 预标注）、
-  `--assembly`（组装件审：改框 + 改 query）、`--manifest`（任意清单，通用模式）。
+  `--generation`（组装件审：改框 + 改 query）、`--manifest`（任意清单，通用模式）。
 - **人工操作**：拖拽/缩放修正框（`PUT /api/item/<id>/bbox`）、在编辑框改写 query
   （`PUT /api/item/<id>/query`）。前端不提供"目标不存在"按钮，HTTP 也不提供删除入口：
   缺席裁决以 `bbox: null` 且 `annotator` 带 `:absent` 后缀写入日志，只有经
@@ -161,13 +161,13 @@ query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 
 [2] run_census.py ─────▶ outputs/census/census_<id>/（merged.json + 分片 checkpoint）
         │                 红框/编号视图 → 单次枚举（开思考）+ attr → 代码门控 → 深度事实
         ▼
-[3] assemble_queries.py ▶ outputs/assembly/asm-<tag>/assembly.json（+ text QC 日志）
+[3] run_generation.py ▶ outputs/generation/asm-<tag>/generation.json（+ text QC 日志）
         │                 代码列事实 → 教师据此写一句（一次调用/目标）→ 同句去重
         ▼
 [4] review_server.py ──▶ outputs/review/<tag>/（annotations.jsonl + 三份快照）
         │                 人审：修正框 / 修订 query / 不存在裁决
         ▼
-[5] apply_review.py ───▶ outputs/assembly/asm-…-r6/assembly.json（合并烘焙）
+[5] apply_review.py ───▶ outputs/generation/asm-…-r6/generation.json（合并烘焙）
         │
         ▼
 [6] package_approved.py ▶ outputs/approved/<run_id>/<split>/approved.json
@@ -193,7 +193,7 @@ python scripts/run_census.py --split train --limit-sequences 320 \
 
 # [3] 组装（一次 API 调用 / 目标，8 并发；代码列事实 + 教师造句；
 #     --no-realize 只跑本地短路、--resume 复用已落盘的措辞、--force 重头来）
-python scripts/assemble_queries.py --census-run outputs/census/census_<id> \
+python scripts/run_generation.py --census-run outputs/census/census_<id> \
     --run-tag asm-<tag> --data-root /path/to/dataset --index-dir data/indexes
 
 # [3b] 逆向（query → 框，8 并发；--resume 复用已完成的题、--force 重头来）
@@ -203,13 +203,13 @@ python scripts/run_reverse.py --queries /path/to/queries.json \
 # [4] 人审（见下节：最小会话 / 多人分片）
 
 # [5] 合并烘焙
-python scripts/apply_review.py --assembly outputs/assembly/asm-train-r5/assembly.json \
+python scripts/apply_review.py --generation outputs/generation/asm-train-r5/generation.json \
     --review-queries outputs/review/asm-train-r5/annotations.queries.json
 
 # [6] 打包发布（自动算 4 重指纹并直交主仓）
 python scripts/package_approved.py \
-    --assembly outputs/assembly/asm-train-r6/assembly.json \
-             outputs/assembly/asm-val-r6/assembly.json \
+    --generation outputs/generation/asm-train-r6/generation.json \
+             outputs/generation/asm-val-r6/generation.json \
     --run-id annot_r6 \
     --export-to-main ../aicomp-multimodal-grounding
 
@@ -232,8 +232,8 @@ GLM-4.6V-Flash，LoRA 微调，唯一指标 ACC@0.5）。
 ```bash
 # 本仓：封包并交付
 python scripts/package_approved.py \
-    --assembly outputs/assembly/asm-train-r6/assembly.json \
-             outputs/assembly/asm-val-r6/assembly.json \
+    --generation outputs/generation/asm-train-r6/generation.json \
+             outputs/generation/asm-val-r6/generation.json \
     --run-id annot_r6 --export-to-main ../aicomp-multimodal-grounding
 
 # 主仓：直接训练（run_id 即上一步的 --run-id）
@@ -254,7 +254,7 @@ python offline/train.py --annotation-run-id annot_r6 \
 ### 环境
 
 ```bash
-pip install -e ".[pipeline]"   # 管线层（census / assembly / reverse）需要 Pillow + numpy
+pip install -e ".[pipeline]"   # 管线层（census / generation / reverse）需要 Pillow + numpy
 ```
 
 - Python 3.12+；审查服务支持 Linux/macOS，Windows 使用 WSL。
@@ -265,9 +265,9 @@ pip install -e ".[pipeline]"   # 管线层（census / assembly / reverse）需�
 ### 最小审查会话（三步）
 
 ```bash
-# 1. 生成审查清单（从 assembly.json）
+# 1. 生成审查清单（从 generation.json）
 python scripts/make_manifest.py \
-    --assembly outputs/assembly/asm-train-r5/assembly.json \
+    --generation outputs/generation/asm-train-r5/generation.json \
     --data-root /path/to/dataset --index-dir data/indexes
 
 # 或从任意 query JSON 生成（通用模式，零管线依赖）
@@ -297,7 +297,7 @@ python scripts/review_server.py --manifest part2.json --data-root /path/to/image
 # （annotations.jsonl + query/bbox/absent 三份快照；只交两份快照会缺少部分裁决与恢复信息）
 
 # 管理员按传入顺序合并各分片
-python scripts/apply_review.py --assembly assembly.json \
+python scripts/apply_review.py --generation generation.json \
     --review-queries part1/annotations.queries.json part2/annotations.queries.json
 ```
 
@@ -327,8 +327,8 @@ HTTP 接口：`GET /api/session`、`GET /api/progress`、`GET /image`、
 | 文件 | 内容 |
 |---|---|
 | `outputs/census/census_<id>/` | 普查结果 `merged.json`、运行计划与分片 checkpoint |
-| `outputs/assembly/<tag>/assembly.json` | 组装后的语料（每条含 sample_id、object_index、query、bbox） |
-| `outputs/assembly/<tag>/sentences.jsonl` | 逐条落盘的措辞；中断后 `--resume` 从这里续跑 |
+| `outputs/generation/<tag>/generation.json` | 组装后的语料（每条含 sample_id、object_index、query、bbox） |
+| `outputs/generation/<tag>/sentences.jsonl` | 逐条落盘的措辞；中断后 `--resume` 从这里续跑 |
 | `outputs/reverse/<run_id>/` | 逆向通路产物：`predictions.json`、`routes.json`、`thinking.jsonl`、`metadata.json`，以及逐条落盘的 `results.jsonl`（`--resume` 的续跑依据） |
 | `outputs/review/<run_tag>/annotations.jsonl` | 追加日志，apply 优先重放的状态来源 |
 | `outputs/review/<run_tag>/annotations.predictions.json` | 框结果：`{item_id: [x1,y1,x2,y2]}` 归一化 0–1 XYXY |
@@ -381,7 +381,7 @@ foundry/
   review/           审查器（工具层，零 pip 依赖）
     server.py         HTTP 服务与三种会话模式
     store.py          追加日志 + 快照 + flock 崩溃安全存储
-    census_session.py census / assembly 会话构建
+    census_session.py census / generation 会话构建
     bbox.py           审查器坐标工具
     web/              原生 HTML/JS/CSS 前端
   pipeline/         数据管线层（Pillow + numpy）
@@ -391,7 +391,7 @@ foundry/
     realize.py        全部事实清单 + 教师造句
     facts.py          帧级事实提取（ObjectFacts / Realization）
     planner.py        逐目标取句 + 全run去重
-    assembly.py       事实清单 + 目标选择 + 同句去重
+    generation.py       事实清单 + 目标选择 + 同句去重
     depth.py          16 位毫米深度事实
     text_qc.py        冠词引擎 + echo 表裁定
     contract.py       下游训练合同校验与指纹（协议 12）
@@ -400,13 +400,13 @@ foundry/
     source.py         标注源索引加载与校验
   bbox.py / utils.py  共享层：坐标与 IO/指纹（零 pip 依赖）
 scripts/              CLI 入口（prepare_split / run_census / run_reverse /
-                      assemble_queries / review_server / make_manifest /
+                      run_generation / review_server / make_manifest /
                       apply_review / package_approved / check_key / review_report）
 configs/default/      实际读取的提示词与 QC 规则（findall / attr / realize /
                       parse / enumerate / direct）
 data/indexes/         划分索引与清单（纳入 Git 追踪）
 tests/                离线逻辑、HTTP 服务与前端状态测试
-outputs/              产物（census / assembly / reverse / review / approved，已 ignore）
+outputs/              产物（census / generation / reverse / review / approved，已 ignore）
 ```
 
 ## 测试

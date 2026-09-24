@@ -35,7 +35,7 @@ class _CountingClient:
         return _fake_response({"query": f"the car number {self.counter[0]}"})
 
 
-class AssembleResumeTest(unittest.TestCase):
+class GenerateResumeTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
@@ -82,10 +82,10 @@ class AssembleResumeTest(unittest.TestCase):
         )
 
     def _run(self, *extra: str) -> None:
-        from tools import run_assembly
+        from tools import run_generation
 
         argv = [
-            "run_assembly",
+            "run_generation",
             "--census-run", str(self.root / "census"),
             "--data-root", str(self.root / "dataset"),
             "--index-dir", str(self.root / "index"),
@@ -98,12 +98,12 @@ class AssembleResumeTest(unittest.TestCase):
         ]
 
         with patch("sys.argv", argv), \
-             patch.object(run_assembly, "client_for", lambda *_a, **_k: _CountingClient(self.calls)):
-            run_assembly.main()
+             patch.object(run_generation, "client_for", lambda *_a, **_k: _CountingClient(self.calls)):
+            run_generation.main()
 
     @property
     def _manifest(self) -> dict:
-        return json.loads((self.root / "out/asm-test/assembly.json").read_text(encoding="utf-8"))
+        return json.loads((self.root / "out/asm-test/generation.json").read_text(encoding="utf-8"))
 
     def test_the_journal_is_written_as_the_run_goes(self):
         self._fixture()

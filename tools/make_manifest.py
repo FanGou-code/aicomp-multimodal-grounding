@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Build a review manifest from an assembly.json or any query JSON.
+"""Build a review manifest from an generation.json or any query JSON.
 
 Two input modes:
-  --assembly  : from assembly.json (internal pipeline)
+  --generation  : from generation.json (internal pipeline)
   --source    : from any {id, image, query} JSON (generic)
 
 Supports splitting into parts for multi-user annotation.
 
 Usage::
 
-    # From assembly
-    python scripts/make_manifest.py --assembly outputs/assembly/asm-train-r5/assembly.json \
+    # From generation
+    python scripts/make_manifest.py --generation outputs/generation/asm-train-r5/generation.json \
         --data-root /path/to/dataset
 
     # From any query JSON (generic — zero pipeline dependency)
@@ -35,8 +35,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from aicomp_grounding.annotation.config import resolve_index_dir
 
 
-def build_manifest_from_assembly(
-    assembly_path: Path,
+def build_manifest_from_generation(
+    generation_path: Path,
     data_root: Path,
     *,
     index_dir: Path | None = None,
@@ -44,11 +44,11 @@ def build_manifest_from_assembly(
     part: int = 0,
     out: Path | None = None,
 ) -> dict:
-    """Build a review manifest from assembly records."""
-    manifest = json.loads(assembly_path.read_text(encoding="utf-8"))
+    """Build a review manifest from generation records."""
+    manifest = json.loads(generation_path.read_text(encoding="utf-8"))
     metadata = manifest.get("metadata", {})
     split_name = metadata.get("split", "train")
-    run_tag = metadata.get("run_tag", assembly_path.parent.name)
+    run_tag = metadata.get("run_tag", generation_path.parent.name)
 
     data_root = Path(data_root)
     index = json.loads((resolve_index_dir(data_root, index_dir) / f"{split_name}.json").read_text(encoding="utf-8"))
@@ -152,14 +152,14 @@ def build_manifest_from_source(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--assembly", type=Path, default=None,
-                        help="path to assembly.json")
+    parser.add_argument("--generation", type=Path, default=None,
+                        help="path to generation.json")
     parser.add_argument("--source", type=Path, default=None,
                         help="path to any query JSON (mapping or list shape)")
     parser.add_argument("--images-root", type=Path, default=None,
                         help="root directory for image paths (required with --source)")
     parser.add_argument("--data-root", type=Path, default=None,
-                        help="dataset root holding indexes/ (required with --assembly)")
+                        help="dataset root holding indexes/ (required with --generation)")
     parser.add_argument("--index-dir", type=Path, default=None)
     parser.add_argument("--split", type=int, default=0,
                         help="divide into N parts (0 = no split)")
@@ -169,8 +169,8 @@ def main() -> None:
                         help="output path")
     args = parser.parse_args()
 
-    if not args.assembly and not args.source:
-        parser.error("either --assembly or --source is required")
+    if not args.generation and not args.source:
+        parser.error("either --generation or --source is required")
 
     if args.source:
         if not args.images_root:
@@ -185,17 +185,17 @@ def main() -> None:
         return
 
     if not args.data_root:
-        parser.error("--data-root is required with --assembly")
+        parser.error("--data-root is required with --generation")
     if args.split > 0 and not (1 <= args.part <= args.split):
         parser.error(f"--part must be 1..{args.split} when --split={args.split}")
 
     out = args.out
     if out is None:
-        tag = args.assembly.parent.name
+        tag = args.generation.parent.name
         out = Path(f"{tag}-part{args.part}of{args.split}.json") if args.split > 0 else Path(f"{tag}.json")
 
-    result = build_manifest_from_assembly(
-        assembly_path=args.assembly, data_root=args.data_root, index_dir=args.index_dir,
+    result = build_manifest_from_generation(
+        generation_path=args.generation, data_root=args.data_root, index_dir=args.index_dir,
         split=args.split, part=args.part, out=out,
     )
     print(f"manifest: {len(result['items'])} items, run_tag={result['run_tag']}")

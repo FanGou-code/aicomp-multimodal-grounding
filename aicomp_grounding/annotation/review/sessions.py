@@ -86,18 +86,18 @@ def build_census_session(census_run_dir: Path, data_root: Path, review_root: Pat
     }
 
 
-def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Path, *, index_dir: Path | None = None) -> dict:
-    """Review items from an assembled query manifest (1 sampled frame/sequence).
+def build_generation_session(generation_path: Path, data_root: Path, review_root: Path, *, index_dir: Path | None = None) -> dict:
+    """Review items from an generated query manifest (1 sampled frame/sequence).
 
-    Each record becomes an item whose query text is the assembled sentence and
-    whose seeded box is the assembled bbox (real records carry the organizer
+    Each record becomes an item whose query text is the generated sentence and
+    whose seeded box is the generated bbox (real records carry the organizer
     GT box). Per sequence exactly one selected frame is sampled (deterministic:
     lowest sample_id with records), matching the agreed sampling plan of one
     reviewed frame per sequence.
     """
-    assembly_path = Path(assembly_path)
+    generation_path = Path(generation_path)
     data_root = Path(data_root)
-    manifest = load_json(assembly_path)
+    manifest = load_json(generation_path)
     metadata = manifest.get("metadata", {})
     split = metadata.get("split", "train")
     index = load_json(resolve_index_dir(data_root, index_dir) / f"{split}.json")
@@ -120,7 +120,7 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
 
     items: list[dict] = []
     stats = {"seeded": 0, "frames": 0, "already_seeded": 0}
-    run_tag = str(metadata.get("run_tag") or assembly_path.parent.name)
+    run_tag = str(metadata.get("run_tag") or generation_path.parent.name)
     store = AnnotationStore(Path(review_root) / run_tag)
     existing_meta = store.all_meta()
     pending_seeds: list[tuple[str, list[float], str]] = []
@@ -159,7 +159,7 @@ def build_assembly_session(assembly_path: Path, data_root: Path, review_root: Pa
                 items.append(item)
     store.seed_many(pending_seeds)
     return {
-        "name": f"assembly-review:{metadata.get('run_tag', assembly_path.parent.name)}",
+        "name": f"generation-review:{metadata.get('run_tag', generation_path.parent.name)}",
         "items": items,
         "stats": stats,
         "census_run_id": metadata.get("census_run_id"),

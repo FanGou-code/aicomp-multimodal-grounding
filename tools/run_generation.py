@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 2: assemble queries from a census run.
+"""Phase 2: generate queries from a census run.
 
 Consumes a census run directory (merged.json + the dataset index), selects
 per-frame targets, and for each target writes out every fact that is true of
@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from aicomp_grounding.annotation.client import client_for, resolve_api_key, validate_concurrency  # noqa: E402
-from aicomp_grounding.annotation.assembly import assemble_run, audit_assembly  # noqa: E402
+from aicomp_grounding.annotation.generation import generate_run, audit_generation  # noqa: E402
 from aicomp_grounding.annotation.realize import (  # noqa: E402
     REALIZE_PROMPT_HASH,
     REALIZE_STAGE,
@@ -33,6 +33,7 @@ from aicomp_grounding.annotation.config import resolve_index_dir  # noqa: E402
 from aicomp_grounding.io import atomic_write_json, load_json  # noqa: E402
 from aicomp_grounding.annotation.text_qc import apply_text_qc  # noqa: E402
 from aicomp_grounding.annotation.imaging import jpeg_data_url  # noqa: E402
+from aicomp_grounding.paths import output_dir
 
 
 def _target_view(image, bbox) -> str:
@@ -115,7 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--index-dir", type=Path, default=None)
     parser.add_argument("--run-tag", default="")
-    parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "outputs" / "assembly")
+    parser.add_argument("--output-root", type=Path, default=output_dir("generation"))
     parser.add_argument("--max-teacher-per-frame", type=int, default=2,
                         help="teacher targets per frame; -1 = take all quality-sorted")
     parser.add_argument("--concurrency", type=int, default=8,
@@ -124,8 +125,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="key for this run; defaults to $ANNOTATION_API_KEY")
     parser.add_argument("--show", type=int, default=15, help="sample records to print")
     parser.add_argument("--all-frames", action="store_true",
-                        help="mark this assembly as full-frame (review all frames, "
-                             "not 1 per sequence). Metadata-only: assembly always "
+                        help="mark this generation as full-frame (review all frames, "
+                             "not 1 per sequence). Metadata-only: generation always "
                              "covers the census-selected frames; the flag drives the "
                              "downstream review session's sampling mode.")
     parser.add_argument("--retry", action=argparse.BooleanOptionalAction, default=True,
@@ -168,7 +169,7 @@ def main() -> None:
     realize = None if args.no_realize else build_realizer(
         args.data_root, index, resolve_api_key(args.api_key), retry=args.retry
     )
-    result = assemble_run(
+    result = generate_run(
         merged,
         index,
         max_teacher_per_frame=args.max_teacher_per_frame,
@@ -178,14 +179,14 @@ def main() -> None:
         on_sentence=lambda item_id, sentence: append_sentence(sentences_path, item_id, sentence),
     )
     text_edits = apply_text_qc(result.records)
-    audit = audit_assembly(result.records) if result.records else {
+    audit = audit_generation(result.records) if result.records else {
         "count": 0, "sources": {"real": 0, "teacher": 0},
         "verbatim_repeat_rate": 0.0, "mean_words": 0.0,
     }
 
     manifest = {
         "metadata": {
-            "assembler_version": 1,
+            "generator_version": 1,
             "run_tag": tag,
             "census_run_id": run_id,
             "census_source_fingerprint": metadata.get("source_fingerprint"),
@@ -202,18 +203,18 @@ def main() -> None:
         "records": [record.__dict__ for record in result.records],
         "shortfall": result.shortfall,
     }
-    atomic_write_json(out_dir / "assembly.json", manifest)
+    atomic_write_json(out_dir / "generation.json", manifest)
     atomic_write_json(out_dir / "audit.json", audit)
     if text_edits:
         atomic_write_json(out_dir / "text_edits.json", text_edits)
 
-    print(f"assembled {audit['count']} records "
+    print(f"generated {audit['count']} records "
           f"(real {audit['sources']['real']} / teacher {audit['sources']['teacher']}) "
           f"from {len(result.sequences)} sequences")
     print(f"verbatim repeat {audit['verbatim_repeat_rate']}, "
           f"mean words {audit['mean_words']}")
     print(f"shortfall: {len(result.shortfall)} target(s)")
-    print(f"wrote {out_dir / 'assembly.json'}")
+    print(f"wrote {out_dir / 'generation.json'}")
     print(f"wrote {out_dir / 'audit.json'}")
     print("\nsample records:")
     for record in result.records[: args.show]:

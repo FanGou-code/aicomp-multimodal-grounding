@@ -1,4 +1,4 @@
-"""Parse prompt assembly and strict decoding of the model's intent reply."""
+"""Parse prompt generation and strict decoding of the model's intent reply."""
 
 from __future__ import annotations
 

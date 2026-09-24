@@ -214,7 +214,7 @@ def load_enum_artifacts(run_dir: Path) -> tuple[dict, dict, dict]:
     """Read one enumeration run as ``(metadata, parse, instances)``.
 
     The metadata must name the directory it was read from, so a run cannot be
-    assembled from mismatched artifacts.
+    generated from mismatched artifacts.
     """
     metadata = load_json(run_dir / "metadata.json")
     if metadata.get("run_id") != run_dir.name:

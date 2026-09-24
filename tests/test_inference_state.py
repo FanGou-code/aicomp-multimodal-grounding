@@ -108,14 +108,14 @@ class LoraIdentityTests(unittest.TestCase):
     def test_relative_path_is_canonical_and_content_changes_fingerprint(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            adapter = root / "output_lora" / "best"
+            adapter = root / "training" / "best"
             adapter.mkdir(parents=True)
             (adapter / "adapter_config.json").write_text('{"r": 16}', encoding="utf-8")
             _write_adapter_manifest(adapter)
             weights = adapter / "adapter_model.safetensors"
             weights.write_bytes(b"first")
 
-            resolved = resolve_lora_path("output_lora/best", root)
+            resolved = resolve_lora_path("training/best", root)
             self.assertEqual(resolved, adapter.resolve())
             first = fingerprint_lora(resolved)
             weights.write_bytes(b"second")

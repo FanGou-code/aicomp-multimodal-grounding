@@ -6,10 +6,29 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aicomp_grounding.paths import ProjectPaths, resolve_from_root
+from aicomp_grounding.paths import (
+    OUTPUT_FAMILIES,
+    ProjectPaths,
+    output_dir,
+    resolve_from_root,
+)
 
 
 class ProjectPathsTests(unittest.TestCase):
+    def test_output_families_are_repo_relative_and_validated(self):
+        for family in OUTPUT_FAMILIES:
+            self.assertEqual(output_dir(family), Path("outputs") / family)
+        with self.assertRaises(ValueError):
+            output_dir("nope")
+
+    def test_project_output_resolves_against_the_root(self):
+        with tempfile.TemporaryDirectory() as td:
+            paths = ProjectPaths.from_root(td)
+            self.assertEqual(
+                paths.output("training"),
+                Path(td).resolve() / "outputs/training",
+            )
+
     def test_paths_are_repository_relative(self):
         with tempfile.TemporaryDirectory() as td:
             paths = ProjectPaths.from_root(td)

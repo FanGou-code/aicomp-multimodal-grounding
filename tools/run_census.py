@@ -7,7 +7,7 @@ envelope -- schema, sequential indices, self-reported count -- and normalizes
 ordering, duplicates and degenerate boxes.
 
 Attributes are read for the selected frames of each sequence. No queries are
-assembled here.
+generated here.
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.contract import source_fingerprint
 from aicomp_grounding.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
 from aicomp_grounding.annotation.source import image_fingerprint, load_annotation_source, preparation_fingerprint
+from aicomp_grounding.paths import output_dir
 
 CENSUS_PROTOCOL_VERSION = 4
 FINDALL_MAX_TOKENS = 8192
@@ -605,7 +606,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--index-dir", type=Path, default=None,
                         help="source indexes (default: this repo's data/indexes; legacy data-root/indexes accepted)")
-    parser.add_argument("--output-root", type=Path, default=Path("outputs/census"))
+    parser.add_argument("--output-root", type=Path, default=output_dir("census"))
     parser.add_argument("--limit-sequences", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--concurrency", type=int, default=8,

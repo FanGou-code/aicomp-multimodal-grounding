@@ -10,6 +10,29 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+#: Artifact families under the output root. This is the single source of the
+#: layout documented in ``docs/data-contract.md``; entrypoints take their
+#: defaults from here instead of spelling the directory out again.
+OUTPUT_FAMILIES = frozenset({
+    "annotations",
+    "training",
+    "inference",
+    "ordinal_enum",
+    "ordinal_resolve",
+    "fusion",
+    "submission",
+    "census",
+    "generation",
+    "reverse",
+})
+
+
+def output_dir(family: str, *, root: str | Path = "outputs") -> Path:
+    """``<root>/<family>`` for one artifact family; unknown families are refused."""
+    if family not in OUTPUT_FAMILIES:
+        raise ValueError(f"Unknown output family: {family!r}")
+    return Path(root) / family
+
 
 def resolve_from_root(path: str | Path, root: str | Path) -> Path:
     """Resolve a user path relative to an explicit project root."""
@@ -38,17 +61,8 @@ class ProjectPaths:
     def outputs(self) -> Path:
         return self.root / "outputs"
 
-    @property
-    def annotations(self) -> Path:
-        return self.outputs / "annotations"
-
-    @property
-    def inference(self) -> Path:
-        return self.outputs / "inference"
-
-    @property
-    def fusion(self) -> Path:
-        return self.outputs / "fusion"
+    def output(self, family: str) -> Path:
+        return output_dir(family, root=self.outputs)
 
     @property
     def submission_template(self) -> Path:
@@ -62,4 +76,4 @@ class ProjectPaths:
     def annotation_artifact(self, annotation_run_id: str, split: str) -> Path:
         if split not in {"train", "val"}:
             raise ValueError(f"Approved annotations do not support split: {split!r}")
-        return self.annotations / annotation_run_id / split / "approved.json"
+        return self.output("annotations") / annotation_run_id / split / "approved.json"

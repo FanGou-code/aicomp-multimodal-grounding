@@ -19,12 +19,12 @@ class ApplyReviewTest(unittest.TestCase):
         from unittest.mock import patch
         from aicomp_grounding.annotation.review.store import AnnotationStore
         store = AnnotationStore(self.tmp_path / "review")
-        assembly = self._write_assembly([self._one_record()])
+        generation = self._write_generation([self._one_record()])
         with patch.object(store, "_write_snapshots", side_effect=RuntimeError("simulated crash")):
             with self.assertRaises(RuntimeError):
                 store.set_query("001_00000001#01", "The blue car beside the tree", "reviewer")
         self.assertFalse(store.queries_path.exists())
-        result = apply(assembly, store.queries_path, "after-crash", self.tmp_path, False)
+        result = apply(generation, store.queries_path, "after-crash", self.tmp_path, False)
         self.assertEqual(result["records"][0]["query"], "The blue car beside the tree")
         self.assertFalse(store.queries_path.exists())  # apply is a read-only consumer
 
@@ -34,7 +34,7 @@ class ApplyReviewTest(unittest.TestCase):
         second = AnnotationStore(self.tmp_path / "second")
         first.delete("001_00000001#01", "reviewer:absent")
         second.set("001_00000001#01", [0.2, 0.2, 0.5, 0.5], "reviewer")
-        result = apply(self._write_assembly([self._one_record()]),
+        result = apply(self._write_generation([self._one_record()]),
                        [first.queries_path, second.queries_path], "present", self.tmp_path, False)
         self.assertEqual(len(result["records"]), 1)
         self.assertEqual(result["records"][0]["bbox"], [0.2, 0.2, 0.5, 0.5])
@@ -45,7 +45,7 @@ class ApplyReviewTest(unittest.TestCase):
         second = AnnotationStore(self.tmp_path / "second")
         first.set("001_00000001#01", [0.2, 0.2, 0.5, 0.5], "reviewer")
         second.set("001_00000001#01", [0.4, 0.4, 0.8, 0.8], "glm-4.6v")
-        asm = self._write_assembly([self._one_record()])
+        asm = self._write_generation([self._one_record()])
         paths = [first.queries_path, second.queries_path]
         result = apply(asm, paths, "teacher", self.tmp_path, False)
         self.assertEqual(result["records"][0]["bbox"], [0.2, 0.2, 0.5, 0.5])
@@ -60,12 +60,12 @@ class ApplyReviewTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _write_assembly(self, records, metadata=None):
+    def _write_generation(self, records, metadata=None):
         meta = {"run_tag": "asm-test-r5", "split": "train", "census_run_id": "census_xxx",
                 "all_frames": True, "max_teacher_per_frame": -1, "word_window": [3, 18]}
         if metadata:
             meta.update(metadata)
-        path = self.tmp_path / "assembly.json"
+        path = self.tmp_path / "generation.json"
         path.write_text(json.dumps({"metadata": meta, "records": records, "shortfall": []}))
         return path
 
@@ -82,7 +82,7 @@ class ApplyReviewTest(unittest.TestCase):
             "words": 7,
             "edited": False,
         }]
-        asm = self._write_assembly(records)
+        asm = self._write_generation(records)
         queries = self._write_queries({"001_00000001#01": "The leftmost deer"})
 
         result = apply(asm, queries, "asm-test-r6", self.tmp_path, force=True)
@@ -98,7 +98,7 @@ class ApplyReviewTest(unittest.TestCase):
             "words": 7,
             "edited": False,
         }]
-        asm = self._write_assembly(records)
+        asm = self._write_generation(records)
         queries = self._write_queries({})
 
         result = apply(asm, queries, "asm-test-r6", self.tmp_path, force=True)
@@ -115,7 +115,7 @@ class ApplyReviewTest(unittest.TestCase):
              "category": "deer", "bbox": [0.5, 0.2, 0.7, 0.4], "object_index": 2,
              "query": "the deer", "family": "plain_attribute",             "words": 2, "edited": False},
         ]
-        asm = self._write_assembly(records)
+        asm = self._write_generation(records)
         queries = self._write_queries({})
 
         result = apply(asm, queries, "asm-test-r6", self.tmp_path, force=True)
@@ -127,7 +127,7 @@ class ApplyReviewTest(unittest.TestCase):
         records = [{"sample_id": "001_00000001", "sequence_id": "001", "source": "real",
                      "category": "deer", "bbox": [0.1, 0.2, 0.3, 0.4], "object_index": 1,
                      "query": "test", "family": "plain_attribute",                     "words": 1, "edited": False}]
-        asm = self._write_assembly(records)
+        asm = self._write_generation(records)
         queries = self._write_queries({})
         # Create output dir first
         (self.tmp_path / "asm-test-r6").mkdir()
@@ -157,7 +157,7 @@ class ApplyReviewTest(unittest.TestCase):
              "query": "The second deer from left to right", "family": "ordinal_direction", "words": 7,
              "edited": False},
         ]
-        asm = self._write_assembly(records)
+        asm = self._write_generation(records)
         part1 = self.tmp_path / "part1_queries.json"
         part1.write_text(json.dumps({"001_00000001#01": "The leftmost deer"}))
         part2 = self.tmp_path / "part2_queries.json"
@@ -180,7 +180,7 @@ class ApplyReviewTest(unittest.TestCase):
              "category": "boar", "bbox": [0.2, 0.2, 0.4, 0.4], "object_index": 3,
              "query": "the boar", "family": "plain_attribute",             "words": 2, "edited": False},
         ]
-        asm = self._write_assembly(records)
+        asm = self._write_generation(records)
         self._write_queries({})
         # Human-corrected box for #01; #02 untouched (no-op); #03 human-confirmed absent.
         boxes = {
@@ -212,7 +212,7 @@ class ApplyReviewTest(unittest.TestCase):
             "query": "The ambiguous deer", "family": "plain_attribute",
             "words": 3, "edited": False,
         }]
-        asm = self._write_assembly(records)
+        asm = self._write_generation(records)
         self._write_queries({})
         # Journal marks the item as reviewer:todo (pending disambiguation).
         journal = self.tmp_path / "annotations.jsonl"
@@ -233,7 +233,7 @@ class ApplyReviewTest(unittest.TestCase):
             "query": "The deer", "family": "plain_attribute",
             "words": 2, "edited": False,
         }]
-        asm = self._write_assembly(records)
+        asm = self._write_generation(records)
         dir1 = self.tmp_path / "part1"
         dir1.mkdir()
         (dir1 / "annotations.queries.json").write_text("{}", encoding="utf-8")
@@ -271,7 +271,7 @@ class ApplyReviewTest(unittest.TestCase):
             "query": "The deer", "family": "plain_attribute",
             "words": 2, "edited": False,
         }]
-        asm = self._write_assembly(records)
+        asm = self._write_generation(records)
         missing = self.tmp_path / "does_not_exist.json"
         with self.assertRaises(FileNotFoundError):
             apply(asm, missing, "asm-test-r6", self.tmp_path, force=True)

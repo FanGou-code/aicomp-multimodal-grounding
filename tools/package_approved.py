@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Package reviewed assembly records and split indexes into approved.json.
+"""Package reviewed generation records and split indexes into approved.json.
 
-Converts query-foundry assembly products (assembly.json) and source split indexes
+Converts query-foundry generation products (generation.json) and source split indexes
 into the final, directly consumable approved.json artifact required by downstream
 training. Automatically computes and seals all four SHA-256 fingerprints:
   1. source_fingerprint      (content hash of immutable inputs)
@@ -46,14 +46,14 @@ from aicomp_grounding.io import atomic_write_json, load_json
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Package assembly records into approved.json with deterministic SHA-256 fingerprints"
+        description="Package generation records into approved.json with deterministic SHA-256 fingerprints"
     )
     parser.add_argument(
-        "--assembly",
+        "--generation",
         type=Path,
         nargs="+",
         required=True,
-        help="one or more paths to assembly.json (e.g. asm-train-r6/assembly.json asm-val-r6/assembly.json)",
+        help="one or more paths to generation.json (e.g. asm-train-r6/generation.json asm-val-r6/generation.json)",
     )
     parser.add_argument(
         "--index",
@@ -77,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--split",
         choices=("train", "val"),
         default=None,
-        help="override split name (only valid when a single assembly file is provided)",
+        help="override split name (only valid when a single generation file is provided)",
     )
     parser.add_argument(
         "--run-id",
@@ -94,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=None,
-        help="exact destination file path (only valid when a single assembly file is provided)",
+        help="exact destination file path (only valid when a single generation file is provided)",
     )
     parser.add_argument(
         "--export-to-main",
@@ -131,9 +131,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _find_prompt_hash(assembly_meta: dict) -> str:
+def _find_prompt_hash(generation_meta: dict) -> str:
     """Derive or locate the prompt hash from census or default."""
-    census_run_id = assembly_meta.get("census_run_id")
+    census_run_id = generation_meta.get("census_run_id")
     if census_run_id:
         plan_path = PROJECT_ROOT / "outputs" / "census" / census_run_id / "plan.json"
         if plan_path.is_file():
@@ -154,7 +154,7 @@ def _find_prompt_hash(assembly_meta: dict) -> str:
 
 
 def package_single(
-    assembly_path: Path,
+    generation_path: Path,
     index_path: Path | None = None,
     index_dir: Path | None = None,
     split_manifest_path: Path | None = None,
@@ -169,19 +169,19 @@ def package_single(
     dry_run: bool = False,
     force: bool = False,
 ) -> dict:
-    if not assembly_path.is_file():
-        raise FileNotFoundError(f"Assembly file not found: {assembly_path}")
+    if not generation_path.is_file():
+        raise FileNotFoundError(f"Generation file not found: {generation_path}")
 
-    assembly = load_json(assembly_path)
-    assembly_meta = dict(assembly.get("metadata", {}))
-    records = list(assembly.get("records", []))
+    generation = load_json(generation_path)
+    generation_meta = dict(generation.get("metadata", {}))
+    records = list(generation.get("records", []))
     if not records:
-        raise ValueError(f"Assembly file contains no records: {assembly_path}")
+        raise ValueError(f"Generation file contains no records: {generation_path}")
 
     # Determine split
-    resolved_split = split or assembly_meta.get("split")
+    resolved_split = split or generation_meta.get("split")
     if not resolved_split or resolved_split not in ("train", "val"):
-        raise ValueError("Unable to determine split (train/val) from assembly metadata; specify --split explicitly")
+        raise ValueError("Unable to determine split (train/val) from generation metadata; specify --split explicitly")
 
     # Locate index file
     if index_path is None:
@@ -201,18 +201,18 @@ def package_single(
 
     # Determine preparation fingerprint
     prep_fp = (
-        assembly_meta.get("census_preparation_fingerprint")
+        generation_meta.get("census_preparation_fingerprint")
         or (stable_json_hash(manifest_data) if manifest_data else None)
     )
     if not prep_fp:
-        raise ValueError("Cannot determine preparation_fingerprint: split_manifest.json missing and not in assembly metadata")
+        raise ValueError("Cannot determine preparation_fingerprint: split_manifest.json missing and not in generation metadata")
 
     # Determine run ID
-    assembly_tag = assembly_meta.get("run_tag") or assembly_path.parent.name
-    resolved_run_id = run_id or f"annot_{assembly_tag}"
+    generation_tag = generation_meta.get("run_tag") or generation_path.parent.name
+    resolved_run_id = run_id or f"annot_{generation_tag}"
 
     # Determine prompt hash
-    resolved_prompt_hash = prompt_hash or _find_prompt_hash(assembly_meta)
+    resolved_prompt_hash = prompt_hash or _find_prompt_hash(generation_meta)
 
     # Determine key format
     sample_ids = [r["sample_id"] for r in records]
@@ -220,9 +220,9 @@ def package_single(
     use_item_id = (key_format == "item_id") or (key_format == "auto" and has_multi)
 
     if key_format == "sample_id" and has_multi:
-        raise ValueError("Cannot use --key-format sample_id when assembly contains multiple objects per frame")
+        raise ValueError("Cannot use --key-format sample_id when generation contains multiple objects per frame")
 
-    # Assemble dataset
+    # Build the dataset
     data: dict[str, dict] = {}
     qc_failures: list[tuple[str, str, str]] = []
     seen_queries: set[tuple[str, str]] = set()
@@ -230,7 +230,7 @@ def package_single(
     for rec in records:
         sample_id = rec["sample_id"]
         if sample_id not in index:
-            raise KeyError(f"Sample ID {sample_id!r} from assembly not found in index {index_path}")
+            raise KeyError(f"Sample ID {sample_id!r} from generation not found in index {index_path}")
 
         idx_item = index[sample_id]
         obj_idx = rec.get("object_index", 0)
@@ -400,10 +400,10 @@ def _publish_results(results: list[dict], *, export_to_main: Path | None, force:
         atomic_write_json(path, payload)
 
 
-def _derive_common_run_id(assemblies: list[Path]) -> str:
+def _derive_common_run_id(generations: list[Path]) -> str:
     """Derive a single shared run ID for multi-split packaging when omitted."""
     tags: list[str] = []
-    for p in assemblies:
+    for p in generations:
         try:
             meta = load_json(p).get("metadata", {})
             tag = meta.get("run_tag") or p.parent.name
@@ -420,7 +420,7 @@ def _derive_common_run_id(assemblies: list[Path]) -> str:
 
 
 def package(
-    assemblies: list[Path] | Path | None = None,
+    generations: list[Path] | Path | None = None,
     index_path: Path | None = None,
     index_dir: Path | None = None,
     split_manifest_path: Path | None = None,
@@ -434,29 +434,29 @@ def package(
     lenient_qc: bool = False,
     dry_run: bool = False,
     force: bool = False,
-    assembly_path: Path | None = None,
+    generation_path: Path | None = None,
 ) -> list[dict] | dict:
-    if assemblies is None and assembly_path is not None:
-        assemblies = assembly_path
-    if assemblies is None:
-        raise ValueError("Must provide assemblies or assembly_path")
+    if generations is None and generation_path is not None:
+        generations = generation_path
+    if generations is None:
+        raise ValueError("Must provide generations or generation_path")
 
-    return_single = assembly_path is not None or isinstance(assemblies, (str, Path))
-    if isinstance(assemblies, (str, Path)):
-        assemblies = [Path(assemblies)]
+    return_single = generation_path is not None or isinstance(generations, (str, Path))
+    if isinstance(generations, (str, Path)):
+        generations = [Path(generations)]
 
-    if len(assemblies) > 1 and (output_path is not None or split is not None):
-        raise ValueError("--output and --split can only be used when packaging a single assembly file")
+    if len(generations) > 1 and (output_path is not None or split is not None):
+        raise ValueError("--output and --split can only be used when packaging a single generation file")
 
-    if len(assemblies) > 1 and run_id is None:
-        run_id = _derive_common_run_id(assemblies)
+    if len(generations) > 1 and run_id is None:
+        run_id = _derive_common_run_id(generations)
 
     results: list[dict] = []
     by_split: dict[str, dict] = {}
 
-    for asm_path in assemblies:
+    for asm_path in generations:
         res = package_single(
-            assembly_path=asm_path,
+            generation_path=asm_path,
             index_path=index_path,
             index_dir=index_dir,
             split_manifest_path=split_manifest_path,
@@ -473,7 +473,7 @@ def package(
         )
         s = res["split"]
         if s in by_split:
-            raise ValueError(f"Multiple assemblies provided for split {s!r}")
+            raise ValueError(f"Multiple generations provided for split {s!r}")
         by_split[s] = res
         results.append(res)
 
@@ -500,7 +500,7 @@ def main() -> None:
 
     try:
         raw_res = package(
-            assemblies=args.assembly,
+            generations=args.generation,
             index_path=args.index,
             index_dir=args.index_dir,
             split_manifest_path=args.split_manifest,

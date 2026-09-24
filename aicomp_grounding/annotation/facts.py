@@ -1,7 +1,7 @@
 """Shared fact-layer data types and frame-fact extraction (pure data, no policy).
 
 ``ObjectFacts`` is one enumerated object's derived facts; ``Realization`` is
-one candidate sentence. Both are consumed by the assembler and the planner.
+one candidate sentence. Both are consumed by the generator and the planner.
 ``extract_frame_facts`` turns one frame's trusted enumeration + attr card +
 depth record into ``ObjectFacts``; all geometric margins live here so the
 extraction thresholds have exactly one home.

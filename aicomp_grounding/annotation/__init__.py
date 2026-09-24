@@ -1,1 +1,1 @@
-"""Annotation pipeline: census, assembly, human review, and the reverse pass."""
+"""Annotation pipeline: census, generation, human review, and the reverse pass."""

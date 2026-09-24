@@ -35,6 +35,7 @@ from aicomp_grounding.annotation.imaging import jpeg_data_url
 from aicomp_grounding.annotation.config import ANNOTATION_MODEL_NAME, ANNOTATION_MODEL_REVISION
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.io import atomic_write_json
+from aicomp_grounding.paths import output_dir
 
 REVERSE_PROTOCOL_VERSION = 1
 
@@ -293,7 +294,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--queries", type=Path, required=True, dest="queries_path",
                         help="JSON object keyed by sample id; each value needs query and visible")
     parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--output-root", type=Path, default=Path("outputs/reverse"))
+    parser.add_argument("--output-root", type=Path, default=output_dir("reverse"))
     parser.add_argument("--run-tag", default="")
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--limit", type=int, default=0)

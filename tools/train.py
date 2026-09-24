@@ -24,7 +24,7 @@ from aicomp_grounding.training_core import (
     prepare_training_plan,
     run_training,
 )
-from aicomp_grounding.paths import ProjectPaths, resolve_from_root
+from aicomp_grounding.paths import ProjectPaths, output_dir, resolve_from_root
 from aicomp_grounding.models.base import require_local_model_path
 
 
@@ -48,7 +48,7 @@ def parse_args():
     parser.add_argument(
         "--annotation-root",
         type=Path,
-        default=Path("outputs/annotations"),
+        default=output_dir("annotations"),
         help="Repository-level root containing approved annotation artifacts.",
     )
     parser.add_argument(

@@ -31,6 +31,7 @@ from aicomp_grounding.images import (
 )
 from aicomp_grounding.models import get_adapter
 from aicomp_grounding.models.base import ModelInput
+from aicomp_grounding.paths import output_dir
 from aicomp_grounding.training_state import (
     accumulation_window_size,
     adapter_weight_path,
@@ -361,7 +362,7 @@ def prepare_training_plan(
         if output_root is not None
         else root
     )
-    run_dir = output_base / "output_lora" / metadata["training_run_id"]
+    run_dir = output_dir("training", root=output_base) / metadata["training_run_id"]
 
     completed_path = run_dir / "completed.json"
     if completed_path.is_file():

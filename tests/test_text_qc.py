@@ -2,12 +2,12 @@
 
 import unittest
 
-from aicomp_grounding.annotation.assembly import AssemblyRecord
+from aicomp_grounding.annotation.generation import GenerationRecord
 from aicomp_grounding.annotation.text_qc import adjudicate, apply_text_qc, qc_query
 
 
-def record(sample_id: str, object_index: int, query: str) -> AssemblyRecord:
-    return AssemblyRecord(
+def record(sample_id: str, object_index: int, query: str) -> GenerationRecord:
+    return GenerationRecord(
         sample_id=sample_id, sequence_id=sample_id.split("_")[0], source="teacher",
         category="swan", bbox=[0.1, 0.4, 0.2, 0.6], object_index=object_index,
         query=query,

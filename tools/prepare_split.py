@@ -9,7 +9,7 @@ Two-stage pipeline:
 The split assignment is frozen to match the current production indexes
 (seed=42, train_ratio=0.8). Output indexes are clean: sample_id → {visible,
 infrared, depth, bbox, width, height}. No query field — queries are produced
-downstream by the assembly pipeline.
+downstream by the generation pipeline.
 """
 
 from __future__ import annotations

@@ -11,7 +11,7 @@
 ## 数据流
 
 ```
-prepare_split → census → assembly → text_qc → review → apply → package_approved
+prepare_split → census → generation → text_qc → review → apply → package_approved
 ```
 
 ## 模块地图
@@ -20,11 +20,11 @@ prepare_split → census → assembly → text_qc → review → apply → packa
 |---|---|
 | `foundry/utils.py` | IO（load_json / atomic_write_json）+ 文件指纹 + 管线常量 |
 | `foundry/bbox.py` | 坐标计算（IoU / 归一化） |
-| `foundry/review/server.py` | 审查服务 HTTP 后端（--manifest / --assembly / --census-run 三模式） |
+| `foundry/review/server.py` | 审查服务 HTTP 后端（--manifest / --generation / --census-run 三模式） |
 | `foundry/review/store.py` | 崩溃安全 journal + snapshot 存储 |
-| `foundry/review/census_session.py` | Census / assembly 会话构建器 |
+| `foundry/review/census_session.py` | Census / generation 会话构建器 |
 | `foundry/pipeline/census.py` | 普查协议：提示词、响应解析、确定性门 |
-| `foundry/pipeline/assembly.py` | 组装器：句族实现 + 唯一性门 + 目标选择 |
+| `foundry/pipeline/generation.py` | 组装器：句族实现 + 唯一性门 + 目标选择 |
 | `aicomp_grounding/annotation/selection.py` | 候选去重与选用 |
 | `foundry/pipeline/facts.py` | 帧级事实提取（ObjectFacts / Realization） |
 | `foundry/pipeline/text_qc.py` | 文本 QC（冠词引擎 + echo 表） |
@@ -35,11 +35,11 @@ prepare_split → census → assembly → text_qc → review → apply → packa
 | `foundry/pipeline/sharding.py` | 分片 + 序列解析 |
 | `foundry/pipeline/source.py` | 标注源索引加载 + 指纹 |
 | `scripts/review_server.py` | 审查服务入口 |
-| `scripts/make_manifest.py` | 审查清单生成（--assembly / --source 双模式） |
+| `scripts/make_manifest.py` | 审查清单生成（--generation / --source 双模式） |
 | `scripts/apply_review.py` | 人审结果合并烘焙 |
 | `scripts/package_approved.py` | 打包发布 approved.json（自动算 4 个 SHA-256 指纹，直通主仓） |
 | `scripts/run_census.py` | 普查入口 |
-| `scripts/assemble_queries.py` | 组装入口 |
+| `scripts/run_generation.py` | 组装入口 |
 | `scripts/prepare_split.py` | 数据划分（--seed --train-ratio） |
 | `scripts/check_key.py` | 注入的 key 测活 |
 | `scripts/review_report.py` | 审查报告 |

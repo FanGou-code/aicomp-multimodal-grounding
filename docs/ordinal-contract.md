@@ -127,5 +127,5 @@ run-id 标识一套参数配置。全部解码参数（含 `enable_thinking`）�
 
 ## 6. 产物
 
-主仓产物见 `data-contract.md`；标注侧输出 `outputs/{census,assembly,reverse}/<run_id>/`。
+主仓产物见 `data-contract.md`；标注侧输出 `outputs/{census,generation,reverse}/<run_id>/`。
 落盘原则：可重算的不落盘，模型输出与人审结果必留。

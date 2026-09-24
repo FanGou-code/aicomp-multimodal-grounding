@@ -16,7 +16,7 @@ from pathlib import Path
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 
-from aicomp_grounding.annotation.review.sessions import build_assembly_session
+from aicomp_grounding.annotation.review.sessions import build_generation_session
 from aicomp_grounding.annotation.review.server import create_server
 from aicomp_grounding.annotation.review.store import AnnotationStore
 
@@ -294,8 +294,8 @@ class StoreReplayTest(unittest.TestCase):
             self.assertEqual(process_b.get_query("x#01"), "the corrected description")
 
 
-def make_assembly_manifest(tmp: Path, split: str = "train") -> tuple[Path, Path]:
-    """Minimal assembly manifest + dataset index with one frame, two records."""
+def make_generation_manifest(tmp: Path, split: str = "train") -> tuple[Path, Path]:
+    """Minimal generation manifest + dataset index with one frame, two records."""
     sample = "070_00000001" if split == "train" else "004_00000001"
     sequence = sample.split("_")[0]
     index_dir = tmp / "data" / "indexes"
@@ -313,13 +313,13 @@ def make_assembly_manifest(tmp: Path, split: str = "train") -> tuple[Path, Path]
          "query": "a duck closest to the camera", "bbox": [0.50, 0.40, 0.60, 0.60],
          "source": "teacher", "category": "duck"},
     ]
-    assembly_path = tmp / f"assembly-{split}.json"
-    assembly_path.write_text(
+    generation_path = tmp / f"generation-{split}.json"
+    generation_path.write_text(
         json.dumps({"metadata": {"run_tag": f"asm-test-{split}", "split": split},
                     "records": records}),
         encoding="utf-8",
     )
-    return assembly_path, tmp / "review"
+    return generation_path, tmp / "review"
 
 
 class SeedBatchingTest(unittest.TestCase):
@@ -348,16 +348,16 @@ class SeedBatchingTest(unittest.TestCase):
             self.assertEqual(store.seed_many([]), 0)
             self.assertEqual(len((Path(tmp) / "store" / "annotations.jsonl").read_text().splitlines()), 2)
 
-    def test_assembly_seed_respects_human_and_resyncs_stale_teacher(self):
+    def test_generation_seed_respects_human_and_resyncs_stale_teacher(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            assembly_path, review_root = make_assembly_manifest(tmp)
+            generation_path, review_root = make_generation_manifest(tmp)
             # Pre-existing store: #01 human-adjusted, #02 a stale teacher seed.
             pre = AnnotationStore(review_root / "asm-test-train")
             pre.set("070_00000001#01", [0.12, 0.42, 0.22, 0.62], annotator="fang0")
             pre.set("070_00000001#02", [0.9, 0.9, 0.95, 0.95], annotator="glm-4.6v")
 
-            session = build_assembly_session(assembly_path, tmp / "data", review_root)
+            session = build_generation_session(generation_path, tmp / "data", review_root)
             stats = session["stats"]
             self.assertEqual(stats["seeded"], 1)          # stale teacher re-synced
             self.assertEqual(stats["already_seeded"], 1)  # human box untouched
@@ -378,11 +378,11 @@ class MultiCorpusSessionTest(unittest.TestCase):
     def test_combined_session_tags_and_routes_by_corpus(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            train_path, review_root = make_assembly_manifest(tmp, split="train")
-            val_path, _ = make_assembly_manifest(tmp, split="val")
+            train_path, review_root = make_generation_manifest(tmp, split="train")
+            val_path, _ = make_generation_manifest(tmp, split="val")
             server, state = create_server(
                 census_run_dir=None,
-                assembly_path=[train_path, val_path],
+                generation_path=[train_path, val_path],
                 data_root=tmp / "data",
                 review_root=review_root,
                 host="127.0.0.1",
@@ -421,12 +421,12 @@ class MultiCorpusSessionTest(unittest.TestCase):
     def test_duplicate_split_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            train_a, _ = make_assembly_manifest(tmp, split="train")
-            train_b, _ = make_assembly_manifest(tmp, split="train")
+            train_a, _ = make_generation_manifest(tmp, split="train")
+            train_b, _ = make_generation_manifest(tmp, split="train")
             with self.assertRaises(ValueError):
                 create_server(
                     census_run_dir=None,
-                    assembly_path=[train_a, train_b],
+                    generation_path=[train_a, train_b],
                     data_root=tmp / "data",
                     review_root=tmp / "review",
                     host="127.0.0.1",

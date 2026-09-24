@@ -112,14 +112,14 @@ python offline/train.py --annotation-run-id <run_id> --model qwen3vl \
 ```bash
 # 验证集评测：带真值，直接打印 ACC@0.5 / 平均 IoU / 解析失败数
 python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
-  --lora-path outputs/output_lora/<train_run_id>/best/epoch_03 \
+  --lora-path outputs/training/<train_run_id>/best/epoch_03 \
   --test-json outputs/annotations/<run_id>/val/approved.json --annotation-run-id <run_id> \
   --data-dir data --num-shards 1 --num-workers 2 --batch-size 2 --batch-save 100 \
   --run-tag val-eval
 
 # 测试集推理：无真值，只写 predictions.json，不打包
 python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
-  --lora-path outputs/output_lora/<train_run_id>/best/epoch_03 \
+  --lora-path outputs/training/<train_run_id>/best/epoch_03 \
   --test-json data/Test/queries/queries.json \
   --data-dir data --num-shards 1 --num-workers 2 --batch-size 2 --batch-save 100 \
   --run-tag test-full
@@ -142,7 +142,7 @@ python -m aicomp_grounding.fusion.wbf \
 python -m aicomp_grounding.submission \
   --test-json data/Test/queries/queries.json \
   --predictions outputs/fusion/<run_id>/predictions.json \
-  --output-dir outputs/submission/<run_id>
+  --output-dir outputs/submission/<tag>
 ```
 
 `--scores` 可传各模型的分数文件做乘性加权，空字符串表示该模型不计分数；当前阵容没有
@@ -162,13 +162,13 @@ python -m aicomp_grounding.ordinal.enumerate \
   --model qwen3_5 --model-path models/Qwen3.5-9B \
   --test-json data/Test/queries/queries.json --data-dir data \
   --temperature 0.6 --top-p 0.95 --top-k 20 --presence-penalty 0.0 \
-  --output-dir outputs/enum --run-tag ord-full
+  --output-dir outputs/ordinal_enum --run-tag ord-full
 
 # 用枚举清单修正 qwen3_5 的预测
 python -m aicomp_grounding.ordinal.resolve \
-  --enum-run outputs/enum/<id> --predictions outputs/inference/<infer>/predictions.json \
+  --enum-run outputs/ordinal_enum/<id> --predictions outputs/inference/<infer>/predictions.json \
   --test-json data/Test/queries/queries.json --data-dir data \
-  --output-dir outputs/ordinal --run-tag ord-full
+  --output-dir outputs/ordinal_resolve --run-tag ord-full
 ```
 
 枚举用基座权重、不挂 LoRA、只喂可见光一张图，一次调用；思考里先数，输出
@@ -179,7 +179,7 @@ python -m aicomp_grounding.ordinal.resolve \
 留存，不参与判定。
 
 参数出处与正向/逆向共用的中间表示见 `docs/ordinal-contract.md`。思考文本落
-`outputs/enum/<run_id>/thinking.jsonl`。
+`outputs/ordinal_enum/<run_id>/thinking.jsonl`。
 
 
 ## 运行身份与产物
@@ -189,7 +189,7 @@ python -m aicomp_grounding.ordinal.resolve \
 
 - 同一份输入与参数命中同一个 run id（默认 `--resume` 续跑）；
 - 参数或数据变更分流到新目录，不覆盖既有产物；
-- 训练产物在 `outputs/output_lora/<run_id>/`（`plan.json`、`checkpoints/`、`best/`、
+- 训练产物在 `outputs/training/<run_id>/`（`plan.json`、`checkpoints/`、`best/`、
   `last/`、`completed.json`），推理产物在 `outputs/inference/<run_id>/`。
 
 ## 扩展：新增一个模型
