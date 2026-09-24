@@ -1,11 +1,11 @@
-"""Tests for the local query assembler (foundry.pipeline.assembly)."""
+"""Tests for the local query generator (foundry.pipeline.generation)."""
 
 import threading
 import unittest
 
-from aicomp_grounding.annotation.assembly import (
-    assemble_run,
-    audit_assembly,
+from aicomp_grounding.annotation.generation import (
+    generate_run,
+    audit_generation,
     select_targets,
 )
 from aicomp_grounding.annotation.facts import ObjectFacts, extract_frame_facts
@@ -260,7 +260,7 @@ def make_merged(frames_spec):
     return {"metadata": {"run_id": "census_test"}, "results": results}
 
 
-class AssembleRunTest(unittest.TestCase):
+class GenerateRunTest(unittest.TestCase):
     def setUp(self):
         self.frames = {
             "070_00000001": (
@@ -291,12 +291,12 @@ class AssembleRunTest(unittest.TestCase):
 
     def test_end_to_end_deterministic_and_accepted(self):
         merged = make_merged(self.frames)
-        first = assemble_run(merged, self.index, realize=realize)
-        second = assemble_run(merged, self.index, realize=realize)
+        first = generate_run(merged, self.index, realize=realize)
+        second = generate_run(merged, self.index, realize=realize)
         self.assertEqual([r.__dict__ for r in first.records], [r.__dict__ for r in second.records])
         self.assertLessEqual(len(first.records), 6)
         self.assertTrue(all(r.query[0].isupper() for r in first.records))
-        audit = audit_assembly(first.records)
+        audit = audit_generation(first.records)
         self.assertTrue(audit["acceptance"]["verbatim_repeat_le_0_10"])
         self.assertNotIn("bucket_counts", audit)
         self.assertEqual(audit["sources"]["real"] + audit["sources"]["teacher"], audit["count"])
@@ -308,10 +308,10 @@ class AssembleRunTest(unittest.TestCase):
     def test_shortfall_when_frame_incomplete_or_unmapped(self):
         merged = make_merged(self.frames)
         merged["results"]["070"]["frames"]["070_00000043"]["status"] = "failed"
-        result = assemble_run(merged, self.index, realize=realize)
+        result = generate_run(merged, self.index, realize=realize)
         self.assertIn("frame-not-completed", {s["reason"] for s in result.shortfall})
         missing = make_merged({"099_00000001": self.frames["070_00000001"]})
-        result = assemble_run(missing, self.index, realize=realize)
+        result = generate_run(missing, self.index, realize=realize)
         self.assertIn("sample-missing-from-index", {s["reason"] for s in result.shortfall})
 
     def test_a_missing_reference_still_yields_teacher_targets(self):
@@ -326,12 +326,12 @@ class AssembleRunTest(unittest.TestCase):
             ),
         }
         index = {"070_00000001": {"bbox": [0.9, 0.9, 0.95, 0.95], "visible": "x"}}
-        result = assemble_run(make_merged(frames), index, realize=realize)
+        result = generate_run(make_merged(frames), index, realize=realize)
         self.assertTrue(all(r.source == "teacher" for r in result.records))
         self.assertTrue(result.records)
 
     def test_no_records_without_a_realizer(self):
-        result = assemble_run(make_merged(self.frames), self.index)
+        result = generate_run(make_merged(self.frames), self.index)
         self.assertEqual(result.records, [])
 
     def test_every_distinct_sentence_is_kept(self):
@@ -351,9 +351,9 @@ class AssembleRunTest(unittest.TestCase):
             word = TEACHER_ORDINALS[target.rank_left - 1] if target.rank_left else "first"
             return f"The {word} {target.head} from the left {sample_id}"
 
-        result = assemble_run(make_merged(frames), index, realize=unique_realize)
+        result = generate_run(make_merged(frames), index, realize=unique_realize)
         self.assertTrue(result.records)
-        audit = audit_assembly(result.records)
+        audit = audit_generation(result.records)
         self.assertEqual(audit["count"], len(result.records))
         self.assertNotIn("bucket_counts", audit)
 
@@ -399,10 +399,10 @@ class ConcurrencyTest(unittest.TestCase):
             threads.add(threading.current_thread().name)
             return f"The {target.head} {sample_id}"
 
-        parallel = assemble_run(merged, index, max_workers=8, realize=realize)
+        parallel = generate_run(merged, index, max_workers=8, realize=realize)
         used_threads = set(threads)
         threads.clear()
-        serial = assemble_run(merged, index, max_workers=1, realize=realize)
+        serial = generate_run(merged, index, max_workers=1, realize=realize)
         self.assertEqual(
             [r.__dict__ for r in parallel.records],
             [r.__dict__ for r in serial.records],
@@ -421,7 +421,7 @@ class ConcurrencyTest(unittest.TestCase):
             barrier.wait()
             return f"The {target.head} {sample_id}"
 
-        result = assemble_run(merged, index, max_workers=8, realize=realize)
+        result = generate_run(merged, index, max_workers=8, realize=realize)
         self.assertTrue(result.records)
 
     def test_a_failing_call_does_not_silently_drop_the_target(self):
@@ -434,7 +434,7 @@ class ConcurrencyTest(unittest.TestCase):
             return f"The {target.head} {sample_id}"
 
         with self.assertRaises(RuntimeError):
-            assemble_run(merged, index, max_workers=8, realize=realize)
+            generate_run(merged, index, max_workers=8, realize=realize)
 
 
 class ResumeTest(unittest.TestCase):
@@ -458,7 +458,7 @@ class ResumeTest(unittest.TestCase):
             seen.append(f"{sample_id}#{target.index:02d}")
             return f"The {target.head} {sample_id}"
 
-        assemble_run(merged, index, realize=realize, max_workers=1)
+        generate_run(merged, index, realize=realize, max_workers=1)
         return seen
 
     def test_a_cached_sentence_is_not_asked_again(self):
@@ -473,7 +473,7 @@ class ResumeTest(unittest.TestCase):
             called.append(f"{sample_id}#{target.index:02d}")
             return f"The {target.head} {sample_id}"
 
-        result = assemble_run(merged, index, realize=realize, max_workers=8, sentences=cached)
+        result = generate_run(merged, index, realize=realize, max_workers=8, sentences=cached)
         self.assertEqual(sorted(called), sorted(expected))
         texts = {r.query for r in result.records}
         self.assertTrue(set(cached.values()) & texts)
@@ -482,7 +482,7 @@ class ResumeTest(unittest.TestCase):
         merged, index = self._fixture()
         item_ids = self._item_ids(merged, index)
         cached = {item_ids[0]: None}
-        result = assemble_run(
+        result = generate_run(
             merged, index,
             realize=lambda target, sample_id: f"The {target.head} {sample_id}",
             max_workers=8, sentences=cached,
@@ -498,11 +498,11 @@ class ResumeTest(unittest.TestCase):
         def realize(target, sample_id):
             return f"The {target.head} {sample_id}"
 
-        whole = assemble_run(merged, index, realize=realize, max_workers=1)
+        whole = generate_run(merged, index, realize=realize, max_workers=1)
         cache: dict = {}
-        assemble_run(merged, index, realize=realize, max_workers=1, sentences=cache)
+        generate_run(merged, index, realize=realize, max_workers=1, sentences=cache)
         self.assertTrue(cache)
-        resumed = assemble_run(
+        resumed = generate_run(
             merged, index, realize=realize, max_workers=1, sentences=dict(cache),
         )
         self.assertEqual(
@@ -519,7 +519,7 @@ class ResumeTest(unittest.TestCase):
             calls.append(item_id)
             return f"The {target.head} {item_id}"
 
-        assemble_run(
+        generate_run(
             merged, index, realize=realize, max_workers=8,
             sentences={}, on_sentence=written.__setitem__,
         )

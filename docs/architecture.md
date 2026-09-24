@@ -20,7 +20,7 @@
 原始图像 → scripts/prepare_rgbdt.py（三模态校验 + 深度伪彩）
         → query-foundry（划分 / 普查 / 组装 / 人审）
         → outputs/annotations/<run_id>/{train,val}/approved.json
-        → offline/train.py → outputs/output_lora/<run_id>/
+        → tools/train.py → outputs/training/<run_id>/
         → offline/infer.py → outputs/inference/<run_id>/predictions.json
         → aicomp_grounding.ordinal.{enumerate,resolve}（可选）→ outputs/{enum,ordinal}/
         → aicomp_grounding.fusion.wbf → aicomp_grounding.submission → submission.zip
@@ -63,7 +63,7 @@
 
 | 模块 | 职责 |
 | --- | --- |
-| `offline/train.py` | 训练 CLI：参数解析 → 训练计划 → 训练循环 → 产物交接 |
+| `tools/train.py` | 训练 CLI：参数解析 → 训练计划 → 训练循环 → 产物交接 |
 | `offline/infer.py` | 推理/评测 CLI：分片、断点续跑、指标与提交包判定 |
 | `offline/rocm_env.sh` | ROCm 性能环境变量（BLAS 后端、硬件队列、缓存目录） |
 | `scripts/prepare_rgbdt.py` | 三模态校验、深度伪彩生成、Test 引用与深度集合校验 |

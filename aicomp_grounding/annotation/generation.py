@@ -1,4 +1,4 @@
-"""Local query assembly from census facts.
+"""Local query generation from census facts.
 
 For each selected target, code writes out every fact that is true of it inside
 its own frame (``foundry.pipeline.realize``), the teacher turns those facts
@@ -36,7 +36,7 @@ def _variant(text: str) -> Realization:
 
 
 @dataclass
-class AssemblyRecord:
+class GenerationRecord:
     sample_id: str
     sequence_id: str
     source: str  # "real" | "teacher"
@@ -49,8 +49,8 @@ class AssemblyRecord:
 
 
 @dataclass
-class AssemblyResult:
-    records: list[AssemblyRecord] = field(default_factory=list)
+class GenerationResult:
+    records: list[GenerationRecord] = field(default_factory=list)
     shortfall: list[dict] = field(default_factory=list)
     sequences: list[str] = field(default_factory=list)
 
@@ -117,7 +117,7 @@ class _PendingTarget:
         return f"{self.sample_id}#{self.facts.index:02d}"
 
 
-def assemble_run(
+def generate_run(
     merged: dict,
     index: dict,
     *,
@@ -126,8 +126,8 @@ def assemble_run(
     realize=None,
     sentences: dict[str, str | None] | None = None,
     on_sentence=None,
-) -> AssemblyResult:
-    """Assemble query records from a census merged.json + dataset index.
+) -> GenerationResult:
+    """Generate query records from a census merged.json + dataset index.
 
     ``realize`` is a callable ``(facts, sample_id) -> str | None``, called once
     per selected target that has no wording yet. Everything that can be computed
@@ -141,7 +141,7 @@ def assemble_run(
     as each fresh result arrives, which is where a caller persists it if it
     wants a resumable run.
     """
-    result = AssemblyResult()
+    result = GenerationResult()
     sequences = merged.get("results", {})
     supply: list[_SupplyItem] = []
     pending: list[_PendingTarget] = []
@@ -230,7 +230,7 @@ def assemble_run(
         chosen = allocation.realization
         item = allocation.supply
         result.records.append(
-            AssemblyRecord(
+            GenerationRecord(
                 sample_id=item.sample_id,
                 sequence_id=item.sequence_id,
                 source=item.source,
@@ -248,11 +248,11 @@ def assemble_run(
     return result
 
 
-def audit_assembly(records: list[AssemblyRecord]) -> dict:
+def audit_generation(records: list[GenerationRecord]) -> dict:
     """Acceptance metrics: repeat rate, word counts, sources."""
     total = len(records)
     if not total:
-        raise ValueError("No assembled records to audit")
+        raise ValueError("No generated records to audit")
     texts = [r.query for r in records]
     verbatim = len(set(texts))
     lower = len(set(t.lower() for t in texts))

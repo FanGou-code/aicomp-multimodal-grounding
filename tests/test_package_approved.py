@@ -16,24 +16,24 @@ class PackageApprovedTests(unittest.TestCase):
     def test_final_collisions_are_rejected_even_without_flags(self):
         import copy
         for flagged in (False, True):
-            bad = copy.deepcopy(self.valid_assembly)
+            bad = copy.deepcopy(self.valid_generation)
             bad["records"][1].update(sample_id=bad["records"][0]["sample_id"],
                                      query=bad["records"][0]["query"], collision=flagged)
             path = self.root / "collision.json"
             path.write_text(json.dumps(bad))
             with self.subTest(flagged=flagged), self.assertRaisesRegex(ValueError, "collision"):
-                package(assembly_path=path, index_path=self.index_path,
+                package(generation_path=path, index_path=self.index_path,
                         split_manifest_path=self.manifest_path, output_path=self.root / "no-output.json")
             self.assertFalse((self.root / "no-output.json").exists())
 
     def test_joint_validation_failure_leaves_no_deliveries(self):
         import copy
-        val = copy.deepcopy(self.valid_assembly)
+        val = copy.deepcopy(self.valid_generation)
         val["metadata"]["split"] = "val"
-        val_path = self.root / "val-assembly.json"
+        val_path = self.root / "val-generation.json"
         val_path.write_text(json.dumps(val))
         with self.assertRaisesRegex(ValueError, "overlap"):
-            package(assemblies=[self.assembly_path, val_path], index_path=self.index_path,
+            package(generations=[self.generation_path, val_path], index_path=self.index_path,
                     split_manifest_path=self.manifest_path, output_dir=self.root / "out",
                     export_to_main=self.root / "main", run_id="annot_failed")
         self.assertFalse((self.root / "out").exists())
@@ -45,7 +45,7 @@ class PackageApprovedTests(unittest.TestCase):
         dest.write_bytes(b"historical output")
         out = self.root / "new.json"
         with self.assertRaises(FileExistsError):
-            package(assembly_path=self.assembly_path, index_path=self.index_path,
+            package(generation_path=self.generation_path, index_path=self.index_path,
                     split_manifest_path=self.manifest_path, output_path=out,
                     export_to_main=self.root / "main", run_id="annot_existing")
         self.assertEqual(dest.read_bytes(), b"historical output")
@@ -93,9 +93,9 @@ class PackageApprovedTests(unittest.TestCase):
         self.manifest_path = self.root / "split_manifest.json"
         self.manifest_path.write_text(json.dumps(self.manifest_data), encoding="utf-8")
 
-        self.valid_assembly = {
+        self.valid_generation = {
             "metadata": {
-                "assembler_version": 1,
+                "generator_version": 1,
                 "run_tag": "asm-train-test",
                 "census_run_id": "census_test123",
                 "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
@@ -118,8 +118,8 @@ class PackageApprovedTests(unittest.TestCase):
                 },
             ],
         }
-        self.assembly_path = self.root / "assembly.json"
-        self.assembly_path.write_text(json.dumps(self.valid_assembly), encoding="utf-8")
+        self.generation_path = self.root / "generation.json"
+        self.generation_path.write_text(json.dumps(self.valid_generation), encoding="utf-8")
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -127,7 +127,7 @@ class PackageApprovedTests(unittest.TestCase):
     def test_package_approved_valid_output(self):
         out_path = self.root / "approved.json"
         result = package(
-            assembly_path=self.assembly_path,
+            generation_path=self.generation_path,
             index_path=self.index_path,
             split_manifest_path=self.manifest_path,
             output_path=out_path,
@@ -148,14 +148,14 @@ class PackageApprovedTests(unittest.TestCase):
         out1 = self.root / "out1.json"
         out2 = self.root / "out2.json"
         res1 = package(
-            assembly_path=self.assembly_path,
+            generation_path=self.generation_path,
             index_path=self.index_path,
             split_manifest_path=self.manifest_path,
             output_path=out1,
             run_id="annot_det",
         )
         res2 = package(
-            assembly_path=self.assembly_path,
+            generation_path=self.generation_path,
             index_path=self.index_path,
             split_manifest_path=self.manifest_path,
             output_path=out2,
@@ -168,9 +168,9 @@ class PackageApprovedTests(unittest.TestCase):
         self.assertEqual(out1.read_text(encoding="utf-8"), out2.read_text(encoding="utf-8"))
 
     def test_package_approved_query_qc_rejection_and_lenient(self):
-        bad_assembly = {
+        bad_generation = {
             "metadata": {
-                "assembler_version": 1,
+                "generator_version": 1,
                 "run_tag": "asm-bad",
                 "census_run_id": "c1",
                 "census_preparation_fingerprint": "p1",
@@ -186,13 +186,13 @@ class PackageApprovedTests(unittest.TestCase):
                 }
             ],
         }
-        bad_path = self.root / "bad_assembly.json"
-        bad_path.write_text(json.dumps(bad_assembly), encoding="utf-8")
+        bad_path = self.root / "bad_generation.json"
+        bad_path.write_text(json.dumps(bad_generation), encoding="utf-8")
 
         # Strict QC should raise ValueError
         with self.assertRaises(ValueError) as ctx:
             package(
-                assembly_path=bad_path,
+                generation_path=bad_path,
                 index_path=self.index_path,
                 split_manifest_path=self.manifest_path,
                 output_path=self.root / "never.json",
@@ -203,7 +203,7 @@ class PackageApprovedTests(unittest.TestCase):
         # Lenient QC should succeed with warning and write output
         lenient_out = self.root / "lenient.json"
         res = package(
-            assembly_path=bad_path,
+            generation_path=bad_path,
             index_path=self.index_path,
             split_manifest_path=self.manifest_path,
             output_path=lenient_out,
@@ -222,7 +222,7 @@ class PackageApprovedTests(unittest.TestCase):
     def test_package_approved_export_to_main(self):
         main_mock = self.root / "main_repo"
         package(
-            assembly_path=self.assembly_path,
+            generation_path=self.generation_path,
             index_path=self.index_path,
             split_manifest_path=self.manifest_path,
             output_path=self.root / "approved.json",
@@ -253,7 +253,7 @@ class PackageApprovedTests(unittest.TestCase):
 
         out_path = self.root / "approved.json"
         res = package(
-            assembly_path=self.assembly_path,
+            generation_path=self.generation_path,
             index_path=self.index_path,
             split_manifest_path=self.manifest_path,
             output_path=out_path,
@@ -280,9 +280,9 @@ class PackageApprovedTests(unittest.TestCase):
         val_index_path = self.root / "val.json"
         val_index_path.write_text(json.dumps(val_index_data), encoding="utf-8")
 
-        val_assembly = {
+        val_generation = {
             "metadata": {
-                "assembler_version": 1,
+                "generator_version": 1,
                 "run_tag": "asm-val-test",
                 "census_run_id": "census_test123",
                 "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
@@ -298,8 +298,8 @@ class PackageApprovedTests(unittest.TestCase):
                 }
             ],
         }
-        val_assembly_path = self.root / "val_assembly.json"
-        val_assembly_path.write_text(json.dumps(val_assembly), encoding="utf-8")
+        val_generation_path = self.root / "val_generation.json"
+        val_generation_path.write_text(json.dumps(val_generation), encoding="utf-8")
 
         out_dir = self.root / "dual_approved"
         # Since index_path is None, point PROJECT_ROOT data/indexes or provide index in test directory
@@ -316,7 +316,7 @@ class PackageApprovedTests(unittest.TestCase):
         (indexes_dir / "split_manifest.json").write_text(json.dumps(manifest_copy), encoding="utf-8")
 
         results = package(
-            assemblies=[self.assembly_path, val_assembly_path],
+            generations=[self.generation_path, val_generation_path],
             index_dir=indexes_dir,
             split_manifest_path=indexes_dir / "split_manifest.json",
             output_dir=out_dir,
@@ -341,9 +341,9 @@ class PackageApprovedTests(unittest.TestCase):
                 "height": 1080,
             }
         }
-        val_assembly = {
+        val_generation = {
             "metadata": {
-                "assembler_version": 1,
+                "generator_version": 1,
                 "run_tag": "asm-val-r5",
                 "census_run_id": "census_test123",
                 "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
@@ -359,21 +359,21 @@ class PackageApprovedTests(unittest.TestCase):
                 }
             ],
         }
-        val_assembly_path = self.root / "val_assembly_auto.json"
-        val_assembly_path.write_text(json.dumps(val_assembly), encoding="utf-8")
+        val_generation_path = self.root / "val_generation_auto.json"
+        val_generation_path.write_text(json.dumps(val_generation), encoding="utf-8")
 
-        train_assembly = {
+        train_generation = {
             "metadata": {
-                "assembler_version": 1,
+                "generator_version": 1,
                 "run_tag": "asm-train-r5",
                 "census_run_id": "census_test123",
                 "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
                 "split": "train",
             },
-            "records": self.valid_assembly["records"],
+            "records": self.valid_generation["records"],
         }
-        train_assembly_path = self.root / "train_assembly_auto.json"
-        train_assembly_path.write_text(json.dumps(train_assembly), encoding="utf-8")
+        train_generation_path = self.root / "train_generation_auto.json"
+        train_generation_path.write_text(json.dumps(train_generation), encoding="utf-8")
 
         indexes_dir = self.root / "auto_indexes"
         indexes_dir.mkdir(parents=True, exist_ok=True)
@@ -386,7 +386,7 @@ class PackageApprovedTests(unittest.TestCase):
         out_dir = self.root / "dual_auto_out"
         # Omitting run_id must derive common run_id "annot_asm-r5" and write both to disk under it
         results = package(
-            assemblies=[train_assembly_path, val_assembly_path],
+            generations=[train_generation_path, val_generation_path],
             index_dir=indexes_dir,
             split_manifest_path=indexes_dir / "split_manifest.json",
             output_dir=out_dir,

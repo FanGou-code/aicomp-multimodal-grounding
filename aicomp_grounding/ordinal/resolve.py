@@ -18,6 +18,7 @@ from aicomp_grounding.inference_core import load_inference_items
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.ordinal import run
 from aicomp_grounding.ordinal.kernel import axis_value, order_indices
+from aicomp_grounding.paths import output_dir
 
 #: Closed axis set.  Every axis is computable from what a sample carries:
 #: boxes, the 16-bit millimetre depth map, the infrared image.
@@ -213,7 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--iou-threshold", type=float, default=MATCH_IOU)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--run-tag", default="")
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/ordinal"))
+    parser.add_argument("--output-dir", type=Path, default=output_dir("ordinal_resolve"))
     parser.add_argument("--resume", action="store_true", help="write into an existing run directory")
     return parser
 

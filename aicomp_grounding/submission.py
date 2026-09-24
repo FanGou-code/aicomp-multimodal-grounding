@@ -11,6 +11,7 @@ from pathlib import Path
 
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.io import atomic_write_json, load_json, require_distinct_paths
+from aicomp_grounding.paths import output_dir
 from aicomp_grounding.testset import (
     OFFICIAL_QUERY_COUNT,
     OFFICIAL_TEMPLATE_CANONICAL_SHA256,
@@ -129,7 +130,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--test-json", type=Path, default=DEFAULT_TEMPLATE)
     parser.add_argument("--predictions", type=Path, default=Path("outputs/predictions.json"))
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/submission"))
+    parser.add_argument("--output-dir", type=Path, default=output_dir("submission") / "latest")
     parser.add_argument(
         "--default-bbox",
         type=float,

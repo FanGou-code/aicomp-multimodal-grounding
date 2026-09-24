@@ -25,6 +25,7 @@ from pathlib import Path
 
 from aicomp_grounding.bbox import compute_iou, validate_bbox
 from aicomp_grounding.io import atomic_write_json, load_json
+from aicomp_grounding.paths import output_dir
 
 ALGORITHM = "wbf-v1"
 
@@ -182,7 +183,7 @@ def main() -> None:
         help="Optional per-model score files (e.g. DINO confidences); use '' to skip a model.",
     )
     parser.add_argument("--iou-threshold", type=float, default=0.55)
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/fusion"))
+    parser.add_argument("--output-dir", type=Path, default=output_dir("fusion"))
     args = parser.parse_args()
 
     if len(args.predictions) < 2:

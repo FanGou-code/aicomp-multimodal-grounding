@@ -249,7 +249,7 @@ def trusted_objects(frame: dict) -> list[dict]:
     """Trusted object set of one completed frame: the single enumeration's list.
 
     The one definition of "which boxes of this frame may carry facts",
-    consumed by the assembler, the review session builder, and the
+    consumed by the generator, the review session builder, and the
     adjustment report.
     """
     return frame["findall"]["objects"]

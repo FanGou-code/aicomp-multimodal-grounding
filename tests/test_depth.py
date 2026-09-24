@@ -1,4 +1,4 @@
-"""Tests for raw-depth fact extraction (foundry.depth) and its assembly consumption."""
+"""Tests for raw-depth fact extraction (foundry.depth) and its generation consumption."""
 
 import tempfile
 import unittest
@@ -82,7 +82,7 @@ class DepthModuleTest(unittest.TestCase):
         self.assertEqual(facts["ranks"], {"1": 1, "2": 2})
 
 
-class AssemblyDepthTest(unittest.TestCase):
+class GenerationDepthTest(unittest.TestCase):
     def make_objects(self):
         return [
             obj(1, [0.0, 0.4, 0.1, 0.6]),

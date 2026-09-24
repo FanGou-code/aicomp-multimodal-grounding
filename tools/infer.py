@@ -40,7 +40,7 @@ from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.models import available_models, get_adapter
 from aicomp_grounding.models.base import ModelInput, require_local_model_path
 from aicomp_grounding.config import INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS
-from aicomp_grounding.paths import ProjectPaths, resolve_from_root
+from aicomp_grounding.paths import ProjectPaths, output_dir, resolve_from_root
 
 CACHE_MAX_SIZE = 32
 
@@ -129,7 +129,7 @@ def parse_args():
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs/inference"),
+        default=output_dir("inference"),
         help="Root directory for inference outputs; results go to <output-dir>/<run_id>/.",
     )
     parser.add_argument(

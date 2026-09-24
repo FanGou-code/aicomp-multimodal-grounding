@@ -1,4 +1,4 @@
-"""Deterministic text QC over assembled query records (frozen adjudication).
+"""Deterministic text QC over generated query records (frozen adjudication).
 
 Reproduces the 2026-09-06 corpus rulings (train 445 + val 134 edits) in two
 stages, applied to the final query text after planning:
@@ -227,9 +227,9 @@ def load_echo_table() -> dict[tuple[str, str], str]:
 
 
 def apply_text_qc(records: list) -> list[dict]:
-    """Run both QC stages over assembled records in place; return the edit log.
+    """Run both QC stages over generated records in place; return the edit log.
 
-    ``records`` items are AssemblyRecord dataclasses (sample_id, object_index,
+    ``records`` items are GenerationRecord dataclasses (sample_id, object_index,
     query, edited). The returned log entries match the historical
     text_edits.json shape: {item_id, before, after, reason}.
     """

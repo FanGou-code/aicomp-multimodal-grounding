@@ -13,13 +13,13 @@ data/                         运行输入，不入库
   Processed/                  Train/<seq>/depth_jet/  Test/depth_jet/（JET 伪彩深度）
 outputs/                      运行产物，不入库
   annotations/<run_id>/       train/approved.json  val/approved.json
-  output_lora/<run_id>/       plan.json  checkpoints/  best/  last/  completed.json
+  training/<run_id>/       plan.json  checkpoints/  best/  last/  completed.json
   inference/<run_id>/         metadata.json  predictions.json  checkpoint.json
                               scores.json（可选：仅当有模型产出原生置信度时写出）
-  enum/<run_id>/              一个模型：metadata.json  parse.json  instances.json  thinking.jsonl
-  ordinal/<run_id>/           metadata.json  predictions_<model>.json
+  ordinal_enum/<run_id>/              一个模型：metadata.json  parse.json  instances.json  thinking.jsonl
+  ordinal_resolve/<run_id>/           metadata.json  predictions_<model>.json
   fusion/<run_id>/            融合产物
-  submission/<run_id>/        submission.zip
+  submission/<tag>/        submission.zip
 ```
 
 `Train/` 与 `Test/` 是原始数据，`Processed/` 由 `scripts/prepare_rgbdt.py` 生成。
@@ -48,8 +48,8 @@ outputs/                      运行产物，不入库
 | `query-foundry/data/indexes/{train,val}.json`、`split_manifest.json`、`excluded_overlap.json` | `query-foundry/scripts/prepare_split.py` | 上游标注流水线（本仓不读） | 上游仓内，纳入其 Git |
 | `outputs/annotations/<run_id>/{train,val}/approved.json` | `query-foundry/scripts/package_approved.py` | 本仓训练与验证集推理 | 4 重 SHA-256 指纹（协议 12，见下） |
 | `outputs/inference/<run_id>/predictions.json` | 本仓 `offline/infer.py` | 融合 `fusion.wbf` | `{query_id: bbox 或 null}` |
-| `outputs/enum/<run_id>/{parse,instances}.json` | 本仓 `ordinal.enumerate` | `ordinal.resolve` | 每题的解析意图与一次枚举清单（`thinking.jsonl` 存思考文本） |
-| `outputs/ordinal/<run_id>/predictions_<model>.json` | 本仓 `ordinal.resolve` | 融合 `fusion.wbf` | 键与推理产物一致，只改动采纳的序数题 |
+| `outputs/ordinal_enum/<run_id>/{parse,instances}.json` | 本仓 `ordinal.enumerate` | `ordinal.resolve` | 每题的解析意图与一次枚举清单（`thinking.jsonl` 存思考文本） |
+| `outputs/ordinal_resolve/<run_id>/predictions_<model>.json` | 本仓 `ordinal.resolve` | 融合 `fusion.wbf` | 键与推理产物一致，只改动采纳的序数题 |
 | `submission.zip` | 本仓 `submission.py`（显式调用；推理与融合均不自动打包） | 赛事提交 | 官方模板 + `bbox` |
 
 上游以 `--data-root` 指向本仓 `data/`、以自己的 `--index-dir` 指向

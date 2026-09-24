@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Apply human review edits to r5 assembly records.
+"""Apply human review edits to r5 generation records.
 
 Produces ``asm-*-r6`` as the packaging baseline for the R6 chain.
 
 Merge: human-edited query text, human-corrected target boxes and human-confirmed
 absence verdicts (from the review journal, or legacy snapshots) take priority; un-reviewed
-items keep their original assembled values. Re-runs text QC for changed
+items keep their original generated values. Re-runs text QC for changed
 queries. Detects same-frame collisions.
 
-Output: ``outputs/assembly/asm-{train,val}-r6/assembly.json``
+Output: ``outputs/generation/asm-{train,val}-r6/generation.json``
 """
 
 from __future__ import annotations
@@ -31,17 +31,17 @@ from aicomp_grounding.annotation.text_qc import apply_text_qc  # noqa: E402
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--assembly",
+        "--generation",
         type=Path,
         required=True,
-        help="path to r5 assembly.json (outputs/assembly/asm-{train,val}-r5/assembly.json)",
+        help="path to r5 generation.json (outputs/generation/asm-{train,val}-r5/generation.json)",
     )
     parser.add_argument(
         "--review-queries",
         type=Path,
         nargs="+",
         default=None,
-        help="path(s) to annotations.queries.json (auto-detected from assembly run_tag if omitted)",
+        help="path(s) to annotations.queries.json (auto-detected from generation run_tag if omitted)",
     )
     parser.add_argument(
         "--run-tag",
@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=PROJECT_ROOT / "outputs" / "assembly",
+        default=PROJECT_ROOT / "outputs" / "generation",
     )
     parser.add_argument("--force", action="store_true",
                         help="allow writing into an existing output dir")
@@ -138,17 +138,17 @@ def _detect_collisions(records: list[dict]) -> set[str]:
     return collided
 
 
-def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
+def apply(generation_path: Path, queries_path: list[Path] | Path | None,
           run_tag: str, output_root: Path, force: bool) -> dict:
-    manifest = load_json(assembly_path)
+    manifest = load_json(generation_path)
     records: list[dict] = list(manifest["records"])
     metadata = dict(manifest["metadata"])
     split = metadata.get("split", "train")
     tag = run_tag or f"asm-{split}-r6"
 
-    assembly_tag = metadata.get("run_tag", assembly_path.parent.name)
+    generation_tag = metadata.get("run_tag", generation_path.parent.name)
     if not queries_path:
-        queries_paths = [PROJECT_ROOT / "outputs" / "review" / assembly_tag / "annotations.queries.json"]
+        queries_paths = [PROJECT_ROOT / "outputs" / "review" / generation_tag / "annotations.queries.json"]
     elif isinstance(queries_path, (str, Path)):
         queries_paths = [Path(queries_path)]
         for p in queries_paths:
@@ -204,7 +204,7 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
         rec["original_query"] = original_query if new_query != original_query else None
 
         # Human-corrected target box (the review store snapshot is the final
-        # box per annotated item; untouched seeds equal the assembly bbox, so
+        # box per annotated item; untouched seeds equal the generation bbox, so
         # applying it is a no-op except where the reviewer adjusted the box).
         if item_id in human_boxes:
             original_bbox = rec.get("bbox")
@@ -219,7 +219,7 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
     records = kept
 
     # --- Text QC pass ---
-    # Build minimal AssemblyRecord-like objects for apply_text_qc
+    # Build minimal GenerationRecord-like objects for apply_text_qc
     class _QCRecord:
         __slots__ = ("sample_id", "object_index", "query", "edited")
         def __init__(self, sample_id, object_index, query, edited=False):
@@ -246,16 +246,16 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
             flagged.append({"item_id": item_id, "reason": "collision",
                             "query": rec.get("query", "")})
 
-    # --- Assemble output ---
+    # --- Build output ---
     out_dir = output_root / tag
     if out_dir.exists() and not force:
         raise SystemExit(f"output dir already exists: {out_dir} (pass --force to overwrite)")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     new_metadata = {
-        "assembler_version": 1,
+        "generator_version": 1,
         "run_tag": tag,
-        "supersedes": assembly_tag,
+        "supersedes": generation_tag,
         "census_run_id": metadata.get("census_run_id"),
         "census_source_fingerprint": metadata.get("census_source_fingerprint"),
         "census_preparation_fingerprint": metadata.get("census_preparation_fingerprint"),
@@ -272,7 +272,7 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
         "shortfall": manifest.get("shortfall", []),
         "flagged": flagged,
     }
-    atomic_write_json(out_dir / "assembly.json", output)
+    atomic_write_json(out_dir / "generation.json", output)
     if edits:
         atomic_write_json(out_dir / "text_edits.json", edits)
 
@@ -289,7 +289,7 @@ def apply(assembly_path: Path, queries_path: list[Path] | Path | None,
 def main() -> None:
     args = build_parser().parse_args()
     result = apply(
-        assembly_path=args.assembly,
+        generation_path=args.generation,
         queries_path=args.review_queries,
         run_tag=args.run_tag,
         output_root=args.output_root,
@@ -310,7 +310,7 @@ def main() -> None:
             print(f"  {f['item_id']}: {f['reason']}")
         if len(result["flagged"]) > 10:
             print(f"  ... and {len(result['flagged']) - 10} more")
-    print(f"\nwrote {result['out_dir'] / 'assembly.json'}")
+    print(f"\nwrote {result['out_dir'] / 'generation.json'}")
 
     if args.show:
         print("\nsample records:")

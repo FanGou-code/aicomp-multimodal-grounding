@@ -21,6 +21,7 @@ from aicomp_grounding.ordinal.parse import (
     strict_json_object,
 )
 from aicomp_grounding.ordinal.resolve import parse_selection
+from aicomp_grounding.paths import output_dir
 
 
 def build_enumerate_messages(visible_image, category: str) -> list[dict]:
@@ -125,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--run-tag", default="")
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/enum"))
+    parser.add_argument("--output-dir", type=Path, default=output_dir("ordinal_enum"))
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--batch-save", type=int, default=100)
     return parser

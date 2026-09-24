@@ -24,7 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from aicomp_grounding.annotation.review.bbox import normalize_bbox  # noqa: E402
 from aicomp_grounding.annotation.review.sessions import (  # noqa: E402
     TEACHER_ANNOTATOR,
-    build_assembly_session,
+    build_generation_session,
     build_census_session,
 )
 from aicomp_grounding.annotation.review.store import ABSENT_SUFFIX, AnnotationStore  # noqa: E402
@@ -34,7 +34,7 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
     """Build a review session from a simple manifest file.
 
     The manifest is a JSON file with {name, items: [{id, image, query, bbox, ...}]}.
-    Each item is seeded with its assembly bbox as an AI pre-annotation.
+    Each item is seeded with its generation bbox as an AI pre-annotation.
     Supports multi-corpus manifests by routing each item to its corpus store.
     """
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -115,7 +115,7 @@ class AnnotatorState:
     """Immutable per-run context shared across request handler threads.
 
     ``stores`` maps corpus ("train"/"val") to its crash-safe store, so a
-    combined multi-assembly session keeps each split's journal where it has
+    combined multi-generation session keeps each split's journal where it has
     always lived and read/write routes by the item's corpus.
     """
 
@@ -359,14 +359,14 @@ def create_server(
     data_root: str | Path = "",
     index_dir: Path | None = None,
     review_root: str | Path = "",
-    assembly_path: str | Path | list[str | Path] | None = None,
+    generation_path: str | Path | list[str | Path] | None = None,
     manifest_path: str | Path | None = None,
     host: str = "127.0.0.1",
     port: int = 0,
 ) -> tuple[ThreadingHTTPServer, AnnotatorState]:
     """Build the review server.
 
-    ``assembly_path`` takes one assembly manifest (unchanged behaviour) or a
+    ``generation_path`` takes one generation manifest (unchanged behaviour) or a
     list of them — a combined train+val session. Each split keeps its own
     crash-safe store directory, so existing review progress carries over
     untouched; writes route by the item's corpus.
@@ -374,9 +374,9 @@ def create_server(
     if manifest_path is not None:
         sessions = [build_manifest_session(Path(manifest_path), Path(review_root))]
         stores: dict[str, AnnotationStore] = dict(sessions[0].get("stores", {}))
-    elif assembly_path is not None:
-        paths = [assembly_path] if isinstance(assembly_path, (str, Path)) else list(assembly_path)
-        sessions = [build_assembly_session(Path(p), Path(data_root), Path(review_root), index_dir=index_dir) for p in paths]
+    elif generation_path is not None:
+        paths = [generation_path] if isinstance(generation_path, (str, Path)) else list(generation_path)
+        sessions = [build_generation_session(Path(p), Path(data_root), Path(review_root), index_dir=index_dir) for p in paths]
         stores = {}
     else:
         sessions = [build_census_session(Path(census_run_dir), Path(data_root), Path(review_root), index_dir=index_dir)]
@@ -391,7 +391,7 @@ def create_server(
         if manifest_path is None:
             split = session["split"]
             if split in stores:
-                raise ValueError(f"multiple assemblies declare the same split: {split}")
+                raise ValueError(f"multiple generations declare the same split: {split}")
             stores[split] = session["store"]
 
     session = {
@@ -419,7 +419,7 @@ def create_server(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="census review server (adapted)")
     parser.add_argument("--census-run", help="census run dir with merged.json (box review mode)")
-    parser.add_argument("--assembly", nargs="+", help="assembly.json path(s); several = combined session")
+    parser.add_argument("--generation", nargs="+", help="generation.json path(s); several = combined session")
     parser.add_argument("--manifest", help="path to a review manifest JSON (from make_manifest.py)")
     parser.add_argument("--data-root", type=Path, required=False)
     parser.add_argument("--index-dir", type=Path, default=None)
@@ -428,15 +428,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8788)
     args = parser.parse_args(argv)
 
-    if not args.census_run and not args.assembly and not args.manifest:
-        parser.error("one of --census-run, --assembly, or --manifest is required")
+    if not args.census_run and not args.generation and not args.manifest:
+        parser.error("one of --census-run, --generation, or --manifest is required")
     try:
         server, state = create_server(
             census_run_dir=args.census_run,
             data_root=args.data_root,
             index_dir=args.index_dir,
             review_root=args.review_root,
-            assembly_path=args.assembly,
+            generation_path=args.generation,
             manifest_path=args.manifest,
             host=args.host,
             port=args.port,

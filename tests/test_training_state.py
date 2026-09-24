@@ -207,7 +207,7 @@ class ApprovedDataGateTests(unittest.TestCase):
             self.assertIsNone(plan["resume_checkpoint"])
             self.assertEqual(
                 Path(plan["run_dir"]),
-                root / "outputs" / "output_lora" / plan["metadata"]["training_run_id"],
+                root / "outputs" / "training" / plan["metadata"]["training_run_id"],
             )
 
     def test_training_plan_default_output_layout(self):
@@ -239,7 +239,7 @@ class ApprovedDataGateTests(unittest.TestCase):
 
             self.assertEqual(
                 Path(plan["run_dir"]),
-                root / "data" / "output_lora" / plan["metadata"]["training_run_id"],
+                root / "data" / "training" / plan["metadata"]["training_run_id"],
             )
 
     def test_training_plan_accepts_a_trainable_model(self):
@@ -520,7 +520,7 @@ class CompletedTrainingStateTests(unittest.TestCase):
 class PersistTrainingPlanTests(unittest.TestCase):
     @staticmethod
     def _plan(root: Path, *, smoke_test: bool = False) -> dict:
-        run_dir = root / "output_lora" / "train_persist"
+        run_dir = root / "training" / "train_persist"
         return {
             "metadata": {"training_run_id": "train_persist"},
             "train_artifact_path": str(root / "train.json"),
