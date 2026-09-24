@@ -17,13 +17,8 @@ from aicomp_grounding.bbox import compute_iou, validate_bbox
 from aicomp_grounding.serving.engine.inference_core import load_inference_items
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.serving.ordinal import run
-from aicomp_grounding.ordinal_kernel import axis_value, order_indices
+from aicomp_grounding.ordinal_kernel import AXES, DIRECTIONS, axis_value, order_indices
 from aicomp_grounding.paths import output_dir
-
-#: Closed axis set.  Every axis is computable from what a sample carries:
-#: boxes, the 16-bit millimetre depth map, the infrared image.
-AXES = ("x", "y", "depth", "ir", "area")
-DIRECTIONS = ("asc", "desc")
 
 MATCH_IOU = 0.5
 
@@ -293,7 +288,3 @@ def main() -> None:
     )
     print(f"[ordinal-resolve] reasons: {stats['reasons']}")
     print(f"[ordinal-resolve] wrote {out_dir}")
-
-
-if __name__ == "__main__":
-    main()

@@ -94,7 +94,9 @@
 | `prepare_split.py` | 按序列划分 train/val、跨集去重与索引落盘 |
 | `run_census.py` / `run_generation.py` / `run_reverse.py` | 标注三阶段入口 |
 | `review_server.py` / `review_report.py` / `apply_review.py` | 人审服务、审查报告、裁决落盘 |
+| `make_manifest.py` | 由 generation/任意 query JSON 构建人审 manifest（可拆分多份） |
 | `package_approved.py` | 组装产物封包为 `approved.json` 并做合同自校验 |
+| `fusion.py` / `submission.py` / `ordinal_enumerate.py` / `ordinal_resolve.py` | 融合、提交包、序数枚举与修正（服务侧后处理） |
 | `check_key.py` | 注入 key 的测活（管理员执行真实调用） |
 | `upload_dataset.py` | 数据集发布工具（维护者用，需 `modelscope`） |
 

@@ -53,6 +53,7 @@ include = ["aicomp_grounding*"]
 "aicomp_grounding.serving" = ["prompts/*.md"]
 "aicomp_grounding.serving.ordinal" = ["prompts/*.md"]
 "aicomp_grounding.annotation" = ["prompts/*.md"]
+"aicomp_grounding.annotation.review" = ["static/*"]
 
 [tool.ruff]
 line-length = 100

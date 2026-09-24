@@ -123,7 +123,6 @@ python tools/train.py --annotation-run-id <run_id> --model qwen3vl \
 | `--epochs` | 3 | |
 | `--eval-batch-size` | 1 | 与 `--batch-size` 保持一致：训练与验证共用一种张量形状 |
 | `--best-metric` | `acc_at_0_5` | `acc_at_0_5` / `mean_iou` 越大越好，`val_loss` 越小越好 |
-| `--max-pixels` | 3072×28×28 | 单帧视觉 token 预算；显存不足时优先下调，会改变运行身份 |
 
 ## 推理与评测
 
@@ -151,13 +150,13 @@ python tools/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
 `predictions.json`，提交包单独生成。训练与推理入口都不会自动打包。
 
 ```bash
-python -m aicomp_grounding.serving.fusion \
+python tools/fusion.py \
   --predictions outputs/inference/<run_a>/predictions.json \
                 outputs/inference/<run_b>/predictions.json \
   --weights 1.0 1.0 --iou-threshold 0.55 \
   --output-dir outputs/fusion
 
-python -m aicomp_grounding.serving.submission \
+python tools/submission.py \
   --test-json data/Test/queries/queries.json \
   --predictions outputs/fusion/<run_id>/predictions.json \
   --output-dir outputs/submission/<tag>
@@ -174,14 +173,14 @@ python -m aicomp_grounding.serving.submission \
 
 ```bash
 # 解析（纯文本、贪心）→ 对排序题枚举一次（基座权重 + 仅可见光 + 开思考）
-python -m aicomp_grounding.serving.ordinal.enumerate \
+python tools/ordinal_enumerate.py \
   --model qwen3_5 --model-path models/Qwen3.5-9B \
   --test-json data/Test/queries/queries.json --data-dir data \
   --temperature 0.6 --top-p 0.95 --top-k 20 --presence-penalty 0.0 \
   --output-dir outputs/ordinal_enum --run-tag ord-full
 
 # 用枚举清单修正 qwen3_5 的预测
-python -m aicomp_grounding.serving.ordinal.resolve \
+python tools/ordinal_resolve.py \
   --enum-run outputs/ordinal_enum/<id> --predictions outputs/inference/<infer>/predictions.json \
   --test-json data/Test/queries/queries.json --data-dir data \
   --output-dir outputs/ordinal_resolve --run-tag ord-full

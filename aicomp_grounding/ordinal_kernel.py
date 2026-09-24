@@ -10,6 +10,11 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
+#: Closed ordinal axis set: every axis is computable from a sample's boxes,
+#: the 16-bit millimetre depth map, or the infrared image.
+AXES = ("x", "y", "depth", "ir", "area")
+DIRECTIONS = ("asc", "desc")
+
 
 def _box_patch(array, bbox: Sequence[float], image_size: tuple[int, int]):
     """Slice ``array`` (height, width) or (height, width, channels) to the box."""

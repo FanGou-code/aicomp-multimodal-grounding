@@ -36,7 +36,7 @@ from PIL import Image  # noqa: E402
 from aicomp_grounding.annotation.client import resolve_api_key  # noqa: E402
 from aicomp_grounding.annotation.census import findall_messages  # noqa: E402
 from aicomp_grounding.annotation.imaging import build_marked_annotation_view, jpeg_data_url  # noqa: E402
-from aicomp_grounding.annotation.config import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME, ANNOTATION_TEMPERATURE  # noqa: E402
+from aicomp_grounding.annotation.config import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME  # noqa: E402
 
 REALISTIC_MAX_TOKENS = 2048
 
@@ -82,7 +82,6 @@ def build_payload(*, probe: str, data_root: Path, model: str, index_dir: Path | 
         "model": model,
         "messages": findall_messages(jpeg_data_url(marked)),
         "max_tokens": REALISTIC_MAX_TOKENS,
-        "temperature": ANNOTATION_TEMPERATURE,
         "thinking": {"type": "disabled"},
     }
 

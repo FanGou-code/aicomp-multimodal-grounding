@@ -55,21 +55,6 @@ _GENERIC_CATEGORY = re.compile(
     flags=re.IGNORECASE,
 )
 
-# Words that signal the query disambiguates the target spatially or ordinally
-# among scene objects, rather than relying on a bare attribute label. Queries
-# shorter than STYLE_MIN_WORDS must contain at least one of these to pass.
-_DISAMBIGUATION_RE = re.compile(
-    r"\b("
-    r"left|right|far|near|behind|front|foreground|background|top|bottom|"
-    r"middle|center|centre|corner|beside|below|above|under|between|"
-    r"first|second|third|fourth|fifth|last|leftmost|rightmost|topmost|"
-    r"bottommost|nearest|closest|farthest|other|another|larger|smaller|"
-    r"bigger|largest|smallest|group|crowd|row|line|flock|herd|pair|both"
-    r")\b",
-    re.IGNORECASE,
-)
-STYLE_MIN_WORDS = 5
-
 
 def clean_query_text(text: str) -> str:
     if not isinstance(text, str):
@@ -124,25 +109,6 @@ def validate_annotation_query(query: str) -> tuple[bool, str]:
     if generic_match:
         return False, f"query uses generic category {generic_match.group(0)!r}"
     return True, ""
-
-
-def validate_query_style(text: str) -> tuple[bool, str]:
-    """Reject bare-label queries that lack positional disambiguation."""
-    cleaned = clean_query_text(text)
-    if not cleaned:
-        return False, "empty query"
-    if re.match(r"^(?:The|A|An)\s+[A-Za-z]+$", cleaned, re.IGNORECASE):
-        return False, f"query is an isolated bare noun label {cleaned!r}; add appearance/spatial/landmark modifiers"
-    words = _WORD.findall(cleaned)
-    if len(words) >= STYLE_MIN_WORDS:
-        return True, ""
-    if _DISAMBIGUATION_RE.search(cleaned):
-        return True, ""
-    return (
-        False,
-        "query is too short and lacks a positional/spatial/ordinal cue; "
-        "add a spatial relation, ordinal, or landmark reference",
-    )
 
 
 def preflight_check_dataset(data: dict, *, split_name: str = "dataset") -> list[str]:

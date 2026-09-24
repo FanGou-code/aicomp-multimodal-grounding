@@ -4,7 +4,7 @@ Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl / qwen3_5 /
 glm46v / mock).
 
 This entrypoint produces predictions only. Building ``submission.zip`` is a
-separate, explicit step (``python -m aicomp_grounding.serving.submission``); inference
+separate, explicit step (``python tools/submission.py``); inference
 never packages one.
 """
 
@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import functools
 from concurrent.futures import ProcessPoolExecutor
-from collections import OrderedDict
 from collections.abc import Callable
 from datetime import datetime
 import multiprocessing
@@ -41,8 +40,6 @@ from aicomp_grounding.serving.models import available_models, get_adapter
 from aicomp_grounding.serving.models.base import ModelInput, require_local_model_path
 from aicomp_grounding.config import INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS
 from aicomp_grounding.paths import ProjectPaths, output_dir, resolve_from_root
-
-CACHE_MAX_SIZE = 32
 
 #: Adapters whose constructor takes the tri-modal pixel budget (``max_pixels``).
 #: ``mock`` is not in this set: it has no such parameter, and passing it would
@@ -244,7 +241,6 @@ def _run_inference_loop(
         print(f"Loading model '{adapter.model_name}' (revision {adapter.model_revision})...")
         adapter.load(device=device, lora_path=adapter_dir, model_path=model_path)
 
-        scene_cache: OrderedDict = OrderedDict()
         batch: list[ModelInput] = []
 
         def flush() -> None:
@@ -259,19 +255,7 @@ def _run_inference_loop(
         initial_count = len(predictions)
         processed_count = initial_count
         for item in pending_items:
-            scene_id = (
-                item["visible"],
-                item["infrared"],
-                item["depth"],
-            )
-            if scene_id in scene_cache:
-                images = scene_cache[scene_id]
-                scene_cache.move_to_end(scene_id)
-            else:
-                images = load_scene_images(item, data_dir)
-                scene_cache[scene_id] = images
-                if len(scene_cache) > CACHE_MAX_SIZE:
-                    scene_cache.popitem(last=False)
+            images = load_scene_images(item, data_dir)
 
             batch.append(
                 ModelInput(

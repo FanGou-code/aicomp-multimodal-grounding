@@ -33,7 +33,7 @@ from aicomp_grounding.artifacts import (
     require_exact_metadata,
     stable_json_hash,
 )
-from aicomp_grounding.bbox import compute_iou, validate_bbox
+from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.config import (
     CHECKPOINT_VERSION,
     INFERENCE_COMPUTE_DTYPE,
@@ -43,7 +43,7 @@ from aicomp_grounding.config import (
     RUNTIME_PYTHON_VERSION,
 )
 from aicomp_grounding.io import load_json
-from aicomp_grounding.serving.engine.training_state import validate_adapter_manifest, adapter_weight_path
+from aicomp_grounding.serving.engine.training_state import adapter_weight_path
 
 RUN_METADATA_FIELDS = (
     "version",
@@ -70,36 +70,6 @@ RUN_METADATA_FIELDS = (
     "base_run_id",
     "base_prediction_fingerprint",
 )
-
-
-def resolve_lora_path(raw_path: str | Path | None, data_root: str | Path) -> Path | None:
-    """Resolve a LoRA directory inside the mounted dataset root and validate its files."""
-    if raw_path is None or str(raw_path).strip() == "":
-        return None
-    root = Path(data_root).resolve()
-    candidate = Path(raw_path)
-    if not candidate.is_absolute():
-        candidate = root / candidate
-    candidate = candidate.resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError as exc:
-        raise ValueError(f"LoRA adapter must be inside {root}: {candidate}") from exc
-    if not candidate.is_dir():
-        raise FileNotFoundError(f"LoRA adapter directory not found: {candidate}")
-    config_path = candidate / "adapter_config.json"
-    if not config_path.is_file() or config_path.stat().st_size == 0:
-        raise FileNotFoundError(f"LoRA adapter is missing adapter_config.json: {candidate}")
-    load_json(config_path)
-    manifest_path = candidate / "adapter_manifest.json"
-    if not manifest_path.is_file() or manifest_path.stat().st_size == 0:
-        raise FileNotFoundError(f"LoRA adapter is missing adapter_manifest.json: {candidate}")
-    validate_adapter_manifest(load_json(manifest_path))
-    if adapter_weight_path(candidate) is None:
-        raise FileNotFoundError(
-            f"LoRA adapter has no adapter_model.safetensors or adapter_model.bin: {candidate}"
-        )
-    return candidate
 
 
 def fingerprint_lora(adapter_dir: Path | None) -> str:
@@ -357,11 +327,6 @@ def load_resume_predictions(
     return predictions
 
 
-def pending_keys(assigned_keys: list[str], predictions: Mapping[str, object]) -> list[str]:
-    """Missing keys are interrupted work; explicit None is an attempted failure."""
-    return [key for key in assigned_keys if key not in predictions]
-
-
 def assign_pending_shards(
     items: list[dict],
     *,
@@ -377,96 +342,3 @@ def assign_pending_shards(
         pending = [item for item in items if item.get("key") not in existing_predictions]
     shards = [pending[index::num_shards] for index in range(num_shards)]
     return [shard for shard in shards if shard]
-
-
-def merge_shard_payloads(
-    run_metadata: dict,
-    shard_assignments: list[list[str]],
-    payloads: list[dict],
-) -> dict[str, list[float] | None]:
-    if len(shard_assignments) != run_metadata["num_shards"]:
-        raise ValueError("Shard assignments do not match metadata num_shards")
-    if any(not assignment for assignment in shard_assignments):
-        raise ValueError("Inference shard assignments must be non-empty")
-    flattened = [key for assignment in shard_assignments for key in assignment]
-    if len(flattened) != len(set(flattened)):
-        raise ValueError("Inference shard assignments contain duplicate query IDs")
-    if key_hash(flattened) != run_metadata["selected_key_hash"]:
-        raise ValueError("Inference shard assignments do not cover the selected query IDs")
-    if len(payloads) != len(shard_assignments):
-        raise ValueError(
-            f"Expected {len(shard_assignments)} shard payloads, received {len(payloads)}"
-        )
-    by_shard: dict[int, dict] = {}
-    for payload in payloads:
-        if not isinstance(payload, dict) or not isinstance(payload.get("metadata"), dict):
-            raise ValueError("Invalid shard payload structure")
-        shard_id = payload["metadata"].get("shard_id")
-        if not isinstance(shard_id, int) or shard_id in by_shard:
-            raise ValueError(f"Duplicate or invalid shard ID: {shard_id!r}")
-        by_shard[shard_id] = payload
-
-    merged: dict[str, list[float] | None] = {}
-    for shard_id, assigned_keys in enumerate(shard_assignments):
-        if shard_id not in by_shard:
-            raise ValueError(f"Missing shard payload {shard_id}")
-        expected = build_shard_metadata(run_metadata, shard_id, assigned_keys)
-        predictions = validate_checkpoint_payload(
-            by_shard[shard_id],
-            expected,
-            assigned_keys,
-            require_complete=True,
-            label=f"shard {shard_id}",
-        )
-        duplicate = set(merged) & set(predictions)
-        if duplicate:
-            raise ValueError(f"Duplicate query IDs across shards: {sorted(duplicate)[:5]}")
-        merged.update(predictions)
-    return merged
-
-
-def merge_retry_predictions(
-    base_predictions: dict[str, list[float] | None],
-    overlay: dict[str, list[float] | None],
-    retry_keys: list[str],
-) -> dict[str, list[float] | None]:
-    allowed = set(retry_keys)
-    extra = set(overlay) - allowed
-    if extra:
-        raise ValueError(f"Retry overlay contains non-retry IDs: {sorted(extra)[:5]}")
-    result = dict(base_predictions)
-    for key, value in overlay.items():
-        bbox = validate_bbox(value) if value is not None else None
-        if bbox is not None:
-            result[key] = bbox
-    return result
-
-
-def evaluate_dataset_predictions(dataset: dict, keys: list[str], predictions: dict) -> dict:
-    """ACC@0.5 / mean-IoU against a full dataset dict; requires GT on every key.
-
-    Distinct from ``inference_core.evaluate_predictions``, which scores a
-    possibly-limited item list and tolerates missing ground truth.
-    """
-    hits = 0
-    total_iou = 0.0
-    failures = 0
-    for key in keys:
-        ground_truth = validate_bbox(dataset[key].get("bbox"))
-        prediction = validate_bbox(predictions.get(key))
-        if ground_truth is None:
-            raise ValueError(f"Evaluation sample {key!r} has invalid ground-truth bbox")
-        if prediction is None:
-            failures += 1
-            continue
-        iou = compute_iou(prediction, ground_truth)
-        total_iou += iou
-        hits += int(iou >= 0.5)
-    total = len(keys)
-    return {
-        "hits": hits,
-        "total": total,
-        "acc_at_0_5": hits / total if total else 0.0,
-        "mean_iou": total_iou / total if total else 0.0,
-        "failures": failures,
-    }
