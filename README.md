@@ -224,7 +224,6 @@ aicomp_grounding/          核心库：坐标与合同、运行身份、训练�
 aicomp_grounding/models/   各底座适配器（qwen3vl / qwen3_5 / glm46v / mock）
 aicomp_grounding/fusion/   加权框融合（WBF）
 aicomp_grounding/ordinal/  序数后处理（解析 / 枚举 / 取第 k）+ prompts/*.md
-offline/                   训练与推理 CLI、ROCm 环境脚本
 tools/                     全部 CLI 入口（预处理 / 划分 / 标注 / 训练 / 推理 / 打包）
 tests/                     CPU 单元测试
 docs/                      架构、数据合同、序数契约、赛题说明
