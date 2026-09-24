@@ -3,7 +3,7 @@
 import unittest
 
 from aicomp_grounding.annotation.facts import ObjectFacts, extract_frame_facts
-from aicomp_grounding.annotation.planner import TargetSupply, plan
+from aicomp_grounding.annotation.selection import TargetSupply, plan
 
 
 def make_target(sample_id, realizations):

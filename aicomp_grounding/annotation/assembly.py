@@ -25,7 +25,7 @@ from aicomp_grounding.annotation.facts import (
     Realization,
     extract_frame_facts,
 )
-from aicomp_grounding.annotation.planner import TargetSupply, plan as planner_plan
+from aicomp_grounding.annotation.selection import TargetSupply, plan as planner_plan
 
 MIN_TEACHER_AREA = 0.002
 MAX_TEACHER_AREA = 0.6

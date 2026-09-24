@@ -27,7 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from PIL import Image, ImageDraw
 
 from aicomp_grounding.annotation.imaging import build_marked_annotation_view, jpeg_data_url
-from aicomp_grounding.annotation.api import client_for, resolve_api_key, validate_concurrency
+from aicomp_grounding.annotation.client import client_for, resolve_api_key, validate_concurrency
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.annotation.census import (
     ATTR_PROMPT_HASH,

@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from aicomp_grounding.annotation.review.bbox import normalize_bbox  # noqa: E402
-from aicomp_grounding.annotation.review.census_session import (  # noqa: E402
+from aicomp_grounding.annotation.review.sessions import (  # noqa: E402
     TEACHER_ANNOTATOR,
     build_assembly_session,
     build_census_session,
@@ -99,7 +99,7 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
         "split": manifest_split,
     }
 
-WEB_ROOT = Path(__file__).resolve().parent / "web"
+WEB_ROOT = Path(__file__).resolve().parent / "static"
 MAX_BODY_BYTES = 1_000_000
 STATIC_TYPES = {
     ".html": "text/html; charset=utf-8",

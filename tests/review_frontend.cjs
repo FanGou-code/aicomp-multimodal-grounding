@@ -1,6 +1,6 @@
 const fs = require('fs');
 const vm = require('vm');
-const sourcePath = require('path').join(__dirname, '../aicomp_grounding/annotation/review/web/app.js');
+const sourcePath = require('path').join(__dirname, '../aicomp_grounding/annotation/review/static/app.js');
 const assert = require('node:assert/strict');
 const raw = fs.readFileSync(sourcePath, 'utf8');
 const source = raw.replace(/\}\)\(\);\s*$/, 'globalThis.audit = {state,dom,saveBbox,saveQueryEdit,goToIndex,isAiAnnotator,isTodoItem,markTodo};\n})();');

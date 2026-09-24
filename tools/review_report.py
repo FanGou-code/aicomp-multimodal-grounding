@@ -21,7 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from aicomp_grounding.bbox import compute_iou  # noqa: E402
 from aicomp_grounding.annotation.census import trusted_objects  # noqa: E402
 from aicomp_grounding.io import load_json  # noqa: E402
-from aicomp_grounding.annotation.review.census_session import TEACHER_ANNOTATOR  # noqa: E402
+from aicomp_grounding.annotation.review.sessions import TEACHER_ANNOTATOR  # noqa: E402
 from aicomp_grounding.annotation.review.store import AnnotationStore  # noqa: E402
 
 

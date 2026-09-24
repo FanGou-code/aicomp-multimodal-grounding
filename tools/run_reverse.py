@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from PIL import Image
 
-from aicomp_grounding.annotation.api import client_for, resolve_api_key, validate_concurrency
+from aicomp_grounding.annotation.client import client_for, resolve_api_key, validate_concurrency
 from aicomp_grounding.annotation.reverse import (
     PROMPT_HASHES,
     direct_messages,

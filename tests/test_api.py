@@ -11,7 +11,7 @@ from http.client import RemoteDisconnected
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from aicomp_grounding.annotation.api import (
+from aicomp_grounding.annotation.client import (
     ENV_API_KEY,
     MAX_API_CONCURRENCY,
     APIError,

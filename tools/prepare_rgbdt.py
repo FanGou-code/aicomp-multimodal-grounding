@@ -28,7 +28,7 @@ from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.io import load_json
 
-from aicomp_grounding.test_data import (
+from aicomp_grounding.testset import (
     OFFICIAL_QUERY_COUNT,
     OFFICIAL_TEMPLATE_CANONICAL_SHA256,
     build_test_preparation_contract,
