@@ -31,7 +31,7 @@ pip install -e ".[dev]"      # 开发用：ruff + 数据集发布工具依赖
 AMD ROCm 环境在训练/推理前 source 一次：
 
 ```bash
-source offline/rocm_env.sh   # BLAS 后端、硬件队列上限、Triton/pip 缓存目录
+source tools/rocm_env.sh   # BLAS 后端、硬件队列上限、Triton/pip 缓存目录
 ```
 
 ROCm 上 `causal-conv1d` 没有预编译轮，需先源码编译再装 `[kernels]`：
@@ -65,7 +65,7 @@ huggingface-cli download Qwen/Qwen3-VL-8B-Instruct \
 
 两件事：**三模态图像**与**标注产物**。
 
-1. 图像按 `docs/data-contract.md` 的布局放入 `data/`；`scripts/prepare_rgbdt.py` 完成
+1. 图像按 `docs/data-contract.md` 的布局放入 `data/`；`tools/prepare_rgbdt.py` 完成
    原始数据到可用输入的整理——逐帧校验三路模态存在且尺寸对齐、解析 `groundtruth.txt`
    并归一化真值框、把 16 位毫米深度按固定标定渲染为 JET 伪彩。
 2. 训练只消费 `outputs/annotations/<run_id>/{train,val}/approved.json`（协议 12）。
@@ -73,8 +73,8 @@ huggingface-cli download Qwen/Qwen3-VL-8B-Instruct \
    生产：跨集去重、镜头序列级划分、三模态事实普查与文本质检、4 重 SHA-256 指纹封包。
 
 ```bash
-python scripts/prepare_rgbdt.py --dataset-root data              # 校验 + 深度伪彩
-python scripts/prepare_rgbdt.py --dataset-root data --dry-run     # 只校验，不写盘
+python tools/prepare_rgbdt.py --dataset-root data              # 校验 + 深度伪彩
+python tools/prepare_rgbdt.py --dataset-root data --dry-run     # 只校验，不写盘
 ```
 
 ## 训练
@@ -83,12 +83,12 @@ python scripts/prepare_rgbdt.py --dataset-root data --dry-run     # 只校验，
 
 ```bash
 # 冒烟：单步前向 + 反向，只跑 1 个 micro-batch
-python offline/train.py --annotation-run-id <run_id> --model qwen3vl \
+python tools/train.py --annotation-run-id <run_id> --model qwen3vl \
   --model-path models/Qwen3-VL-8B-Instruct --data-dir data \
   --batch-size 1 --eval-batch-size 1 --checkpoint-interval 20 --smoke-test
 
 # 完整训练
-python offline/train.py --annotation-run-id <run_id> --model qwen3vl \
+python tools/train.py --annotation-run-id <run_id> --model qwen3vl \
   --model-path models/Qwen3-VL-8B-Instruct --data-dir data \
   --batch-size 1 --gradient-accumulation-steps 16 --learning-rate 1e-4 --epochs 3 \
   --eval-batch-size 1 --num-workers 4 --checkpoint-interval 20 --run-tag qwen3vl-r1
@@ -111,14 +111,14 @@ python offline/train.py --annotation-run-id <run_id> --model qwen3vl \
 
 ```bash
 # 验证集评测：带真值，直接打印 ACC@0.5 / 平均 IoU / 解析失败数
-python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
+python tools/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
   --lora-path outputs/training/<train_run_id>/best/epoch_03 \
   --test-json outputs/annotations/<run_id>/val/approved.json --annotation-run-id <run_id> \
   --data-dir data --num-shards 1 --num-workers 2 --batch-size 2 --batch-save 100 \
   --run-tag val-eval
 
 # 测试集推理：无真值，只写 predictions.json，不打包
-python offline/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
+python tools/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
   --lora-path outputs/training/<train_run_id>/best/epoch_03 \
   --test-json data/Test/queries/queries.json \
   --data-dir data --num-shards 1 --num-workers 2 --batch-size 2 --batch-save 100 \
@@ -203,7 +203,7 @@ python -m aicomp_grounding.ordinal.resolve \
 
 新增后需同步：注册表 `models/__init__.py`、可训练白名单
 `training_core.TRAINABLE_MODELS`（若支持训练）、像素预算判定
-`offline/infer.py:PIXEL_BUDGET_MODELS`（若构造器接收 `max_pixels`），以及
+`tools/infer.py:PIXEL_BUDGET_MODELS`（若构造器接收 `max_pixels`），以及
 `tests/test_models.py` 的 revision 表、投影名单与 LoRA 锚定断言。LoRA 目标层必须经
 `language_model_lora_targets()` 构造，不要用裸后缀名单。
 
@@ -225,7 +225,7 @@ aicomp_grounding/models/   各底座适配器（qwen3vl / qwen3_5 / glm46v / moc
 aicomp_grounding/fusion/   加权框融合（WBF）
 aicomp_grounding/ordinal/  序数后处理（解析 / 枚举 / 取第 k）+ prompts/*.md
 offline/                   训练与推理 CLI、ROCm 环境脚本
-scripts/                   数据预处理与数据集发布工具
+tools/                     全部 CLI 入口（预处理 / 划分 / 标注 / 训练 / 推理 / 打包）
 tests/                     CPU 单元测试
 docs/                      架构、数据合同、序数契约、赛题说明
 ```

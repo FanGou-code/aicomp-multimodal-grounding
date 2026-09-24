@@ -160,7 +160,6 @@ def build_indexes(
     )
     train_seqs, val_seqs = _build_split(all_sequences, seed, train_ratio)
     train_set = set(train_seqs)
-    val_set = set(val_seqs)
 
     outputs: dict[str, dict] = {"train": {}, "val": {}}
     stats = {"sequences": len(all_sequences), "samples": 0, "excluded_hash": 0,
@@ -237,8 +236,6 @@ def build_indexes(
         manifest = {
             "status": "complete",
             "split_method": "frozen-sequence-assignment",
-            "train_sequences": sorted(train_set),
-            "val_sequences": sorted(val_set),
             "index_fingerprints": {
                 "train": split_index_fingerprint(outputs["train"]),
                 "val": split_index_fingerprint(outputs["val"]),
@@ -269,14 +266,6 @@ def build_indexes(
                 encoding="utf-8",
             )
             tmp.replace(overlap_path)
-
-            excl_path = out_dir / "excluded.json"
-            tmp_excl = excl_path.with_name(excl_path.name + ".tmp")
-            tmp_excl.write_text(
-                json.dumps(audit_data, ensure_ascii=False, indent=1),
-                encoding="utf-8",
-            )
-            tmp_excl.replace(excl_path)
 
     return stats
 

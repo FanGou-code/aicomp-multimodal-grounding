@@ -6,6 +6,7 @@ from aicomp_grounding.bbox import (
     format_qwen_bbox,
     normalize_pixel_bbox,
     parse_bbox_from_text,
+    quantize_bbox_1000,
     validate_bbox,
 )
 
@@ -19,6 +20,23 @@ class BBoxTests(unittest.TestCase):
                 self.assertTrue(all(0 <= v <= 1 for v in parsed))
                 self.assertLess(parsed[0], parsed[2])
                 self.assertLess(parsed[1], parsed[3])
+
+    def test_quantization_boundaries_are_pinned(self):
+        for box, expected in (
+            ([0.0, 0.0, 0.0005, 0.0005], [0, 0, 1, 1]),
+            ([0.9996, 0.1, 1.0, 0.5], [999, 100, 1000, 500]),
+            ([0.1, 0.2, 0.3, 0.4], [100, 200, 300, 400]),
+        ):
+            with self.subTest(box=box):
+                self.assertEqual(quantize_bbox_1000(box), expected)
+
+    def test_formatted_boundaries_without_special_tokens(self):
+        for box, expected in (
+            ([0.0, 0.0, 0.0005, 0.0005], "(0,0),(1,1)"),
+            ([0.9996, 0.1, 1.0, 0.5], "(999,100),(1000,500)"),
+        ):
+            with self.subTest(box=box):
+                self.assertEqual(format_qwen_bbox(box, special_tokens=False), expected)
 
     def test_qwen_round_trip_preserves_xy_order(self):
         box = [0.1, 0.2, 0.3, 0.4]
