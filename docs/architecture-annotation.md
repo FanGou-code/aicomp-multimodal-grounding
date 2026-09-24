@@ -34,15 +34,15 @@ prepare_split → census → generation → text_qc → review → apply → pac
 | `foundry/pipeline/views.py` | 红框渲染 + 图片指纹 |
 | `foundry/pipeline/sharding.py` | 分片 + 序列解析 |
 | `foundry/pipeline/source.py` | 标注源索引加载 + 指纹 |
-| `scripts/review_server.py` | 审查服务入口 |
-| `scripts/make_manifest.py` | 审查清单生成（--generation / --source 双模式） |
-| `scripts/apply_review.py` | 人审结果合并烘焙 |
-| `scripts/package_approved.py` | 打包发布 approved.json（自动算 4 个 SHA-256 指纹，直通主仓） |
-| `scripts/run_census.py` | 普查入口 |
-| `scripts/run_generation.py` | 组装入口 |
-| `scripts/prepare_split.py` | 数据划分（--seed --train-ratio） |
-| `scripts/check_key.py` | 注入的 key 测活 |
-| `scripts/review_report.py` | 审查报告 |
+| `tools/review_server.py` | 审查服务入口 |
+| `tools/make_manifest.py` | 审查清单生成（--generation / --source 双模式） |
+| `tools/apply_review.py` | 人审结果合并烘焙 |
+| `tools/package_approved.py` | 打包发布 approved.json（自动算 4 个 SHA-256 指纹，直通主仓） |
+| `tools/run_census.py` | 普查入口 |
+| `tools/run_generation.py` | 组装入口 |
+| `tools/prepare_split.py` | 数据划分（--seed --train-ratio） |
+| `tools/check_key.py` | 注入的 key 测活 |
+| `tools/review_report.py` | 审查报告 |
 | `configs/default/` | 实际读取的提示词与 qc.json；API 配置固定在代码 |
 
 ## 已删除（git 可溯）

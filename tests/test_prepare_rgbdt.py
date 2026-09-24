@@ -5,7 +5,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tools.prepare_rgbdt import (
-    build_split,
     parse_groundtruth,
     prepare_dataset,
     prepare_test_depth,
@@ -45,14 +44,10 @@ def _write_depth(
 def _args(root: Path, *, dry_run: bool = True) -> argparse.Namespace:
     return argparse.Namespace(
         dataset_root=root,
-        index_dir=root / "indexes",
-        train_ratio=0.8,
-        seed=42,
         min_depth_mm=300,
         max_depth_mm=20000,
         depth_scaling="fixed",
         overwrite_depth=False,
-        overwrite_indexes=False,
         dry_run=dry_run,
         skip_test_validation=True,
     )
@@ -96,15 +91,6 @@ def _write_official_template(root: Path, processed: dict) -> None:
 
 
 class PrepareDatasetTests(unittest.TestCase):
-    def test_split_is_deterministic_and_disjoint(self):
-        sequences = [f"{index:03d}" for index in range(1, 11)]
-        train_a, val_a = build_split(sequences, 0.8, 42)
-        train_b, val_b = build_split(sequences, 0.8, 42)
-        self.assertEqual((train_a, val_a), (train_b, val_b))
-        self.assertEqual(len(train_a), 8)
-        self.assertFalse(set(train_a) & set(val_a))
-        self.assertEqual(set(train_a) | set(val_a), set(sequences))
-
     def test_missing_raw_directory_fails_before_processing(self):
         with self.assertRaises(FileNotFoundError):
             prepare_dataset(_args(Path("does-not-exist")))
@@ -181,13 +167,7 @@ class PrepareDatasetTests(unittest.TestCase):
             self.assertEqual(len(manifest["exclusions"]), 1)
             self.assertEqual(manifest["exclusions"][0]["reason"], "invalid_ground_truth_bbox")
 
-    def test_core_functions_reject_invalid_configuration_and_empty_splits(self):
-        with self.assertRaises(ValueError):
-            build_split(["001", "002"], 1.5, 42)
-        with self.assertRaises(ValueError):
-            build_split(["001"], 0.8, 42)
-        with self.assertRaises(ValueError):
-            build_split(["001", "001"], 0.8, 42)
+    def test_core_functions_reject_invalid_configuration(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = root / "depth.png"
@@ -207,9 +187,7 @@ class PrepareDatasetTests(unittest.TestCase):
             _write_sequence(root)
             _write_sequence(root, scene="002")
             initial = _args(root, dry_run=False)
-            completed = prepare_dataset(initial)
-            self.assertEqual(completed["status"], "complete")
-            self.assertEqual(completed["index_sample_counts"], {"train": 1, "val": 1})
+            prepare_dataset(initial)
 
             same = _args(root)
             manifest = prepare_dataset(same)
@@ -217,7 +195,6 @@ class PrepareDatasetTests(unittest.TestCase):
 
             overwrite_matching = _args(root, dry_run=False)
             overwrite_matching.overwrite_depth = True
-            overwrite_matching.overwrite_indexes = True
             with patch("tools.prepare_rgbdt.process_depth_to_jet") as rewrite:
                 manifest = prepare_dataset(overwrite_matching)
             rewrite.assert_not_called()
@@ -255,37 +232,6 @@ class PrepareDatasetTests(unittest.TestCase):
                 expected_test_template_sha256=None,
             )
             self.assertEqual(manifest["stats"]["test_depth_would_write"], 1)
-
-    def test_formal_small_test_contract_uses_overridden_template_constraints(self):
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            _write_sequence(root)
-            _write_sequence(root, scene="002")
-            _write_color(root / "Test" / "Images" / "visible" / "frame.png")
-            _write_color(root / "Test" / "Images" / "infrared" / "frame.png")
-            _write_depth(root / "Test" / "Images" / "depth" / "frame.png")
-            test_data = {
-                "000001_001": {
-                    "visible": "Test/Images/visible/frame.png",
-                    "infrared": "Test/Images/infrared/frame.png",
-                    "depth": "Processed/Test/depth_jet/frame.png",
-                    "query": "The person wearing a bright yellow jacket",
-                }
-            }
-            _write_official_template(root, test_data)
-            args = _args(root, dry_run=False)
-            args.skip_test_validation = False
-
-            manifest = prepare_dataset(
-                args,
-                expected_test_query_count=None,
-                expected_test_template_sha256=None,
-            )
-
-            self.assertEqual(manifest["test_contract"]["official_query_count"], 1)
-            self.assertEqual(manifest["test_contract"]["raw_depth_file_count"], 1)
-            self.assertEqual(manifest["test_contract"]["processed_depth_file_count"], 1)
 
     def test_precolored_test_jpg_is_copied_and_black_stale_output_is_rejected(self):
         import cv2

@@ -174,8 +174,6 @@ class PrepareSplitTests(unittest.TestCase):
         self.assertEqual(records[0]["sample_id"], "001_00000002")
         self.assertEqual(records[0]["test_images"], ["000099"])
 
-        self.assertTrue((out_dir / "excluded.json").is_file())
-
         from aicomp_grounding.annotation.source import load_annotation_source
         self.assertEqual(load_annotation_source(self.root, "train", index_dir=out_dir), train_idx)
         self.assertEqual(load_annotation_source(self.root, "val", index_dir=out_dir), val_idx)

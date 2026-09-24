@@ -11,7 +11,7 @@ Depth-Jet），输出可直接驱动下游模型微调的自包含标注产物 `
 单向衔接。
 
 ```
-主仓 scripts/prepare_rgbdt.py                本仓（数据工程）                      主仓（训练）
+主仓 tools/prepare_rgbdt.py                本仓（数据工程）                      主仓（训练）
 ├─ 三模态存在性/尺寸对齐校验            ┌──────────────────────────┐
 ├─ 16 位深度 → JET 伪彩（Processed/）   │ prepare_split → census    │
 └─ groundtruth.txt → 归一化 XYXY   ───▶ │ → generation → text_qc      │ ───▶ outputs/annotations/
@@ -40,7 +40,7 @@ Depth-Jet），输出可直接驱动下游模型微调的自包含标注产物 `
 
 ### 1. 跨集哈希去重与防污染（Anti-Leakage Deduplication）
 
-`scripts/prepare_split.py` 在划分前先做去重：对 `visible`（可见光）逐帧计算
+`tools/prepare_split.py` 在划分前先做去重：对 `visible`（可见光）逐帧计算
 SHA-256，与测试集图像哈希集合比对，命中即从 train/val 候选中剔除，并把
 `{sample_id, visible, test_images}` 明细写入 `data/indexes/excluded_overlap.json`
 （含 `test_images_hashed` 计数）。测试集哈希可直接给出，或由脚本自动探测
@@ -60,7 +60,7 @@ SHA-256，与测试集图像哈希集合比对，命中即从 train/val 候选�
 
 ### 3. 三模态物理与空间事实普查（Tri-modal Census）
 
-普查阶段（`scripts/run_census.py` + `foundry/pipeline/census.py`）对每个选中帧做
+普查阶段（`tools/run_census.py` + `foundry/pipeline/census.py`）对每个选中帧做
 **一次**枚举调用 + 选中帧的 `attr` 属性报告。枚举先认出红框所属类别并数出该类别在帧内
 有几个，然后分流：
 
@@ -84,7 +84,7 @@ SHA-256，与测试集图像哈希集合比对，命中即从 train/val 候选�
 
 ### 3b. 逆向通路（Reverse Pass）
 
-`scripts/run_reverse.py` + `foundry/pipeline/reverse.py` 是普查的镜像：输入一批
+`tools/run_reverse.py` + `foundry/pipeline/reverse.py` 是普查的镜像：输入一批
 query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 取第 k 个），入口与出口相反。
 
 - `parse`：纯文本，`do_sample=false`，结构化输出。
@@ -134,7 +134,7 @@ query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 
 
 ### 6. 指纹化自包含契约交付（Contract-Driven Packaging）
 
-`scripts/package_approved.py` 把组装产物封包为下游可直接消费的 `approved.json`，
+`tools/package_approved.py` 把组装产物封包为下游可直接消费的 `approved.json`，
 自带 4 重 SHA-256 指纹并逐项自校验：
 
 | 指纹 | 含义 |
@@ -182,40 +182,40 @@ query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 
 export ANNOTATION_API_KEY=...        # 或每一步加 --api-key
 
 # [1] 划分与去重（seed / 比例可调，默认 42 / 0.8）
-python scripts/prepare_split.py --raw-root /path/to/dataset \
+python tools/prepare_split.py --raw-root /path/to/dataset \
     --seed 42 --train-ratio 0.8 --out-dir data/indexes
 
 # [2] 普查（API 调用，8 并发；--resume 断点续跑、--retry-failed 重试失败项、
 #     --preflight-only 只做计划与校验、--deep-verify-images 额外校验图像字节）
-python scripts/run_census.py --split train --limit-sequences 320 \
+python tools/run_census.py --split train --limit-sequences 320 \
     --num-shards 8 --run-tag census-full-1 \
     --data-root /path/to/dataset --index-dir data/indexes
 
 # [3] 组装（一次 API 调用 / 目标，8 并发；代码列事实 + 教师造句；
 #     --no-realize 只跑本地短路、--resume 复用已落盘的措辞、--force 重头来）
-python scripts/run_generation.py --census-run outputs/census/census_<id> \
+python tools/run_generation.py --census-run outputs/census/census_<id> \
     --run-tag asm-<tag> --data-root /path/to/dataset --index-dir data/indexes
 
 # [3b] 逆向（query → 框，8 并发；--resume 复用已完成的题、--force 重头来）
-python scripts/run_reverse.py --queries /path/to/queries.json \
+python tools/run_reverse.py --queries /path/to/queries.json \
     --data-root /path/to/dataset --run-tag reverse-<tag>
 
 # [4] 人审（见下节：最小会话 / 多人分片）
 
 # [5] 合并烘焙
-python scripts/apply_review.py --generation outputs/generation/asm-train-r5/generation.json \
+python tools/apply_review.py --generation outputs/generation/asm-train-r5/generation.json \
     --review-queries outputs/review/asm-train-r5/annotations.queries.json
 
 # [6] 打包发布（自动算 4 重指纹并直交主仓）
-python scripts/package_approved.py \
+python tools/package_approved.py \
     --generation outputs/generation/asm-train-r6/generation.json \
              outputs/generation/asm-val-r6/generation.json \
     --run-id annot_r6 \
     --export-to-main ../aicomp-multimodal-grounding
 
 # 辅助入口
-python scripts/check_key.py --data-root /path/to/dataset --index-dir data/indexes
-python scripts/review_report.py --census-run outputs/census/census_<id>
+python tools/check_key.py --data-root /path/to/dataset --index-dir data/indexes
+python tools/review_report.py --census-run outputs/census/census_<id>
 ```
 
 真实 API 调用不属于单元测试范围。
@@ -231,13 +231,13 @@ GLM-4.6V-Flash，LoRA 微调，唯一指标 ACC@0.5）。
 
 ```bash
 # 本仓：封包并交付
-python scripts/package_approved.py \
+python tools/package_approved.py \
     --generation outputs/generation/asm-train-r6/generation.json \
              outputs/generation/asm-val-r6/generation.json \
     --run-id annot_r6 --export-to-main ../aicomp-multimodal-grounding
 
 # 主仓：直接训练（run_id 即上一步的 --run-id）
-python offline/train.py --annotation-run-id annot_r6 \
+python tools/train.py --annotation-run-id annot_r6 \
     --model qwen3vl --model-path /path/to/Qwen3-VL-8B-Instruct \
     --data-dir data --batch-size 1 --gradient-accumulation-steps 16 \
     --learning-rate 1e-4 --epochs 3 --run-tag qwen3vl-r1
@@ -266,18 +266,18 @@ pip install -e ".[pipeline]"   # 管线层（census / generation / reverse）需
 
 ```bash
 # 1. 生成审查清单（从 generation.json）
-python scripts/make_manifest.py \
+python tools/make_manifest.py \
     --generation outputs/generation/asm-train-r5/generation.json \
     --data-root /path/to/dataset --index-dir data/indexes
 
 # 或从任意 query JSON 生成（通用模式，零管线依赖）
 # 支持映射式 {"img_001": {"image": "photos/a.jpg", "query": "the red car"}}
 # 与列表式 [{"id": "img_001", "image": "photos/a.jpg", "query": "the red car"}]
-python scripts/make_manifest.py --source my_queries.json \
+python tools/make_manifest.py --source my_queries.json \
     --images-root /path/to/images --out review-manifest.json
 
 # 2. 启动审查服务
-python scripts/review_server.py --manifest review-manifest.json \
+python tools/review_server.py --manifest review-manifest.json \
     --data-root /path/to/images --port 8788
 
 # 3. 浏览器打开 http://localhost:8788/
@@ -287,17 +287,17 @@ python scripts/review_server.py --manifest review-manifest.json \
 
 ```bash
 # 管理员切分清单
-python scripts/make_manifest.py --source all_queries.json --images-root /path/to/images \
+python tools/make_manifest.py --source all_queries.json --images-root /path/to/images \
     --split 3 --part 1 --out part1.json
 
 # 每位审查者启动自己的分片与端口
-python scripts/review_server.py --manifest part2.json --data-root /path/to/images --port 8789
+python tools/review_server.py --manifest part2.json --data-root /path/to/images --port 8789
 
 # 停止写入后交回完整 outputs/review/<run_tag>/ 目录
 # （annotations.jsonl + query/bbox/absent 三份快照；只交两份快照会缺少部分裁决与恢复信息）
 
 # 管理员按传入顺序合并各分片
-python scripts/apply_review.py --generation generation.json \
+python tools/apply_review.py --generation generation.json \
     --review-queries part1/annotations.queries.json part2/annotations.queries.json
 ```
 
@@ -399,7 +399,7 @@ foundry/
     sharding.py       镜头感知的选择与分片
     source.py         标注源索引加载与校验
   bbox.py / utils.py  共享层：坐标与 IO/指纹（零 pip 依赖）
-scripts/              CLI 入口（prepare_split / run_census / run_reverse /
+tools/                CLI 入口（prepare_split / run_census / run_reverse /
                       run_generation / review_server / make_manifest /
                       apply_review / package_approved / check_key / review_report）
 configs/default/      实际读取的提示词与 QC 规则（findall / attr / realize /

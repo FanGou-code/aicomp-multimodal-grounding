@@ -8,20 +8,20 @@
 | --- | --- | --- | --- |
 | 核心库 | `aicomp_grounding/` | 图像与坐标、合同校验、运行身份、训练核心、推理状态、融合与提交、序数后处理 | 标准库 + `Pillow` / `numpy` |
 | 模型适配 | `aicomp_grounding/models/` | 各底座的协议适配与 LoRA 目标层声明 | 惰性导入 `torch` / `transformers` / `peft` |
-| 入口 | `offline/`、`scripts/` | 训练与推理 CLI、数据预处理 | `aicomp_grounding` |
+| 入口 | `tools/` | 训练与推理 CLI、数据预处理与标注流水线入口 | `aicomp_grounding` |
 | 上游 | `query-foundry`（独立仓库） | 数据划分、标注生产、质检与封包 | 与本仓只通过 `approved.json` 交接 |
 
-依赖方向单向：`offline/`、`scripts/` → `aicomp_grounding/`。核心库不导入入口代码与
+依赖方向单向：`tools/` → `aicomp_grounding/`。核心库不导入入口代码与
 上游仓库代码；`models/` 中的 `torch` / `transformers` / `peft` 在函数内惰性导入。
 
 ## 数据流
 
 ```text
-原始图像 → scripts/prepare_rgbdt.py（三模态校验 + 深度伪彩）
+原始图像 → tools/prepare_rgbdt.py（三模态校验 + 深度伪彩）
         → query-foundry（划分 / 普查 / 组装 / 人审）
         → outputs/annotations/<run_id>/{train,val}/approved.json
         → tools/train.py → outputs/training/<run_id>/
-        → offline/infer.py → outputs/inference/<run_id>/predictions.json
+        → tools/infer.py → outputs/inference/<run_id>/predictions.json
         → aicomp_grounding.ordinal.{enumerate,resolve}（可选）→ outputs/{enum,ordinal}/
         → aicomp_grounding.fusion.wbf → aicomp_grounding.submission → submission.zip
 ```
@@ -64,10 +64,10 @@
 | 模块 | 职责 |
 | --- | --- |
 | `tools/train.py` | 训练 CLI：参数解析 → 训练计划 → 训练循环 → 产物交接 |
-| `offline/infer.py` | 推理/评测 CLI：分片、断点续跑、指标与提交包判定 |
-| `offline/rocm_env.sh` | ROCm 性能环境变量（BLAS 后端、硬件队列、缓存目录） |
-| `scripts/prepare_rgbdt.py` | 三模态校验、深度伪彩生成、Test 引用与深度集合校验 |
-| `scripts/upload_dataset.py` | 数据集发布工具（维护者用，需 `modelscope`） |
+| `tools/infer.py` | 推理/评测 CLI：分片、断点续跑、指标与提交包判定 |
+| `tools/rocm_env.sh` | ROCm 性能环境变量（BLAS 后端、硬件队列、缓存目录） |
+| `tools/prepare_rgbdt.py` | 三模态校验、深度伪彩生成、Test 引用与深度集合校验 |
+| `tools/upload_dataset.py` | 数据集发布工具（维护者用，需 `modelscope`） |
 | `tests/` | CPU 单元测试：合同、身份、训练/推理状态机、mock 端到端链路 |
 
 ## 不变量
@@ -94,7 +94,7 @@
 ## 不提供
 
 数据集、模型权重、标注产物与运行结果不在本仓库。平台相关差异集中在
-`offline/rocm_env.sh`；`cloud/`、`internvl35`、`qwen36_27b`、`mimo_vl`、`groundingdino`
+`tools/rocm_env.sh`；`cloud/`、`internvl35`、`qwen36_27b`、`mimo_vl`、`groundingdino`
 不在本仓库（git 历史可溯）。
 
 ## 契约边界

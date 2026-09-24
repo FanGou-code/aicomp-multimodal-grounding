@@ -79,14 +79,7 @@ class PackageApprovedTests(unittest.TestCase):
         self.manifest_data = {
             "status": "complete",
             "preparation_protocol_version": 2,
-            "seed": 42,
-            "train_ratio": 0.8,
-            "depth_scaling": "fixed",
-            "min_depth_mm": 300,
-            "max_depth_mm": 20000,
-            "train_sequences": ["001"],
-            "val_sequences": [],
-            "stats": {},
+            "split_method": "frozen-sequence-assignment",
             "index_fingerprints": {"train": stable_json_hash(self.index_data), "val": ""},
             "index_sample_counts": {"train": 2, "val": 0},
         }

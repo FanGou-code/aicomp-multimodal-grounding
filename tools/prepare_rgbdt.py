@@ -1,10 +1,8 @@
 """Prepare an RGBDT dataset for visual grounding.
 
-Image validation and Depth-JET generation. Train/Val/Test index generation
-(``data/indexes/``) has moved to the companion repository ``query-foundry``
-(``scripts/prepare_split.py``); this script's index output is legacy and does
-no test-set overlap filtering, and training never reads it (it consumes
-``approved.json`` only).
+One job: validate Train/Test images, then render the depth maps to JET
+pseudo-colour. Split indexes and their manifest are produced by
+``tools/prepare_split.py``.
 """
 
 from __future__ import annotations
@@ -12,7 +10,6 @@ from __future__ import annotations
 import argparse
 import math
 import os
-import random
 import sys
 import tempfile
 from pathlib import Path
@@ -23,15 +20,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from aicomp_grounding.bbox import normalize_pixel_bbox
-from aicomp_grounding.artifacts import stable_json_hash
-from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION
-from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.io import load_json
 
 from aicomp_grounding.testset import (
     OFFICIAL_QUERY_COUNT,
     OFFICIAL_TEMPLATE_CANONICAL_SHA256,
-    build_test_preparation_contract,
     validate_processed_test_index,
 )
 
@@ -70,7 +63,6 @@ def validate_preparation_config(
     min_depth_mm: int,
     max_depth_mm: int,
     scaling: str,
-    train_ratio: float | None = None,
 ) -> None:
     if scaling not in {"fixed", "per-frame"}:
         raise ValueError(f"Unsupported depth scaling mode: {scaling!r}")
@@ -82,13 +74,6 @@ def validate_preparation_config(
         or not 0 <= min_depth_mm < max_depth_mm <= 65535
     ):
         raise ValueError("Depth limits must satisfy 0 <= min_depth_mm < max_depth_mm <= 65535")
-    if train_ratio is not None and (
-        isinstance(train_ratio, bool)
-        or not isinstance(train_ratio, (int, float))
-        or not math.isfinite(float(train_ratio))
-        or not 0.0 < float(train_ratio) < 1.0
-    ):
-        raise ValueError("train_ratio must be a finite number between 0 and 1")
 
 
 def validate_raw_depth(source_path: Path):
@@ -276,25 +261,6 @@ def process_depth_to_jet(
     finally:
         if temporary is not None and temporary.exists():
             temporary.unlink()
-
-
-def build_split(sequence_names: list[str], train_ratio: float, seed: int) -> tuple[list[str], list[str]]:
-    validate_preparation_config(
-        min_depth_mm=0,
-        max_depth_mm=1,
-        scaling="fixed",
-        train_ratio=train_ratio,
-    )
-    if len(sequence_names) != len(set(sequence_names)):
-        raise ValueError("Sequence names must be unique")
-    if len(sequence_names) < 2:
-        raise ValueError("At least two sequences are required for non-empty train and val splits")
-    shuffled = list(sequence_names)
-    random.Random(seed).shuffle(shuffled)
-    split_index = int(len(shuffled) * train_ratio)
-    if not 0 < split_index < len(shuffled):
-        raise ValueError("train_ratio produces an empty train or val split")
-    return sorted(shuffled[:split_index]), sorted(shuffled[split_index:])
 
 
 def _resolve_dataset_path(dataset_root: Path, relative: str, *, label: str) -> Path:
@@ -503,38 +469,17 @@ def prepare_dataset(
         min_depth_mm=args.min_depth_mm,
         max_depth_mm=args.max_depth_mm,
         scaling=args.depth_scaling,
-        train_ratio=args.train_ratio,
     )
     raw_root = args.dataset_root / "Train"
     processed_root = args.dataset_root / "Processed" / "Train"
     if not raw_root.is_dir():
         raise FileNotFoundError(f"Missing raw sequence directory: {raw_root}")
 
-    generate_indexes = getattr(args, "generate_indexes", False)
-    destinations = [
-        args.index_dir / "train.json",
-        args.index_dir / "val.json",
-        args.index_dir / "split_manifest.json",
-    ]
-    existing_indexes = [path for path in destinations if path.exists()]
-    if (
-        generate_indexes
-        and not args.dry_run
-        and existing_indexes
-        and not args.overwrite_indexes
-    ):
-        raise FileExistsError(
-            f"Index output already exists: {existing_indexes[0]}. Use --overwrite-indexes explicitly."
-        )
-
     import cv2
 
     sequences = sorted(path.name for path in raw_root.iterdir() if path.is_dir() and path.name.isdigit())
     if not sequences:
         raise ValueError(f"No numeric sequence directories found under {raw_root}")
-    train_sequences, val_sequences = build_split(sequences, args.train_ratio, args.seed)
-    train_set = set(train_sequences)
-    outputs = {"train": {}, "val": {}}
     stats = {
         "sequences": len(sequences),
         "groundtruth_rows": 0,
@@ -550,7 +495,6 @@ def prepare_dataset(
         sequence_root = raw_root / sequence
         annotations = parse_groundtruth(sequence_root / "groundtruth.txt")
         stats["groundtruth_rows"] += len(annotations)
-        target = outputs["train" if sequence in train_set else "val"]
         seen_stems: set[str] = set()
 
         for filename, (x, y, width, height) in sorted(annotations.items()):
@@ -623,23 +567,6 @@ def prepare_dataset(
                 else:
                     raise RuntimeError(f"Failed to convert train depth image: {depth_path}")
 
-            sample_id = f"{sequence}_{stem}"
-            if sample_id in target:
-                raise ValueError(f"Duplicate output sample ID: {sample_id}")
-            target[sample_id] = {
-                "visible": f"Train/{sequence}/color/{filename}",
-                "infrared": f"Train/{sequence}/infrared/{filename}",
-                "depth": f"Processed/Train/{sequence}/depth_jet/{filename}",
-                # Query is intentionally empty here: these indexes are the raw
-                # annotation source list. Natural-language queries are produced
-                # by the external private annotation pipeline and published into
-                # outputs/annotations/<run_id>/<split>/approved.json. Training
-                # only consumes approved.json, never these bare indexes.
-                "query": "",
-                "bbox": bbox,
-                "width": image_width,
-                "height": image_height,
-            }
             stats["valid_samples"] += 1
 
         if sequence_index % 50 == 0 or sequence_index == len(sequences):
@@ -665,71 +592,16 @@ def prepare_dataset(
         if test_errors:
             raise ValueError("Test dataset validation failed: " + "; ".join(test_errors))
 
-    test_contract = None
-    if not args.skip_test_validation and not args.dry_run:
-        official_test = load_json(args.dataset_root / "Test" / "queries" / "queries.json")
-        processed_test = build_processed_test_index(official_test)
-        test_contract = build_test_preparation_contract(
-            args.dataset_root,
-            processed_test,
-            official_test,
-            expected_query_count=expected_test_query_count,
-            expected_template_sha256=expected_test_template_sha256,
-        )
-
-    manifest = {
-        "status": "complete",
-        "preparation_protocol_version": PREPARATION_PROTOCOL_VERSION,
-        "seed": args.seed,
-        "train_ratio": args.train_ratio,
-        "depth_scaling": args.depth_scaling,
-        "min_depth_mm": args.min_depth_mm,
-        "max_depth_mm": args.max_depth_mm,
-        "train_sequences": train_sequences,
-        "val_sequences": val_sequences,
-        "stats": stats,
-        "test_contract": test_contract,
-        "exclusions": exclusions,
-        "index_fingerprints": {
-            "train": stable_json_hash(outputs["train"]),
-            "val": stable_json_hash(outputs["val"]),
-        },
-        "index_sample_counts": {
-            "train": len(outputs["train"]),
-            "val": len(outputs["val"]),
-        },
-    }
-    if generate_indexes and not args.dry_run:
-        args.index_dir.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(destinations[0], outputs["train"])
-        atomic_write_json(destinations[1], outputs["val"])
-        atomic_write_json(destinations[2], manifest)
-    return manifest
+    return {"stats": stats, "exclusions": exclusions}
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare RGBDT tracking data without model/API calls")
     parser.add_argument("--dataset-root", type=Path, required=True, help="Directory containing Train/")
-    parser.add_argument(
-        "--index-dir",
-        type=Path,
-        help="Output directory for train.json/val.json (default: <dataset-root>/indexes)",
-    )
-    parser.add_argument("--train-ratio", type=float, default=0.8)
-    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--min-depth-mm", type=int, default=300)
     parser.add_argument("--max-depth-mm", type=int, default=20000)
     parser.add_argument("--depth-scaling", choices=("fixed", "per-frame"), default="fixed")
     parser.add_argument("--overwrite-depth", action="store_true")
-    parser.add_argument(
-        "--generate-indexes",
-        action="store_true",
-        help="Write train.json/val.json/split_manifest.json under --index-dir. "
-        "Off by default: index generation is owned by query-foundry "
-        "(scripts/prepare_split.py) and this script performs no test-set "
-        "overlap filtering.",
-    )
-    parser.add_argument("--overwrite-indexes", action="store_true")
     parser.add_argument(
         "--skip-test-validation",
         action="store_true",
@@ -743,26 +615,14 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     args.dataset_root = args.dataset_root.resolve()
-    args.index_dir = (args.index_dir or args.dataset_root / "indexes").resolve()
-    if not 0.0 < args.train_ratio < 1.0:
-        parser.error("--train-ratio must be between 0 and 1")
     if not 0 <= args.min_depth_mm < args.max_depth_mm <= 65535:
         parser.error("depth limits must satisfy 0 <= min < max <= 65535")
-    if args.generate_indexes:
-        print(
-            "Warning: data/indexes/ is owned by query-foundry; this script's "
-            "index output is legacy, does no test-set overlap filtering, and "
-            "is not consumed by training.",
-            flush=True,
-        )
-    manifest = prepare_dataset(args)
-    print(manifest["stats"])
+    result = prepare_dataset(args)
+    print(result["stats"])
     if args.dry_run:
         print("Dry run complete; no depth images or indexes were written.")
-    elif args.generate_indexes:
-        print(f"Indexes written to {args.index_dir}")
     else:
-        print("Depth processing complete; index generation skipped (use --generate-indexes).")
+        print("Depth processing complete.")
 
 
 if __name__ == "__main__":
