@@ -12,9 +12,9 @@ from unittest import mock
 import numpy as np
 from PIL import Image
 
-from aicomp_grounding.ordinal import run as ordinal_run
-from aicomp_grounding.ordinal.enumerate import main as enumerate_main
-from aicomp_grounding.ordinal.resolve import main as resolve_main
+from aicomp_grounding.serving.ordinal import run as ordinal_run
+from aicomp_grounding.serving.ordinal.enumerate import main as enumerate_main
+from aicomp_grounding.serving.ordinal.resolve import main as resolve_main
 
 QUERY_ID = "000001_001"
 FIRST = [0.10, 0.10, 0.20, 0.30]

@@ -15,7 +15,7 @@ from aicomp_grounding.contract import (
 from aicomp_grounding.config import ANNOTATION_PROTOCOL_VERSION
 from aicomp_grounding.contract import source_fingerprint
 from aicomp_grounding.sharding import group_keys_by_scene
-from aicomp_grounding.training_state import (
+from aicomp_grounding.serving.engine.training_state import (
     accumulation_window_size,
     assert_single_cuda_device_map,
     build_epoch_adapter_manifest,
@@ -32,7 +32,7 @@ from aicomp_grounding.training_state import (
 )
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
-from aicomp_grounding.training_core import (
+from aicomp_grounding.serving.engine.training_core import (
     _load_training_state,
     persist_training_plan,
     prepare_training_plan,

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aicomp_grounding.fusion.wbf import (
+from aicomp_grounding.serving.fusion import (
     build_fusion_metadata,
     fuse_boxes,
     fuse_predictions,

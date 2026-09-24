@@ -12,7 +12,7 @@ from pathlib import Path
 
 from aicomp_grounding.artifacts import key_hash, stable_json_hash
 from aicomp_grounding.io import atomic_write_jsonl, load_json, load_jsonl
-from aicomp_grounding.ordinal import loader
+from aicomp_grounding.serving.ordinal import loader
 
 ENUM_RUN_PREFIX = "ordinal_enum_"
 RESOLVE_RUN_PREFIX = "ordinal_resolve_"
@@ -114,7 +114,7 @@ def build_resolve_metadata(
     stats: dict | None = None,
 ) -> dict:
     """Identity of one resolve run: the single enumeration it consumed."""
-    from aicomp_grounding.ordinal.resolve import AXES
+    from aicomp_grounding.serving.ordinal.resolve import AXES
 
     identity = {
         "version": CHECKPOINT_VERSION,

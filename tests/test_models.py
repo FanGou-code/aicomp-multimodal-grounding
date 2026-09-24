@@ -10,15 +10,15 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
+from aicomp_grounding.serving.engine.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.io import atomic_write_json
-from aicomp_grounding.models import ADAPTERS, available_models, get_adapter
-from aicomp_grounding.models.base import (
+from aicomp_grounding.serving.models import ADAPTERS, available_models, get_adapter
+from aicomp_grounding.serving.models.base import (
     ModelInput,
     language_model_lora_targets,
 )
-from aicomp_grounding.models.mock import _stable_box
-from aicomp_grounding.models.glm46v import (
+from aicomp_grounding.serving.models.mock import _stable_box
+from aicomp_grounding.serving.models.glm46v import (
     GLM_BOX_CLOSE as GLM46V_BOX_CLOSE,
     GLM_BOX_OPEN as GLM46V_BOX_OPEN,
     MAX_PIXELS as GLM46V_MAX_PIXELS,
@@ -30,20 +30,20 @@ from aicomp_grounding.models.glm46v import (
     parse_glm_box,
     processor_pixel_kwargs,
 )
-from aicomp_grounding.models.qwen3_5 import (
+from aicomp_grounding.serving.models.qwen3_5 import (
     MAX_PIXELS as QWEN3_5_MAX_PIXELS,
     MIN_PIXELS as QWEN3_5_MIN_PIXELS,
     MODEL_NAME as QWEN3_5_MODEL_NAME,
     MODEL_REVISION as QWEN3_5_MODEL_REVISION,
 )
-from aicomp_grounding.models.qwen3vl import (
+from aicomp_grounding.serving.models.qwen3vl import (
     MAX_PIXELS,
     MIN_PIXELS,
     MODEL_NAME,
     MODEL_REVISION,
 )
-from aicomp_grounding.messages import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
-from aicomp_grounding.submission import build_submission
+from aicomp_grounding.serving.messages import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
+from aicomp_grounding.serving.submission import build_submission
 
 
 class RegistryTests(unittest.TestCase):
@@ -147,7 +147,7 @@ class Qwen3_5IdentityContinuityTests(unittest.TestCase):
     def test_thinking_disabled_in_chat_template_kwargs(self):
         # The grounding protocol must disable Qwen3.5 thinking for both
         # training and inference; the kwarg is applied via _apply_chat_template.
-        from aicomp_grounding.models import qwen3_5
+        from aicomp_grounding.serving.models import qwen3_5
 
         self.assertEqual(
             qwen3_5.CHAT_TEMPLATE_KWARGS, {"enable_thinking": False}
@@ -200,7 +200,7 @@ class Glm46VContractTests(unittest.TestCase):
         )
 
     def test_thinking_disabled_in_chat_template_kwargs(self):
-        from aicomp_grounding.models import glm46v
+        from aicomp_grounding.serving.models import glm46v
 
         self.assertEqual(glm46v.CHAT_TEMPLATE_KWARGS, {"enable_thinking": False})
 

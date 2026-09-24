@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from aicomp_grounding.ordinal import run
+from aicomp_grounding.serving.ordinal import run
 
 
 class IdentityTests(unittest.TestCase):

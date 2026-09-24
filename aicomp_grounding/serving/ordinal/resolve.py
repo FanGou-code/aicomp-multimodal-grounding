@@ -14,10 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aicomp_grounding.bbox import compute_iou, validate_bbox
-from aicomp_grounding.inference_core import load_inference_items
+from aicomp_grounding.serving.engine.inference_core import load_inference_items
 from aicomp_grounding.io import atomic_write_json, load_json
-from aicomp_grounding.ordinal import run
-from aicomp_grounding.ordinal.kernel import axis_value, order_indices
+from aicomp_grounding.serving.ordinal import run
+from aicomp_grounding.ordinal_kernel import axis_value, order_indices
 from aicomp_grounding.paths import output_dir
 
 #: Closed axis set.  Every axis is computable from what a sample carries:

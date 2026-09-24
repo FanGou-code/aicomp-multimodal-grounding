@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from aicomp_grounding.messages import build_grounding_messages, build_training_messages, GROUNDING_SYSTEM_PROMPT
+from aicomp_grounding.serving.messages import build_grounding_messages, build_training_messages, GROUNDING_SYSTEM_PROMPT
 
 
 class PromptTests(unittest.TestCase):

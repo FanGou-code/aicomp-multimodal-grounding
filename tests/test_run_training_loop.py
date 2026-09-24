@@ -27,7 +27,7 @@ from aicomp_grounding.config import ANNOTATION_PROTOCOL_VERSION
 from aicomp_grounding.io import atomic_write_json, load_json
 from aicomp_grounding.contract import source_fingerprint
 from aicomp_grounding.sharding import group_keys_by_scene
-from aicomp_grounding.training_core import (
+from aicomp_grounding.serving.engine.training_core import (
     candidate_metric_value,
     initial_best_metric_value,
     metric_improved,
@@ -35,10 +35,10 @@ from aicomp_grounding.training_core import (
     prepare_training_plan,
     run_training,
 )
-from aicomp_grounding.training_state import validate_approved_artifact  # noqa: F401
+from aicomp_grounding.serving.engine.training_state import validate_approved_artifact  # noqa: F401
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
-from aicomp_grounding.models.base import DEFAULT_LORA_PROJECTIONS, language_model_lora_targets
-from aicomp_grounding.messages import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
+from aicomp_grounding.serving.models.base import DEFAULT_LORA_PROJECTIONS, language_model_lora_targets
+from aicomp_grounding.serving.messages import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
 
 
 def _data(scene: str) -> dict:
@@ -309,10 +309,10 @@ class RunTrainingLoopTests(unittest.TestCase):
             import transformers as _transformers  # noqa: F401
 
             with mock.patch(
-                "aicomp_grounding.training_core.get_adapter",
+                "aicomp_grounding.serving.engine.training_core.get_adapter",
                 return_value=_fake_adapter(calls),
             ) as adapter_patch, mock.patch(
-                "aicomp_grounding.models.get_adapter", adapter_patch
+                "aicomp_grounding.serving.models.get_adapter", adapter_patch
             ), mock.patch.dict(
                 _sys.modules, {"torch": _CpuTorchShim(torch)}
             ):
@@ -362,10 +362,10 @@ class RunTrainingLoopTests(unittest.TestCase):
             import transformers as _transformers  # noqa: F401
 
             with mock.patch(
-                "aicomp_grounding.training_core.get_adapter",
+                "aicomp_grounding.serving.engine.training_core.get_adapter",
                 return_value=_fake_adapter(calls),
             ) as adapter_patch, mock.patch(
-                "aicomp_grounding.models.get_adapter", adapter_patch
+                "aicomp_grounding.serving.models.get_adapter", adapter_patch
             ), mock.patch.dict(
                 _sys.modules, {"torch": _CpuTorchShim(torch)}
             ):
@@ -561,10 +561,10 @@ class BestMetricTests(unittest.TestCase):
             import transformers as _transformers  # noqa: F401
 
             with mock.patch(
-                "aicomp_grounding.training_core.get_adapter",
+                "aicomp_grounding.serving.engine.training_core.get_adapter",
                 return_value=_fake_adapter(calls),
             ) as adapter_patch, mock.patch(
-                "aicomp_grounding.models.get_adapter", adapter_patch
+                "aicomp_grounding.serving.models.get_adapter", adapter_patch
             ), mock.patch.dict(
                 _sys.modules, {"torch": _CpuTorchShim(torch)}
             ):

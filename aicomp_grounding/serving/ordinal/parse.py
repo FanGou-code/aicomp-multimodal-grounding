@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 
-from aicomp_grounding.ordinal import loader
+from aicomp_grounding.serving.ordinal import loader
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
 

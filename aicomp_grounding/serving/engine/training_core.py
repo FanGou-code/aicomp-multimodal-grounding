@@ -29,10 +29,10 @@ from aicomp_grounding.images import (
     is_trusted_image_fingerprint,
     trusted_dataset_image_fingerprint,
 )
-from aicomp_grounding.models import get_adapter
-from aicomp_grounding.models.base import ModelInput
+from aicomp_grounding.serving.models import get_adapter
+from aicomp_grounding.serving.models.base import ModelInput
 from aicomp_grounding.paths import output_dir
-from aicomp_grounding.training_state import (
+from aicomp_grounding.serving.engine.training_state import (
     accumulation_window_size,
     adapter_weight_path,
     assert_single_cuda_device_map,

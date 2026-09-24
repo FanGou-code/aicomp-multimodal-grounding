@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aicomp_grounding.config import INFERENCE_COMPUTE_DTYPE, TRAINING_PROTOCOL_VERSION
-from aicomp_grounding.inference_state import (
+from aicomp_grounding.serving.engine.inference_state import (
     assign_pending_shards,
     build_run_metadata,
     build_shard_metadata,
@@ -141,7 +141,7 @@ class RunIdentityTests(unittest.TestCase):
     def test_compute_dtype_is_part_of_run_identity(self):
         bf16_metadata = _metadata(["001_1"])
         with patch(
-            "aicomp_grounding.inference_state.INFERENCE_COMPUTE_DTYPE", "float16"
+            "aicomp_grounding.serving.engine.inference_state.INFERENCE_COMPUTE_DTYPE", "float16"
         ):
             fp16_metadata = _metadata(["001_1"])
 

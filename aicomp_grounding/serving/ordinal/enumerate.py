@@ -10,17 +10,17 @@ import argparse
 from collections import OrderedDict
 from pathlib import Path
 
-from aicomp_grounding.inference_core import load_inference_items
-from aicomp_grounding.inference_state import fingerprint_inputs
+from aicomp_grounding.serving.engine.inference_core import load_inference_items
+from aicomp_grounding.serving.engine.inference_state import fingerprint_inputs
 from aicomp_grounding.io import atomic_write_json, load_json
-from aicomp_grounding.models import available_models, get_adapter
-from aicomp_grounding.ordinal import loader, run
-from aicomp_grounding.ordinal.parse import (
+from aicomp_grounding.serving.models import available_models, get_adapter
+from aicomp_grounding.serving.ordinal import loader, run
+from aicomp_grounding.serving.ordinal.parse import (
     build_parse_messages,
     split_thinking,
     strict_json_object,
 )
-from aicomp_grounding.ordinal.resolve import parse_selection
+from aicomp_grounding.serving.ordinal.resolve import parse_selection
 from aicomp_grounding.paths import output_dir
 
 

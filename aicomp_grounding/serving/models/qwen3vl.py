@@ -12,7 +12,7 @@ from typing import Any
 
 from aicomp_grounding.bbox import format_qwen_bbox, parse_bbox_from_text
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import (
+from aicomp_grounding.serving.models.base import (
     DEFAULT_LORA_PROJECTIONS,
     ModelInput,
     Prediction,
@@ -20,13 +20,13 @@ from aicomp_grounding.models.base import (
     require_local_model_path,
     run_generation,
 )
-from aicomp_grounding.messages import (
+from aicomp_grounding.serving.messages import (
     GROUNDING_SYSTEM_PROMPT,
     build_training_messages,
     build_grounding_messages,
     grounding_prompt_hash,
 )
-from aicomp_grounding.training_state import validated_prompt_length
+from aicomp_grounding.serving.engine.training_state import validated_prompt_length
 
 MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
 # Weight snapshot recorded at adoption; fetch this revision before execution
