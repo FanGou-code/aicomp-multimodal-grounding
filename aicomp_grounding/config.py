@@ -1,7 +1,7 @@
 """Shared configuration for local runs and run-metadata recording.
 
 Model-specific identity (model ids, revisions, pixel budgets) lives in
-``aicomp_grounding.models`` adapters; this module keeps only cross-model
+``aicomp_grounding.serving.models`` adapters; this module keeps only cross-model
 constants.
 """
 

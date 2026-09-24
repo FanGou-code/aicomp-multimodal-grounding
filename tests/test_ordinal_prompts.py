@@ -8,8 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from aicomp_grounding.ordinal import enumerate as ordinal_enumerate
-from aicomp_grounding.ordinal import loader, parse
+from aicomp_grounding.serving.ordinal import enumerate as ordinal_enumerate
+from aicomp_grounding.serving.ordinal import loader, parse
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 

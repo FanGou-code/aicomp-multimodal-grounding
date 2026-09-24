@@ -6,8 +6,8 @@ import unittest
 
 import numpy as np
 
-from aicomp_grounding.ordinal.parse import split_thinking, strict_json_object
-from aicomp_grounding.ordinal.resolve import (
+from aicomp_grounding.serving.ordinal.parse import split_thinking, strict_json_object
+from aicomp_grounding.serving.ordinal.resolve import (
     Decision,
     axis_value,
     coerce_instances,

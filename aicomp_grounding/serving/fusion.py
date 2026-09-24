@@ -10,7 +10,7 @@ Design notes
   = sum of member weights, winner = heaviest cluster, fused box = weighted
   average of the cluster's coordinates (classic WBF, single-class reduced).
 - Fusion only. This module never builds a submission package; packaging is the
-  separate, explicit ``aicomp_grounding.submission`` step.
+  separate, explicit ``aicomp_grounding.serving.submission`` step.
 """
 
 from __future__ import annotations

@@ -20,8 +20,8 @@ import json
 import re
 from pathlib import Path
 
-from aicomp_grounding.ordinal.kernel import axis_value as kernel_axis_value
-from aicomp_grounding.ordinal.kernel import order_indices
+from aicomp_grounding.ordinal_kernel import axis_value as kernel_axis_value
+from aicomp_grounding.ordinal_kernel import order_indices
 
 AXES = ("x", "y", "area")
 DIRECTIONS = ("asc", "desc")
@@ -155,7 +155,7 @@ def pick_kth(boxes: list[list[float]], *, k: int, axis: str, direction: str) -> 
     """The k-th box along ``axis``; None when k is out of range.
 
     Ties keep the box tuple ascending whatever the direction, matching
-    ``aicomp_grounding.ordinal.resolve.rank_instances``.
+    ``aicomp_grounding.serving.ordinal.resolve.rank_instances``.
     """
     if k < 1 or k > len(boxes):
         return None

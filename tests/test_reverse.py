@@ -138,7 +138,7 @@ class PickKthTest(unittest.TestCase):
 
     def test_ties_keep_the_box_tuple_ascending_in_both_directions(self):
         # Same y1 for both boxes. The serving side
-        # (aicomp_grounding.ordinal.resolve.rank_instances) breaks ties by
+        # (aicomp_grounding.serving.ordinal.resolve.rank_instances) breaks ties by
         # (x1, y1) ascending whatever the direction, so this must too.
         boxes = [[0.40, 0.50, 0.60, 0.70], [0.10, 0.50, 0.30, 0.70]]
         self.assertEqual(pick_kth(boxes, k=1, axis="y", direction="asc"), [0.10, 0.50, 0.30, 0.70])

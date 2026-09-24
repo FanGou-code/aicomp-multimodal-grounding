@@ -7,12 +7,12 @@
 | 层 | 位置 | 职责 | 依赖 |
 | --- | --- | --- | --- |
 | 共享底座 | `aicomp_grounding/*.py` | 坐标、哈希与产物身份、协议 12 合同、图像引用、路径与运行配置 | 标准库 + `Pillow` / `numpy` |
-| 服务侧 | `aicomp_grounding/{models,fusion,ordinal}/`、`training_*` / `inference_*` | 训练、推理、融合、序数后处理、提交包 | 惰性导入 `torch` / `transformers` / `peft` |
+| 服务侧 | `aicomp_grounding/serving/` | 训练、推理、融合、序数后处理、提交包、消息构造 | 惰性导入 `torch` / `transformers` / `peft` |
 | 标注侧 | `aicomp_grounding/annotation/` | 普查、生成、人审、封包、逆向通路 | 共享底座 + 教师 API |
 | 入口 | `tools/` | 训练 / 推理 / 预处理 / 标注流水线 CLI | 上述三层 |
 
 依赖方向单向：`tools/` → `aicomp_grounding/`；标注侧与服务侧互不导入，共用共享底座。
-`models/` 中的 `torch` / `transformers` / `peft` 在函数内惰性导入。
+`serving/models/` 中的 `torch` / `transformers` / `peft` 在函数内惰性导入。
 
 ## 数据流
 
@@ -25,9 +25,9 @@
         → outputs/annotations/<run_id>/{train,val}/approved.json
         → tools/train.py → outputs/training/<run_id>/
         → tools/infer.py → outputs/inference/<run_id>/predictions.json
-        → aicomp_grounding.ordinal.{enumerate,resolve}（可选）
+        → aicomp_grounding.serving.ordinal.{enumerate,resolve}（可选）
           → outputs/{ordinal_enum,ordinal_resolve}/<run_id>/
-        → aicomp_grounding.fusion.wbf → aicomp_grounding.submission → submission.zip
+        → aicomp_grounding.serving.fusion → aicomp_grounding.serving.submission → submission.zip
 ```
 
 `tools/run_reverse.py` 走同一内核的反向入口：给一句 query，教师产出框，用于抽查逆向一致性。
@@ -44,26 +44,24 @@
 | `contract.py` | `approved.json` 产物合同与指纹（协议 12）、结构校验、训练产物互查 |
 | `query.py` | 查询文本的格式校验、标注级 QC（脚手架/泛类词）与风格门、数据前检 |
 | `images.py` | 图像引用指纹（不解码字节）与字节级校验 |
-| `sharding.py` | 序列感知的键分组与分片工具（生产推理分片见 `inference_state.assign_pending_shards`） |
+| `sharding.py` | 序列感知的键分组与分片工具（生产推理分片见 `serving.engine.inference_state`） |
+| `ordinal_kernel.py` | 序数内核：轴值、排序键与平局规则（两侧共用，从原 `ordinal/` 提级） |
 | `paths.py` | 仓库相对路径解析；产物布局单一来源（`OUTPUT_FAMILIES` / `output_dir()`） |
 | `config.py` | 跨模型常量：检查点与协议版本、运行期包清单、推理默认像素预算、split 枚举 |
 | `testset.py` | 官方 Test 模板合同与处理索引校验 |
-| `submission.py` | 由官方模板生成提交包（只补 `bbox`，ZIP 回读校验） |
 
-服务侧：
+服务侧（`aicomp_grounding/serving/`）：
 
 | 模块 | 职责 |
 | --- | --- |
-| `prompts.py` | 三模态提示词协议与提示词哈希 |
-| `training_state.py` | 训练身份构成、epoch 指标与 adapter manifest 校验、断点与完成态校验 |
-| `training_core.py` | 训练计划、LoRA 注入与视觉塔中和、训练/验证循环、检查点持久化 |
-| `inference_core.py` | 推理条目加载（三种输入形态）与 ACC@0.5 / mIoU 计算 |
-| `inference_state.py` | 推理运行身份、分片分配、检查点校验与恢复 |
+| `messages.py` + `prompts/grounding.md` | 三模态消息构造；system prompt 文本以文件形式随包，进入运行身份 |
+| `engine/training_state.py` `engine/training_core.py` | 训练身份与计划、LoRA 注入与视觉塔中和、训练/验证循环、检查点持久化 |
+| `engine/inference_core.py` `engine/inference_state.py` | 推理条目加载、ACC@0.5 / mIoU 计算、分片分配与检查点校验恢复 |
 | `models/base.py` | 适配器协议、输入/输出类型、LoRA 目标层构造、本地模型路径策略 |
 | `models/qwen3vl.py` `models/qwen3_5.py` `models/glm46v.py` | 三个可训练 VLM 适配器（各自的提示词、坐标协议与超参默认值） |
 | `models/mock.py` | CPU 契约测试用的最小适配器（无权重、确定性输出） |
-| `fusion/wbf.py` | 多模型预测的加权框融合与融合身份 |
-| `ordinal/kernel.py` | 序数内核：轴值、排序键与平局规则（两侧共用） |
+| `fusion.py` | 多模型预测的加权框融合与融合身份 |
+| `submission.py` | 由官方模板生成提交包（只补 `bbox`，ZIP 回读校验） |
 | `ordinal/resolve.py` | 序数后处理的门、轴排序、第 k 个选择（纯代码，无组决策） |
 | `ordinal/parse.py` `ordinal/enumerate.py` | 序数后处理的提示词消息组装、思考切分与严格解码 |
 | `ordinal/loader.py` | 读取 `ordinal/prompts/*.md` 并给出提示词指纹 |
@@ -75,12 +73,12 @@
 | --- | --- |
 | `config.py` | 教师模型身份（`ANNOTATION_*`）与索引目录定位 |
 | `client.py` | 单 key 注入的 OpenAI 协议客户端；错误一律有限退避重试后终止 |
+| `prompts/*.md` | 教师提示词配方（普查/属性/枚举/解析/直接定位/组句），运行时可改 |
 | `source.py` | 划分索引加载与校验、分裂索引指纹 |
 | `census.py` | 普查：每帧一次枚举，代码判定计数门 |
 | `facts.py` `depth.py` | 帧级事实与深度事实提取（纯数据） |
 | `selection.py` | 候选去重与选用 |
 | `realize.py` `generation.py` | 单句生成与整轮生成：教师组句、全轮去重、审计 |
-| `text_qc.py` | 文本质检（冠词引擎与人工裁定表） |
 | `reverse.py` | 逆向通路：query → 框，与正向共用序数内核 |
 | `imaging.py` | 标记图渲染与 JPEG data URL |
 | `review/store.py` | 崩溃安全标注库（WAL、快照重放、进程锁） |
@@ -102,10 +100,10 @@
 
 ## 不变量
 
-1. **冻结标识**：各适配器的 `MODEL_NAME` / `MODEL_REVISION` / 提示词常量、官方
+1. **冻结标识**：各适配器的 `MODEL_NAME` / `MODEL_REVISION` / 提示词、官方
    `data/Test/queries/queries.json`、golden `approved.json` 均不得改动。它们进入运行
    身份，改动会使既有 run 不再可复现、历史产物不可复算。
-2. **LoRA 范围**：目标层一律经 `models/base.py:language_model_lora_targets()` 构造
+2. **LoRA 范围**：目标层一律经 `serving/models/base.py:language_model_lora_targets()` 构造
    （锚定 `model.language_model` 的正则）；锚定共享，投影名单由各适配器自己声明。
    视觉塔恒为冻结、只做前向。裸后缀名单会被 PEFT 按后缀匹配而命中视觉塔。
 3. **像素预算**：三个三模态适配器的 `min_pixels` / `max_pixels` 一律按单帧计并进入
@@ -135,9 +133,9 @@
 | 标注侧 → 服务侧 | `outputs/annotations/<run_id>/{train,val}/approved.json`（协议 12） | `data-contract.md` |
 | 本仓 → 提交 | `submission.zip`（官方模板 + `bbox`） | `data-contract.md` |
 | 官方 → 本仓 | `data/Test/queries/queries.json`（条数与内容哈希被测试钉死） | `testset.py` |
-| 两侧共用 | 序数内核：轴值、排序键与平局规则 | `ordinal/kernel.py` |
+| 两侧共用 | 序数内核：轴值、排序键与平局规则 | `ordinal_kernel.py` |
 
 ## 测试
 
-`python -m unittest discover -s tests`：444 项，纯 CPU、不加载权重。真实权重加载、
+`python -m unittest discover -s tests`：434 项，纯 CPU、不加载权重。真实权重加载、
 生成质量、步时与显存不在覆盖内。

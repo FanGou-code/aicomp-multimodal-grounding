@@ -4,7 +4,7 @@ Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl / qwen3_5 /
 glm46v / mock).
 
 This entrypoint produces predictions only. Building ``submission.zip`` is a
-separate, explicit step (``python -m aicomp_grounding.submission``); inference
+separate, explicit step (``python -m aicomp_grounding.serving.submission``); inference
 never packages one.
 """
 
@@ -26,8 +26,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
-from aicomp_grounding.inference_core import evaluate_predictions, load_inference_items
-from aicomp_grounding.inference_state import (
+from aicomp_grounding.serving.engine.inference_core import evaluate_predictions, load_inference_items
+from aicomp_grounding.serving.engine.inference_state import (
     assign_pending_shards,
     build_shard_metadata,
     build_run_metadata,
@@ -37,8 +37,8 @@ from aicomp_grounding.inference_state import (
     validate_checkpoint_payload,
 )
 from aicomp_grounding.io import atomic_write_json
-from aicomp_grounding.models import available_models, get_adapter
-from aicomp_grounding.models.base import ModelInput, require_local_model_path
+from aicomp_grounding.serving.models import available_models, get_adapter
+from aicomp_grounding.serving.models.base import ModelInput, require_local_model_path
 from aicomp_grounding.config import INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS
 from aicomp_grounding.paths import ProjectPaths, output_dir, resolve_from_root
 

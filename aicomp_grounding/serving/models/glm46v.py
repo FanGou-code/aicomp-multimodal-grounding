@@ -1,62 +1,151 @@
-"""Qwen3.5-9B grounding adapter.
+"""GLM-4.6V-Flash trainable grounding adapter.
 
-Qwen3.5 is the Qwen3.5-series unified vision-language model (native VLM,
-model_type ``qwen3_5``). It reuses the Qwen-VL multimodal protocol (chat
-template, ``process_vision_info`` helper, ``<|box_start|>/<|box_end|>``
-tokens) so the training/inference batch builders mirror
-:mod:`aicomp_grounding.models.qwen3vl`. Only the model id, revision, the
-loaded model class, and the thinking-disabled chat-template kwarg differ.
+GLM-4.6V-Flash is the dense 9B member of the GLM-4.6V family (model_type
+``glm4v``). The Hugging Face chat template accepts an ``enable_thinking``
+kwarg; the grounding protocol disables it so the model emits only the box
+token sequence. Bounding boxes use the tokenizer's added box-delimiter
+tokens (ids 151361 / 151362) with integer coordinates on a 0-1000 grid
+normalized by image width and height. The processor output schema
+(mm_token_type_ids, image_grid_thw, pixel_values) mirrors
+:mod:`aicomp_grounding.serving.models.qwen3vl`, so the training collate is reused.
 
-Qwen3.5 mixes gated-delta-net (GDN) linear attention with full attention
-(3:1). LoRA targets cover the full-attention projections and the MLP; the
-recurrent GDN projections are intentionally left frozen, mirroring the
-Qwen3.8-27B smoke-validated configuration (same ``qwen3_5`` model class).
+Local processor dry-run verified (no weights): the three-image chat template
+renders with ``enable_thinking=False`` and the supervised target is an exact
+prefix of the generation prompt. The GPU val slice should still be
+smoke-tested before a recorded run.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
-from aicomp_grounding.bbox import format_qwen_bbox, parse_bbox_from_text
+from aicomp_grounding.bbox import quantize_bbox_1000, validate_bbox
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
-from aicomp_grounding.models.base import (
-    DEFAULT_LORA_PROJECTIONS,
+from aicomp_grounding.serving.models.base import (
     ModelInput,
     Prediction,
+    content_parts,
     language_model_lora_targets,
     require_local_model_path,
     run_generation,
 )
-from aicomp_grounding.messages import (
-    GROUNDING_SYSTEM_PROMPT,
-    build_grounding_messages,
-    build_training_messages,
-    grounding_prompt_hash,
-)
-from aicomp_grounding.training_state import validated_prompt_length
+from aicomp_grounding.serving.engine.training_state import validated_prompt_length
 
-MODEL_NAME = "Qwen/Qwen3.5-9B"
-# ModelScope snapshot recorded at adoption. Download this version before
-# execution; the adapter only reads the explicit local --model-path.
-MODEL_REVISION = "460979c3d11864dd16408d860ac930a360a2fac2"
-
-# Pixel budgets in Qwen processor units (28x28 per patch); 3072 patches
-# covers a lossless 1920x1080 frame at ~2645 patches.
-MIN_PIXELS = 256 * 28 * 28
-MAX_PIXELS = 3072 * 28 * 28
+MODEL_NAME = "zai-org/GLM-4.6V-Flash"
+# ModelScope hosts the GLM family under the ZhipuAI org (not zai-org); the
+# version below identifies the pre-download source. Execution only reads
+# the explicit local --model-path; it does not contact either hub.
+MODEL_REVISION = "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
+MODELSCOPE_NAME = "ZhipuAI/GLM-4.6V-Flash"
 
 MAX_NEW_TOKENS = 32
 
-# Qwen3.5 thinks by default.  The grounding protocol requires the model to emit
-# only the box-token sequence, so the default for every chat-template call is
-# thinking off.  Enumeration overrides it per call.
+# Pixel budgets, in units of 28x28 pixels per vision token (patch 14 x merge 2),
+# stated per frame so that the value recorded in the run identity means the same
+# thing here as it does for the other three tri-modal adapters.
+#
+# Glm46VImageProcessor takes its budget as a `size` dict -- `min_pixels` /
+# `max_pixels` passed to `AutoProcessor.from_pretrained` are dropped without
+# warning -- and its `smart_resize` is called with `num_frames =
+# temporal_factor`, so what it compares against `longest_edge` is `2 * h * w`.
+# `load()` therefore doubles both budgets at the processor boundary
+# (GLM_PIXEL_UNIT_FACTOR).  Handing it the per-frame numbers unmodified would
+# halve the effective budget and shrink every frame: at 1920x1080, 2691 vision
+# tokens down to 1508.
+#
+# The checkpoint's own preprocessor config allows `longest_edge = 28*28*12288`,
+# which in the doubled unit is a per-frame budget of 4,816,896 -- twice the
+# value below.  Neither the training nor the inference path overrode it, so
+# GLM-4.6V ran on that wider budget until this pin was made to take effect.
+MIN_PIXELS = 256 * 28 * 28
+MAX_PIXELS = 3072 * 28 * 28
+
+#: Glm46VImageProcessor compares `temporal_factor * h * w` against
+#: `size.longest_edge`; a per-frame budget is doubled at the boundary.
+GLM_PIXEL_UNIT_FACTOR = 2
+
+# Tokenizer-added box delimiters (verified from the added vocab): ids
+# 151361 and 151362. Built from chr() so the source carries no raw
+# pipe-delimited special tokens that could confuse editors or diffs.
+GLM_BOX_OPEN = chr(0x3C) + "|begin_of_box|" + chr(0x3E)
+GLM_BOX_CLOSE = chr(0x3C) + "|end_of_box|" + chr(0x3E)
+
+GLM_GROUNDING_SYSTEM_PROMPT = (
+    "You are a visual grounding assistant. The images are ordered as visible "
+    "RGB, infrared, and depth of the same scene. Output only "
+    + GLM_BOX_OPEN
+    + "x1,y1,x2,y2"
+    + GLM_BOX_CLOSE
+    + ", using integer coordinates from 0 to 1000 normalized by image width "
+    "and height."
+)
+GLM_GROUNDING_USER_PROMPT = (
+    "Help me to locate {query} in the image and give me its bounding boxes."
+)
+
 CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
+
+_GLM_BOX_PATTERN = re.compile(
+    re.escape(GLM_BOX_OPEN)
+    + r"\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*"
+    + re.escape(GLM_BOX_CLOSE)
+)
+_GLM_BARE_PATTERN = re.compile(
+    r"(?<![\w.+-])([+-]?\d+)\s*,\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*,\s*([+-]?\d+)(?!\w|\.\d)"
+)
+
+
+def format_glm_bbox(box) -> str:
+    """Format normalized XYXY as GLM integer 0-1000 box tokens."""
+    x1, y1, x2, y2 = quantize_bbox_1000(box)
+    return f"{GLM_BOX_OPEN}{x1},{y1},{x2},{y2}{GLM_BOX_CLOSE}"
+
+
+def processor_pixel_kwargs(max_pixels: int) -> dict[str, Any]:
+    """Convert a per-frame pixel budget into Glm46V's processor `size` dict.
+
+    The processor counts `temporal_factor * h * w`, so the unit conversion lives
+    here and is doubled once, at the boundary -- see the constants above.
+    """
+    return {
+        "size": {
+            "shortest_edge": GLM_PIXEL_UNIT_FACTOR * MIN_PIXELS,
+            "longest_edge": GLM_PIXEL_UNIT_FACTOR * max_pixels,
+        }
+    }
+
+
+def parse_glm_box(text: str) -> list[float] | None:
+    """Parse the GLM box token sequence (0-1000) into XYXY."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    tagged = _GLM_BOX_PATTERN.findall(text)
+    if len(tagged) == 1:
+        values = [float(v) for v in tagged[0]]
+    elif not tagged:
+        candidates = list(_GLM_BARE_PATTERN.finditer(text))
+        if len(candidates) != 1:
+            return None
+        bare = candidates[0]
+        # Preserve the existing bare-coordinate fallback, including surrounding
+        # prose, without taking a numeric substring or four entries from a
+        # longer coordinate list.
+        prefix, suffix = text[:bare.start()].rstrip(), text[bare.end():].lstrip()
+        if re.search(r"[\d.]\s*,$", prefix) or re.match(r",\s*[+-]?\d", suffix):
+            return None
+        values = [float(v) for v in bare.groups()]
+    else:
+        return None
+    if not all(0.0 <= v <= 1000.0 for v in values):
+        return None
+    return validate_bbox([v / 1000.0 for v in values])
 
 
 def _apply_chat_template(
-    processor: Any,
-    messages: list[dict],
+    processor,
+    messages,
     *,
     add_generation_prompt: bool,
     template_kwargs: dict | None = None,
@@ -76,14 +165,39 @@ def _resolve_model_source(model_path: str | None) -> str:
     return require_local_model_path(model_path)
 
 
-class Qwen3_5Adapter:
-    name = "qwen3_5"
+def _build_messages(visible, infrared, depth, query, *, assistant_text=None):
+    messages = [
+        {
+            "role": "system",
+            "content": [{"type": "text", "text": GLM_GROUNDING_SYSTEM_PROMPT}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": visible},
+                {"type": "image", "image": infrared},
+                {"type": "image", "image": depth},
+                {"type": "text", "text": GLM_GROUNDING_USER_PROMPT.format(query=query)},
+            ],
+        },
+    ]
+    if assistant_text is not None:
+        messages.append(
+            {"role": "assistant", "content": [{"type": "text", "text": assistant_text}]}
+        )
+    return messages
+
+
+class Glm46VAdapter:
+    name = "glm46v"
     model_name = MODEL_NAME
     model_revision = MODEL_REVISION
     supports_lora = True
     supports_prepared_inputs = True
 
     def __init__(self, *, max_pixels: int = MAX_PIXELS):
+        # Per frame, i.e. in the same unit the other five adapters record;
+        # `load()` converts it to the processor's doubled unit.
         self.max_pixels = max_pixels
         self.generation_config: dict[str, Any] = {
             "max_new_tokens": MAX_NEW_TOKENS,
@@ -94,7 +208,19 @@ class Qwen3_5Adapter:
         self._model = None
 
     def prompt_hash(self) -> str:
-        return grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
+        import hashlib
+        import json
+
+        payload = {
+            "system_prompt": GLM_GROUNDING_SYSTEM_PROMPT,
+            "grounding_prompt": GLM_GROUNDING_USER_PROMPT,
+            "box_open": GLM_BOX_OPEN,
+            "box_close": GLM_BOX_CLOSE,
+            "image_count": 3,
+            "enable_thinking": False,
+        }
+        encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True)
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def identity(self) -> dict[str, Any]:
         return {
@@ -114,30 +240,28 @@ class Qwen3_5Adapter:
 
         import torch
         from peft import PeftModel
-        from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
+        from transformers import AutoProcessor, Glm4vForConditionalGeneration
 
         processor = AutoProcessor.from_pretrained(
             source,
             local_files_only=True,
-            min_pixels=MIN_PIXELS,
-            max_pixels=self.max_pixels,
+            **processor_pixel_kwargs(self.max_pixels),
         )
-        # Left padding keeps batched generation aligned for parsing.
         processor.tokenizer.padding_side = "left"
         print(
-            f"[qwen3_5] image processor: {type(processor.image_processor).__name__}",
+            f"[glm46v] image processor: {type(processor.image_processor).__name__}",
             flush=True,
         )
 
         try:
-            model = Qwen3_5ForConditionalGeneration.from_pretrained(
+            model = Glm4vForConditionalGeneration.from_pretrained(
                 source,
                 local_files_only=True,
                 dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
         except TypeError:
-            model = Qwen3_5ForConditionalGeneration.from_pretrained(
+            model = Glm4vForConditionalGeneration.from_pretrained(
                 source,
                 local_files_only=True,
                 torch_dtype=torch.bfloat16,
@@ -176,7 +300,13 @@ class Qwen3_5Adapter:
         }
 
     def lora_target_modules(self) -> str:
-        return language_model_lora_targets(*DEFAULT_LORA_PROJECTIONS)
+        # GLM-4.6V fuses the MLP gate and up projections into `gate_up_proj`, so
+        # this adapter declares the projections its own language model exposes
+        # instead of the split `gate_proj` / `up_proj` pair the other five use.
+        # Widening it to include `gate_up_proj` is a recipe change, not a fix.
+        return language_model_lora_targets(
+            "q_proj", "k_proj", "v_proj", "o_proj", "down_proj"
+        )
 
     def load_for_training(
         self,
@@ -208,45 +338,35 @@ class Qwen3_5Adapter:
         processor,
     ) -> dict:
         from PIL import Image
-        from qwen_vl_utils import process_vision_info
 
         images = []
         for field in ("visible", "infrared", "depth"):
             with Image.open(data_root / item[field]) as opened:
                 images.append(opened.convert("RGB"))
         visible, infrared, depth = images
-        bbox_text = format_qwen_bbox(item["bbox"])
-        prompt_messages = build_grounding_messages(
-            visible, infrared, depth, item["query"]
+        assistant_text = format_glm_bbox(item["bbox"])
+        prompt_messages = _build_messages(visible, infrared, depth, item["query"])
+        training_messages = _build_messages(
+            visible, infrared, depth, item["query"], assistant_text=assistant_text
         )
-        messages = build_training_messages(
-            visible, infrared, depth, item["query"], bbox_text
+        training_text = _apply_chat_template(
+            processor, training_messages, add_generation_prompt=False
         )
-        text = _apply_chat_template(
-            processor,
-            messages,
-            add_generation_prompt=False,
+        prompt_text = _apply_chat_template(
+            processor, prompt_messages, add_generation_prompt=True
         )
-        image_inputs, video_inputs = process_vision_info(messages)
         inputs = processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
+            text=[training_text],
+            images=images,
             return_tensors="pt",
         )
         if "mm_token_type_ids" not in inputs:
             raise ValueError(
-                f"Qwen3.5 training batch is missing mm_token_type_ids for {item.get('key')}"
+                f"GLM-4.6V training batch is missing mm_token_type_ids for {item.get('key')}"
             )
-        prompt_text = _apply_chat_template(
-            processor,
-            prompt_messages,
-            add_generation_prompt=True,
-        )
         prompt_inputs = processor(
             text=[prompt_text],
-            images=image_inputs,
-            videos=video_inputs,
+            images=images,
             return_tensors="pt",
         )
         prompt_length = validated_prompt_length(
@@ -267,10 +387,17 @@ class Qwen3_5Adapter:
         pad_id = processor.tokenizer.pad_token_id
         if pad_id is None:
             raise ValueError("Processor tokenizer has no pad_token_id")
-        ids, labels, attention, pixels, grids, mm_token_types = [], [], [], [], [], []
+        ids, labels, attention, pixels, grids, mm_token_types = (
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
         for item in batch:
             if "mm_token_type_ids" not in item:
-                raise ValueError("Qwen3.5 training batch is missing mm_token_type_ids")
+                raise ValueError("GLM-4.6V training batch is missing mm_token_type_ids")
             padding = max_length - item["input_ids"].size(0)
             ids.append(
                 torch.cat(
@@ -307,34 +434,20 @@ class Qwen3_5Adapter:
         }
 
     def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:
-        from qwen_vl_utils import process_vision_info
-
-        messages = [
-            build_grounding_messages(
-                sample.visible,
-                sample.infrared,
-                sample.depth,
-                sample.query,
-            )
+        messages_list = [
+            _build_messages(sample.visible, sample.infrared, sample.depth, sample.query)
             for sample in samples
         ]
         texts = [
-            _apply_chat_template(
-                processor,
-                message,
-                add_generation_prompt=True,
-            )
-            for message in messages
+            _apply_chat_template(processor, m, add_generation_prompt=True)
+            for m in messages_list
         ]
-        image_inputs, video_inputs = process_vision_info(messages)
-        inputs = processor(
-            text=texts,
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
-        return inputs
+        images = [
+            image
+            for sample in samples
+            for image in (sample.visible, sample.infrared, sample.depth)
+        ]
+        return processor(text=texts, images=images, padding=True, return_tensors="pt")
 
     def decode_grounding_outputs(self, processor, generated_ids, prompt_len: int) -> list[str]:
         return processor.batch_decode(
@@ -343,41 +456,35 @@ class Qwen3_5Adapter:
         )
 
     def parse_grounding_text(self, text: str) -> list[float] | None:
-        return parse_bbox_from_text(text)
+        return parse_glm_box(text)
 
     def prepare_inputs(self, samples: list[ModelInput]) -> dict:
-        from qwen_vl_utils import process_vision_info
-
         if self._processor is None:
-            raise RuntimeError("Qwen3_5Adapter.load() must run before predict()")
+            raise RuntimeError("Glm46VAdapter.load() must run before predict()")
 
         processor = self._processor
         messages_list = [
-            build_grounding_messages(
-                sample.visible, sample.infrared, sample.depth, sample.query
-            )
+            _build_messages(sample.visible, sample.infrared, sample.depth, sample.query)
             for sample in samples
         ]
         texts = [
             _apply_chat_template(processor, m, add_generation_prompt=True)
             for m in messages_list
         ]
-        image_inputs, video_inputs = process_vision_info(messages_list)
+        images = [
+            image
+            for sample in samples
+            for image in (sample.visible, sample.infrared, sample.depth)
+        ]
         return dict(
-            processor(
-                text=texts,
-                images=image_inputs,
-                videos=video_inputs,
-                padding=True,
-                return_tensors="pt",
-            )
+            processor(text=texts, images=images, padding=True, return_tensors="pt")
         )
 
     def predict_from_inputs(self, inputs: dict) -> list[Prediction]:
         import torch
 
         if self._model is None or self._processor is None:
-            raise RuntimeError("Qwen3_5Adapter.load() must run before predict()")
+            raise RuntimeError("Glm46VAdapter.load() must run before predict()")
 
         processor = self._processor
         inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
@@ -397,7 +504,7 @@ class Qwen3_5Adapter:
             generated_tokens, skip_special_tokens=False
         )
         return [
-            Prediction(bbox=parse_bbox_from_text(text))
+            Prediction(bbox=parse_glm_box(text))
             for text in text_outputs
         ]
 
@@ -415,10 +522,8 @@ class Qwen3_5Adapter:
         template_kwargs: dict | None = None,
     ) -> list[str]:
         """Template and generate caller-built chat messages (ordinal module)."""
-        from qwen_vl_utils import process_vision_info
-
         if self._model is None or self._processor is None:
-            raise RuntimeError("Qwen3_5Adapter.load() must run before generate_messages()")
+            raise RuntimeError("Glm46VAdapter.load() must run before generate_messages()")
 
         processor = self._processor
         texts = [
@@ -427,12 +532,15 @@ class Qwen3_5Adapter:
             )
             for m in messages_list
         ]
-        image_inputs, video_inputs = process_vision_info(messages_list)
+        images = [
+            part["image"]
+            for messages in messages_list
+            for part in content_parts(messages[-1])
+            if part.get("type") == "image"
+        ]
         kwargs: dict[str, object] = {"text": texts, "padding": True, "return_tensors": "pt"}
-        if image_inputs is not None:
-            kwargs["images"] = image_inputs
-        if video_inputs is not None:
-            kwargs["videos"] = video_inputs
+        if images:
+            kwargs["images"] = images
         return run_generation(
             self._model,
             processor,

@@ -43,7 +43,7 @@ from aicomp_grounding.config import (
     RUNTIME_PYTHON_VERSION,
 )
 from aicomp_grounding.io import load_json
-from aicomp_grounding.training_state import validate_adapter_manifest, adapter_weight_path
+from aicomp_grounding.serving.engine.training_state import validate_adapter_manifest, adapter_weight_path
 
 RUN_METADATA_FIELDS = (
     "version",

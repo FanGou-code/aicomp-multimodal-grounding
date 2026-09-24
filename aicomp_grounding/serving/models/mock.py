@@ -12,8 +12,8 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from aicomp_grounding.models.base import ModelInput, Prediction, content_parts
-from aicomp_grounding.ordinal.parse import THINK_CLOSE, THINK_OPEN
+from aicomp_grounding.serving.models.base import ModelInput, Prediction, content_parts
+from aicomp_grounding.serving.ordinal.parse import THINK_CLOSE, THINK_OPEN
 
 
 def _stable_box(query: str) -> list[float]:

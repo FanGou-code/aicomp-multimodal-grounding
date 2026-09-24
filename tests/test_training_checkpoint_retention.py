@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aicomp_grounding.training_core import (
+from aicomp_grounding.serving.engine.training_core import (
     _EPOCH_CHECKPOINT_RETENTION,
     _STEP_CHECKPOINT_RETENTION,
     _prune_checkpoints,

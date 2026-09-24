@@ -17,7 +17,7 @@ from pathlib import Path
 # This entrypoint lives in offline/; make the repository root importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aicomp_grounding.training_core import (
+from aicomp_grounding.serving.engine.training_core import (
     SEED,
     TRAINABLE_MODELS,
     persist_training_plan,
@@ -25,7 +25,7 @@ from aicomp_grounding.training_core import (
     run_training,
 )
 from aicomp_grounding.paths import ProjectPaths, output_dir, resolve_from_root
-from aicomp_grounding.models.base import require_local_model_path
+from aicomp_grounding.serving.models.base import require_local_model_path
 
 
 def parse_args():

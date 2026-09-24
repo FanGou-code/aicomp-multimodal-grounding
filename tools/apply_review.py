@@ -244,7 +244,6 @@ def apply(generation_path: Path, queries_path: list[Path] | Path | None,
         "all_frames": metadata.get("all_frames"),
         "max_teacher_per_frame": metadata.get("max_teacher_per_frame"),
         "word_window": metadata.get("word_window"),
-        "text_qc_edits": stats["qc_edited"],
         "apply_stats": dict(stats),
     }
     output = {
@@ -279,7 +278,6 @@ def main() -> None:
     print(f"  human:       {stats['human']:>5}")
     print(f"  original:    {stats['original']:>5}")
     print(f"  collision:   {stats['collision']:>5}")
-    print(f"  qc_edited:   {stats['qc_edited']:>5}")
     print(f"  box_seen:    {stats['box_seen']:>5} | box_changed: {stats['box_changed']:>5}")
     print(f"  absent_rm:   {stats['absent_removed']:>5} | todo_excluded: {stats['todo_excluded']:>5}")
     if result["flagged"]:

@@ -6,11 +6,11 @@ import unittest
 
 import torch
 
-from aicomp_grounding.models import get_adapter
-from aicomp_grounding.models.base import run_generation
-from aicomp_grounding.ordinal import enumerate as ordinal_enumerate
-from aicomp_grounding.ordinal import parse as ordinal_parse
-from aicomp_grounding.ordinal.resolve import resolve_query
+from aicomp_grounding.serving.models import get_adapter
+from aicomp_grounding.serving.models.base import run_generation
+from aicomp_grounding.serving.ordinal import enumerate as ordinal_enumerate
+from aicomp_grounding.serving.ordinal import parse as ordinal_parse
+from aicomp_grounding.serving.ordinal.resolve import resolve_query
 
 
 class _FakeProcessor:

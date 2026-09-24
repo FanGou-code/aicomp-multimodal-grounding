@@ -1,7 +1,7 @@
 # 数据合同
 
 本文件定义 `data/` 布局、标注产物与提交格式的字段级约定。可执行版本在
-`aicomp_grounding/annotation_state.py`（产物准入）、`test_data.py`（官方模板与
+`aicomp_grounding/contract.py`（产物准入）、`aicomp_grounding/testset.py`（官方模板与
 Test 准备）、`tools/prepare_rgbdt.py`（预处理）。
 
 ## 目录布局
@@ -22,7 +22,7 @@ outputs/                      运行产物，不入库
 ```
 
 `Train/` 与 `Test/` 是原始数据，`Processed/` 由 `tools/prepare_rgbdt.py` 生成。
-划分与查重留痕在 `data/indexes/`（见「产物与责任边界」）。
+划分索引在 `data/indexes/`（本地，不入库，见「产物与责任边界」）。
 
 ## 三模态输入格式
 
@@ -44,12 +44,12 @@ outputs/                      运行产物，不入库
 | 产物 | 生产者 | 消费者 | 交接方式 |
 | --- | --- | --- | --- |
 | `data/Train`、`data/Test`、`data/Processed` | 数据交付方 + `tools/prepare_rgbdt.py` | 本仓训练、推理与标注流水线 | 本地目录 |
-| `data/indexes/{train,val}.json`、`split_manifest.json`、`excluded_overlap.json` | `tools/prepare_split.py` | 标注侧取帧与真值框；训练不读 | 随本仓 Git 分发 |
+| `data/indexes/{train,val}.json`、`split_manifest.json` | `tools/prepare_split.py` | 标注侧取帧与真值框；训练不读 | 本地，不入库 |
 | `outputs/annotations/<run_id>/{train,val}/approved.json` | `tools/package_approved.py` | 本仓训练与验证集推理 | 4 重 SHA-256 指纹（协议 12，见下） |
-| `outputs/inference/<run_id>/predictions.json` | 本仓 `tools/infer.py` | 融合 `fusion.wbf` | `{query_id: bbox 或 null}` |
-| `outputs/ordinal_enum/<run_id>/{parse,instances}.json` | 本仓 `ordinal.enumerate` | `ordinal.resolve` | 每题的解析意图与一次枚举清单（`thinking.jsonl` 存思考文本） |
-| `outputs/ordinal_resolve/<run_id>/predictions_<model>.json` | 本仓 `ordinal.resolve` | 融合 `fusion.wbf` | 键与推理产物一致，只改动采纳的序数题 |
-| `submission.zip` | 本仓 `submission.py`（显式调用；推理与融合均不自动打包） | 赛事提交 | 官方模板 + `bbox` |
+| `outputs/inference/<run_id>/predictions.json` | 本仓 `tools/infer.py` | 融合 `serving.fusion` | `{query_id: bbox 或 null}` |
+| `outputs/ordinal_enum/<run_id>/{parse,instances}.json` | 本仓 `serving.ordinal.enumerate` | `serving.ordinal.resolve` | 每题的解析意图与一次枚举清单（`thinking.jsonl` 存思考文本） |
+| `outputs/ordinal_resolve/<run_id>/predictions_<model>.json` | 本仓 `serving.ordinal.resolve` | 融合 `serving.fusion` | 键与推理产物一致，只改动采纳的序数题 |
+| `submission.zip` | 本仓 `serving.submission`（显式调用；推理与融合均不自动打包） | 赛事提交 | 官方模板 + `bbox` |
 
 标注侧入口以 `--data-root` 指向 `data/`、以 `--index-dir` 指向 `data/indexes/`；
 不建符号链接。训练只消费 `approved.json`，不导入标注侧代码。
@@ -107,12 +107,12 @@ train 与 val 必须来自同一 `run_id`，且两侧 `prompt_hash` 与 `provena
 
 | 校验点 | 位置 | 校验内容 | 失败行为 |
 | --- | --- | --- | --- |
-| 产物准入 | `annotation_state.validate_approved_artifact` | schema、状态与协议、`split`/`run_id`、`provenance`、`qc`、`source`/`dataset` 指纹复算、逐样本 query QC 与 `bbox` 合法性、序列数、结构检查 | 抛 `ValueError`，训练不启动 |
-| train/val 配对 | `training_state.validate_training_artifacts` | 两侧 `prompt_hash` 与 `provenance` 一致；样本 ID 与序列 ID 不重叠 | 抛 `ValueError` |
-| 图像引用 | `training_core.prepare_training_plan` | 记录值为 `manifest_` 前缀时，复算路径与记录尺寸并与产物比对（不解码图像） | 抛 `ValueError` |
-| 官方模板 | `test_data.validate_official_test_template`（由 `submission.build_submission` 调用） | 条数 9555、查询 ID 形态、字段集、路径形态、内容哈希 | 抛 `ValueError`，不出包 |
+| 产物准入 | `contract.validate_approved_artifact` | schema、状态与协议、`split`/`run_id`、`provenance`、`qc`、`source`/`dataset` 指纹复算、逐样本 query QC 与 `bbox` 合法性、序列数、结构检查 | 抛 `ValueError`，训练不启动 |
+| train/val 配对 | `serving.engine.training_state.validate_training_artifacts` | 两侧 `prompt_hash` 与 `provenance` 一致；样本 ID 与序列 ID 不重叠 | 抛 `ValueError` |
+| 图像引用 | `serving.engine.training_core.prepare_training_plan` | 记录值为 `manifest_` 前缀时，复算路径与记录尺寸并与产物比对（不解码图像） | 抛 `ValueError` |
+| 官方模板 | `testset.validate_official_test_template`（由 `serving.submission.build_submission` 调用） | 条数 9555、查询 ID 形态、字段集、路径形态、内容哈希 | 抛 `ValueError`，不出包 |
 | Test 深度引用 | `tools/prepare_rgbdt.validate_test_depth_references` | 官方模板 → `Processed/Test/depth_jet` 逐条映射、深度文件集合指纹、三模态尺寸一致性 | 返回错误列表，脚本中止 |
-| 推理续跑 | `inference_state.validate_checkpoint_payload`、`load_resume_predictions` | 分片分配与键集合、框合法性、跨来源冲突结果 | 抛 `ValueError`，拒绝合并 |
+| 推理续跑 | `serving.engine.inference_state.validate_checkpoint_payload`、`load_resume_predictions` | 分片分配与键集合、框合法性、跨来源冲突结果 | 抛 `ValueError`，拒绝合并 |
 | 标注侧 | `tools/prepare_split.py`、`tools/package_approved.py` | 测试集同帧哈希去重；同帧描述唯一性、QC、双 split 联合校验 | 见 `architecture.md` |
 
 ## 提交格式
