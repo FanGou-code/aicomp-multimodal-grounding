@@ -56,7 +56,7 @@ ATTR_MAX_TOKENS = 1024
 GENERATION_CONFIG = {
     "enumeration": {
         "max_tokens": FINDALL_MAX_TOKENS,
-        "temperature": None,
+        "temperature": 0.4,
         "do_sample": None,
         "thinking_mode": "enabled",
         "response_format": None,
@@ -64,7 +64,7 @@ GENERATION_CONFIG = {
     "attr": {
         "max_tokens": ATTR_MAX_TOKENS,
         "temperature": None,
-        "do_sample": None,
+        "do_sample": False,
         "thinking_mode": "disabled",
         "response_format": None,
     },

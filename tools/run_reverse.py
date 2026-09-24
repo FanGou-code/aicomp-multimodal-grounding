@@ -51,8 +51,8 @@ STAGE_CONFIG = {
     },
     "enumerate": {
         "max_tokens": 8192,
-        "temperature": None,
-        "do_sample": None,
+        "temperature": 0.6,
+        "do_sample": True,
         "thinking_mode": "enabled",
         "response_format": None,
     },

@@ -109,14 +109,20 @@ def _bbox(raw: object) -> list[float] | None:
 
 
 def parse_enumeration_response(text: object) -> dict | None:
-    """``{"count", "objects"}`` with the count gate applied, else None."""
+    """``{"count", "instances"}`` or ``{"count", "objects"}`` with the count gate applied, else None."""
     payload = _json_object(text)
-    if payload is None or set(payload) != {"count", "objects"}:
+    if not isinstance(payload, dict):
+        return None
+    keys = set(payload)
+    if keys == {"count", "instances"}:
+        objects = payload["instances"]
+    elif keys == {"count", "objects"}:
+        objects = payload["objects"]
+    else:
         return None
     count = payload["count"]
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
         return None
-    objects = payload["objects"]
     if not isinstance(objects, list):
         return None
     boxes: list[list[float]] = []
@@ -139,27 +145,45 @@ def parse_direct_response(text: object) -> list[float] | None:
     return _bbox(payload["bbox"])
 
 
-def axis_value(axis: str, bbox: list[float]) -> float:
-    """Sort value of one box on one axis; all three come from the box alone.
-
-    The parse stage only emits box-owned axes, so anything else is an error
-    rather than a missing-data ``None`` from the shared kernel.
-    """
-    value = kernel_axis_value(axis, bbox)
+def axis_value(
+    axis: str,
+    bbox: list[float],
+    *,
+    depth_mm=None,
+    ir=None,
+    image_size: tuple[int, int] | None = None,
+) -> float:
+    """Sort value of one box on one axis; passes depth/ir arrays when needed."""
+    value = kernel_axis_value(axis, bbox, depth_mm=depth_mm, ir=ir, image_size=image_size)
     if value is None:
-        raise ValueError(f"Unsupported axis: {axis!r}")
+        raise ValueError(f"Unsupported axis or missing modality data: {axis!r}")
     return value
 
 
-def pick_kth(boxes: list[list[float]], *, k: int, axis: str, direction: str) -> list[float] | None:
-    """The k-th box along ``axis``; None when k is out of range.
+def pick_kth(
+    boxes: list[list[float]],
+    *,
+    k: int,
+    axis: str,
+    direction: str,
+    depth_mm=None,
+    ir=None,
+    image_size: tuple[int, int] | None = None,
+) -> list[float] | None:
+    """The k-th box along ``axis``; None when k is out of range or axis computation fails.
 
     Ties keep the box tuple ascending whatever the direction, matching
     ``aicomp_grounding.serving.ordinal.resolve.rank_instances``.
     """
     if k < 1 or k > len(boxes):
         return None
-    values = [axis_value(axis, box) for box in boxes]
+    values = []
+    for box in boxes:
+        try:
+            val = axis_value(axis, box, depth_mm=depth_mm, ir=ir, image_size=image_size)
+        except ValueError:
+            return None
+        values.append(val)
     order = order_indices(values, boxes, direction=direction)
     return list(boxes[order[k - 1]])
 

@@ -3,10 +3,15 @@
 两个仓库共用同一条内核与同一套中间表示的语义，入口与出口相反。共用的不是报文格式：
 两仓面向不同的模型、不同的提示词，各自的 JSON 信封独立，互不解析对方的产物。
 
-## 1. 内核
+## 1. 内核与执行拓扑
 
 ```
 解析 → 枚举同类 → 代码按轴排序 → 取第 k 个
+```
+
+服务侧执行拓扑：
+```
+三模型推理 → tools/fusion.py (WBF 融合) → tools/ordinal_resolve.py (以 WBF 融合产物为基准底座修正序数题) → tools/submission.py (打包提交)
 ```
 
 ## 2. 中间表示
@@ -72,23 +77,22 @@ area   (x2-x1)(y2-y1)     asc = 最小，desc = 最大
 
 | 阶段 | thinking | do_sample | temperature | top_p | response_format | max_tokens |
 |---|---|---|---|---|---|---|
-| 正向层 1 · 枚举 | `enabled` | `true` | 不传（=1.0） | 不传（=0.95） | 不用 | 8192 |
+| 正向层 1 · 枚举 | `enabled` | `true` | `0.4` | 不传（=0.95） | 不用 | 8192 |
+| 正向层 1 · 属性 | `disabled` | `false` | 不传（被忽略） | 不传 | 不用 | 1024 |
 | 正向层 2 · 组句 | `disabled` | `true` | 不传（=1.0） | 不传 | 不用 | 256 |
 | 逆向 · parse | `disabled` | `false` | 不传（被忽略） | 不传 | `json_object` | 256 |
-| 逆向 · 枚举 | `enabled` | `true` | 不传 | 不传 | 不用 | 8192 |
-| 逆向 · 兜底出框 | `disabled` | `false` | 不传 | 不传 | 不用 | 128 |
+| 逆向 · 枚举 | `enabled` | `true` | `0.6` | `0.95` | 不用 | 8192 |
+| 逆向 · 兜底出框 | `disabled` | `false` | 不传（被忽略） | 不传 | 不用 | 128 |
 
 依据：智谱开放文档。
 
-- `temperature` 取值 `[0.0, 1.0]`；GLM-4.6 系默认 `1.0`
+- `temperature` 取值 `(0.0, 1.0]`；GLM-4.6 系默认 `1.0`
 - `top_p` 默认 `0.95`
-- `temperature` 与 `top_p` 只调其中一个
 - `do_sample=false` 为贪心，`temperature` / `top_p` 被忽略
 - `glm-4.6v` 的 `max_tokens` 上限 32768，默认 16384
 - 无 `seed`；采样阶段不可复现
 - `thinking.type=enabled` 对 GLM-4.6 / GLM-4.6V 为模型自行判断，非强制
   （GLM-4.7 与 GLM-4.5V 强制思考；GLM-5.3 系强制且不可关闭）
-- 官方未给思考 / 非思考的分档推荐值；上表用默认值
 
 ## 4. 主仓的门
 
