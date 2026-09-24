@@ -24,7 +24,6 @@ Summary dict (summary.json):
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -247,11 +246,9 @@ def validate_checkpoint_payload(
 ) -> dict[str, list[float] | None]:
     if not isinstance(payload, dict) or not (
         {"metadata", "predictions"} <= set(payload)
-        <= {"metadata", "predictions", "scores", "assigned_keys"}
+        <= {"metadata", "predictions", "assigned_keys"}
     ):
-        raise ValueError(
-            f"{label} must contain metadata and predictions (scores is optional)"
-        )
+        raise ValueError(f"{label} must contain metadata and predictions")
     actual_metadata = payload["metadata"]
     if not isinstance(actual_metadata, dict):
         raise ValueError(f"{label} metadata must be an object")
@@ -290,24 +287,14 @@ def validate_checkpoint_payload(
         if bbox is None:
             raise ValueError(f"{label} contains invalid bbox for {key!r}: {value!r}")
         normalized[key] = bbox
-    scores = payload.get("scores", {})
-    if not isinstance(scores, dict) or set(scores) - set(predictions):
-        raise ValueError(f"{label} scores must map predicted query IDs")
-    for key, score in scores.items():
-        if score is not None and (
-            isinstance(score, bool) or not isinstance(score, (int, float))
-            or not math.isfinite(score) or not 0 <= score <= 1
-        ):
-            raise ValueError(f"{label} contains invalid score for {key!r}")
     return normalized
 
 
 def load_resume_predictions(
     run_dir: Path, metadata: dict, selected_keys: list[str],
-) -> tuple[dict[str, list[float] | None], dict[str, float | None]]:
+) -> dict[str, list[float] | None]:
     """Validate every saved source before reconciling interrupted inference."""
     predictions: dict[str, list[float] | None] = {}
-    scores: dict[str, float | None] = {}
 
     def merge(payload, expected, assigned, label):
         checked = validate_checkpoint_payload(
@@ -317,11 +304,6 @@ def load_resume_predictions(
             if key in predictions and predictions[key] != value:
                 raise ValueError(f"Conflicting resumed prediction for {key!r}: {label}")
             predictions[key] = value
-        for key, value in payload.get("scores", {}).items():
-            if key in scores and scores[key] is not None and value is not None and scores[key] != value:
-                raise ValueError(f"Conflicting resumed score for {key!r}: {label}")
-            if value is not None or key not in scores:
-                scores[key] = value
 
     checkpoint_path = run_dir / "checkpoint.json"
     checkpoint = load_json(checkpoint_path) if checkpoint_path.is_file() else None
@@ -341,10 +323,8 @@ def load_resume_predictions(
     if predictions_path.is_file():
         if saved_metadata is None:
             raise ValueError(f"Cannot resume {predictions_path} without recorded metadata")
-        scores_path = run_dir / "scores.json"
         merge(
-            {"metadata": saved_metadata, "predictions": load_json(predictions_path),
-             "scores": load_json(scores_path) if scores_path.is_file() else {}},
+            {"metadata": saved_metadata, "predictions": load_json(predictions_path)},
             metadata, selected_keys, str(predictions_path),
         )
 
@@ -374,7 +354,7 @@ def load_resume_predictions(
                 raise ValueError(f"Shard assignment contains unknown query IDs: {path}")
             expected = build_shard_metadata(metadata, shard_id, assigned)
         merge(payload, expected, assigned, str(path))
-    return predictions, scores
+    return predictions
 
 
 def pending_keys(assigned_keys: list[str], predictions: Mapping[str, object]) -> list[str]:

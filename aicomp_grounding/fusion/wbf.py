@@ -5,10 +5,7 @@ Design notes
 - Input units are per-model ``predictions.json`` files (``{key: bbox|None}``),
   i.e. exactly what the inference entrypoint emits, so contributors can
   exchange prediction files without any new contract.
-- Weights are **model-level** (per input file). VLMs emit no calibrated
-  confidence, so equal weights are the honest default; calibrate on val if
-  budget allows. DINO's native per-box scores can be supplied via optional
-  ``--scores`` files and multiply into the effective weight.
+- Weights are **model-level** (per input file), supplied on the command line.
 - Fusion per query: greedy IoU clustering of the valid boxes, cluster score
   = sum of member weights, winner = heaviest cluster, fused box = weighted
   average of the cluster's coordinates (classic WBF, single-class reduced).
@@ -88,7 +85,6 @@ def fuse_predictions(
     *,
     weights: list[float],
     iou_threshold: float = 0.55,
-    score_files: list[Path | str | None] | None = None,
 ) -> dict[str, list[float] | None]:
     """Fuse N prediction files into one prediction dict keyed by query id."""
     if len(weights) != len(prediction_files):
@@ -96,14 +92,8 @@ def fuse_predictions(
             f"weights ({len(weights)}) must align with prediction files "
             f"({len(prediction_files)})"
         )
-    if score_files is not None and len(score_files) != len(prediction_files):
-        raise ValueError("score files must align with prediction files")
 
     loaded = [load_json(path) for path in prediction_files]
-    loaded_scores = [
-        None if path is None else load_json(path)
-        for path in (score_files or [None] * len(prediction_files))
-    ]
     all_keys: set[str] = set()
     for predictions in loaded:
         all_keys.update(predictions)
@@ -115,12 +105,7 @@ def fuse_predictions(
             box = predictions.get(key)
             if box is None:
                 continue
-            weight = float(weights[index])
-            if loaded_scores[index] is not None:
-                score = loaded_scores[index].get(key)
-                if score is not None:
-                    weight *= float(score)
-            pairs.append((box, weight))
+            pairs.append((box, float(weights[index])))
         fused[key] = wbf_fuse_key(pairs, iou_threshold=iou_threshold)
     return fused
 
@@ -130,7 +115,6 @@ def build_fusion_metadata(
     *,
     weights: list[float],
     iou_threshold: float,
-    score_files: list[Path | str | None] | None = None,
 ) -> dict:
     """Deterministic fusion identity from input file bytes + parameters."""
     payload = {
@@ -141,23 +125,10 @@ def build_fusion_metadata(
         ],
         "weights": [float(weight) for weight in weights],
         "iou_threshold": float(iou_threshold),
-        "scores": [
-            None
-            if score is None
-            else {"path": Path(score).name, "sha256": _file_sha256(score)}
-            for score in (score_files or [None] * len(prediction_files))
-        ],
     }
     encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True)
     run_id = f"fusion_wbf_{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:16]}"
     return {"algorithm": ALGORITHM, "run_id": run_id, "inputs": payload}
-
-
-def normalize_score_files(values: list[str] | None) -> list[Path | None] | None:
-    """Convert CLI score arguments; empty strings mean no score file for that model."""
-    if values is None:
-        return None
-    return [None if str(value) == "" else Path(value) for value in values]
 
 
 def main() -> None:
@@ -176,12 +147,6 @@ def main() -> None:
         default=None,
         help="Model-level weights aligned with --predictions (default: all 1.0).",
     )
-    parser.add_argument(
-        "--scores",
-        nargs="+",
-        default=None,
-        help="Optional per-model score files (e.g. DINO confidences); use '' to skip a model.",
-    )
     parser.add_argument("--iou-threshold", type=float, default=0.55)
     parser.add_argument("--output-dir", type=Path, default=output_dir("fusion"))
     args = parser.parse_args()
@@ -189,19 +154,16 @@ def main() -> None:
     if len(args.predictions) < 2:
         parser.error("WBF needs at least two prediction files")
     weights = args.weights or [1.0] * len(args.predictions)
-    score_files = normalize_score_files(args.scores)
 
     metadata = build_fusion_metadata(
         args.predictions,
         weights=weights,
         iou_threshold=args.iou_threshold,
-        score_files=score_files,
     )
     fused = fuse_predictions(
         args.predictions,
         weights=weights,
         iou_threshold=args.iou_threshold,
-        score_files=score_files,
     )
 
     run_dir = args.output_dir / metadata["run_id"]

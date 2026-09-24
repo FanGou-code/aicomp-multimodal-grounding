@@ -119,10 +119,9 @@ def run_generation(
 
 @dataclass(frozen=True)
 class Prediction:
-    """Unified grounding output: normalized XYXY box plus optional score."""
+    """Unified grounding output: normalized XYXY box."""
 
     bbox: list[float] | None
-    score: float | None = None
 
 
 @dataclass

@@ -13,17 +13,16 @@ data/                         运行输入，不入库
   Processed/                  Train/<seq>/depth_jet/  Test/depth_jet/（JET 伪彩深度）
 outputs/                      运行产物，不入库
   annotations/<run_id>/       train/approved.json  val/approved.json
-  training/<run_id>/       plan.json  checkpoints/  best/  last/  completed.json
+  training/<run_id>/          plan.json  checkpoints/  best/  last/  completed.json
   inference/<run_id>/         metadata.json  predictions.json  checkpoint.json
-                              scores.json（可选：仅当有模型产出原生置信度时写出）
-  ordinal_enum/<run_id>/              一个模型：metadata.json  parse.json  instances.json  thinking.jsonl
-  ordinal_resolve/<run_id>/           metadata.json  predictions_<model>.json
+  ordinal_enum/<run_id>/      metadata.json  parse.json  instances.json  thinking.jsonl
+  ordinal_resolve/<run_id>/   metadata.json  predictions_<model>.json
   fusion/<run_id>/            融合产物
-  submission/<tag>/        submission.zip
+  submission/<tag>/           submission.zip
 ```
 
-`Train/` 与 `Test/` 是原始数据，`Processed/` 由 `scripts/prepare_rgbdt.py` 生成。
-上游标注流水线的索引与查重留痕不在本仓，见「产物与责任边界」。
+`Train/` 与 `Test/` 是原始数据，`Processed/` 由 `tools/prepare_rgbdt.py` 生成。
+划分与查重留痕在 `data/indexes/`（见「产物与责任边界」）。
 
 ## 三模态输入格式
 
