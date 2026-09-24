@@ -29,11 +29,10 @@ import math
 import re
 from pathlib import Path
 
-from aicomp_grounding.contract import validate_approved_artifact
+from aicomp_grounding.contract import validate_training_artifacts
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.io import load_json
 from aicomp_grounding.config import TRAINING_PROTOCOL_VERSION
-from aicomp_grounding.sharding import group_keys_by_scene
 
 TRAINING_METADATA_FIELDS = (
     "protocol_version",
@@ -53,41 +52,6 @@ TRAINING_METADATA_FIELDS = (
     "train_samples",
     "val_samples",
 )
-
-
-def validate_training_artifacts(
-    train_artifact: dict,
-    val_artifact: dict,
-    *,
-    annotation_run_id: str,
-) -> tuple[dict, dict]:
-    train = validate_approved_artifact(
-        train_artifact,
-        expected_split="train",
-        expected_run_id=annotation_run_id,
-    )
-    val = validate_approved_artifact(
-        val_artifact,
-        expected_split="val",
-        expected_run_id=annotation_run_id,
-    )
-    train_meta = train["metadata"]
-    val_meta = val["metadata"]
-    for field in ("prompt_hash", "provenance"):
-        if train_meta[field] != val_meta[field]:
-            raise ValueError(f"Train/val approved artifacts disagree on {field}")
-
-    train_data = train["data"]
-    val_data = val["data"]
-    overlap = set(train_data) & set(val_data)
-    if overlap:
-        raise ValueError(f"Train/val sample IDs overlap: {sorted(overlap)[:5]}")
-    train_scenes = set(group_keys_by_scene(list(train_data), train_data))
-    val_scenes = set(group_keys_by_scene(list(val_data), val_data))
-    scene_overlap = train_scenes & val_scenes
-    if scene_overlap:
-        raise ValueError(f"Train/val sequence IDs overlap: {sorted(scene_overlap)[:5]}")
-    return train, val
 
 
 def build_training_metadata(
