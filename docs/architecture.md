@@ -25,9 +25,10 @@
         → outputs/annotations/<run_id>/{train,val}/approved.json
         → tools/train.py → outputs/training/<run_id>/
         → tools/infer.py → outputs/inference/<run_id>/predictions.json
-        → aicomp_grounding.serving.ordinal.{enumerate,resolve}（可选）
+        → aicomp_grounding.serving.fusion → outputs/fusion/<run_id>/predictions.json
+        → aicomp_grounding.serving.ordinal.{enumerate,resolve}（可选，以融合产物为基准底座修正序数题）
           → outputs/{ordinal_enum,ordinal_resolve}/<run_id>/
-        → aicomp_grounding.serving.fusion → aicomp_grounding.serving.submission → submission.zip
+        → aicomp_grounding.serving.submission → submission.zip
 ```
 
 `tools/run_reverse.py` 走同一内核的反向入口：给一句 query，教师产出框，用于抽查逆向一致性。

@@ -47,8 +47,9 @@ outputs/                      运行产物，不入库
 | `data/indexes/{train,val}.json`、`split_manifest.json` | `tools/prepare_split.py` | 标注侧取帧与真值框；训练不读 | 本地，不入库 |
 | `outputs/annotations/<run_id>/{train,val}/approved.json` | `tools/package_approved.py` | 本仓训练与验证集推理 | 4 重 SHA-256 指纹（协议 12，见下） |
 | `outputs/inference/<run_id>/predictions.json` | 本仓 `tools/infer.py` | 融合 `serving.fusion` | `{query_id: bbox 或 null}` |
+| `outputs/fusion/<run_id>/predictions.json` | 本仓 `serving.fusion` | 序数修正 `serving.ordinal.resolve` 或提交打包 | `{query_id: bbox 或 null}` |
 | `outputs/ordinal_enum/<run_id>/{parse,instances}.json` | 本仓 `serving.ordinal.enumerate` | `serving.ordinal.resolve` | 每题的解析意图与一次枚举清单（`thinking.jsonl` 存思考文本） |
-| `outputs/ordinal_resolve/<run_id>/predictions_<model>.json` | 本仓 `serving.ordinal.resolve` | 融合 `serving.fusion` | 键与推理产物一致，只改动采纳的序数题 |
+| `outputs/ordinal_resolve/<run_id>/predictions_<model>.json` | 本仓 `serving.ordinal.resolve` | 打包 `serving.submission` | 键与推理产物一致，只改动采纳的序数题 |
 | `submission.zip` | 本仓 `serving.submission`（显式调用；推理与融合均不自动打包） | 赛事提交 | 官方模板 + `bbox` |
 
 标注侧入口以 `--data-root` 指向 `data/`、以 `--index-dir` 指向 `data/indexes/`；
