@@ -13,7 +13,6 @@ The manifest is the input for human review.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -21,13 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from foundry.pipeline.api import (  # noqa: E402
-    DEFAULT_KEY_FILE,
-    OpenAIProtocolClient,
-    comment_out_key,
-    load_api_keys,
-)
-from foundry.pipeline.api import APIKeyPool  # noqa: E402
+from foundry.pipeline.api import OpenAIProtocolClient, resolve_api_key  # noqa: E402
 from foundry.pipeline.assembly import assemble_run, audit_assembly  # noqa: E402
 from foundry.pipeline.realize import (  # noqa: E402
     REALIZE_PROMPT_HASH,
@@ -62,24 +55,15 @@ def _target_view(image, bbox) -> str:
     return jpeg_data_url(view)
 
 
-def build_realizer(data_root: Path, index: dict):
+def build_realizer(data_root: Path, index: dict, api_key: str):
     """One API call per target: the target's facts in, one sentence out."""
     from PIL import Image
 
-    keys = load_api_keys()
-    if not keys:
-        raise SystemExit("No API keys found; write one per line into keys/api_keys.txt")
-    key_file = Path(os.environ.get("ANNOTATION_API_KEY_FILE", str(DEFAULT_KEY_FILE)))
-    pool = APIKeyPool(
-        keys, notify=print,
-        persist_retire=lambda key, reason: comment_out_key(key_file, key, reason),
-    )
     client = OpenAIProtocolClient(
-        key_pool=pool,
+        api_key=api_key,
         model=ANNOTATION_MODEL_NAME,
         base_url=ANNOTATION_API_BASE_URL,
         timeout_seconds=180.0,
-        rate_limiter=None,
         enable_thinking=None,
         thinking_mode=REALIZE_STAGE["thinking_mode"],
         json_mode=REALIZE_STAGE["response_format"] == "json_object",
@@ -125,6 +109,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "outputs" / "assembly")
     parser.add_argument("--max-teacher-per-frame", type=int, default=2,
                         help="teacher targets per frame; -1 = take all quality-sorted")
+    parser.add_argument("--concurrency", type=int, default=8,
+                        help="parallel wording calls (default 8)")
+    parser.add_argument("--api-key", default=None,
+                        help="key for this run; defaults to $ANNOTATION_API_KEY")
     parser.add_argument("--show", type=int, default=15, help="sample records to print")
     parser.add_argument("--all-frames", action="store_true",
                         help="mark this assembly as full-frame (review all frames, "
@@ -145,11 +133,14 @@ def main() -> None:
         raise SystemExit(f"merged.json not found under {args.census_run}")
     merged = load_json(merged_path)
     index = load_json(resolve_index_dir(args.data_root, args.index_dir) / f"{args.split}.json")
-    realize = None if args.no_realize else build_realizer(args.data_root, index)
+    realize = None if args.no_realize else build_realizer(
+        args.data_root, index, resolve_api_key(args.api_key)
+    )
     result = assemble_run(
         merged,
         index,
         max_teacher_per_frame=args.max_teacher_per_frame,
+        max_workers=args.concurrency,
         realize=realize,
     )
     text_edits = apply_text_qc(result.records)
@@ -175,6 +166,7 @@ def main() -> None:
             "split": args.split,
             "all_frames": bool(args.all_frames),
             "max_teacher_per_frame": args.max_teacher_per_frame,
+            "concurrency": args.concurrency,
             "realized": not args.no_realize,
             "realize_prompt_hash": REALIZE_PROMPT_HASH,
             "realize_stage": REALIZE_STAGE,

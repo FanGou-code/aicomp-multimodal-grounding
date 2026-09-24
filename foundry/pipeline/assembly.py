@@ -16,6 +16,7 @@ nothing here steers it, and no share of any kind is computed.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from foundry.pipeline.census import trusted_objects
@@ -100,22 +101,38 @@ class _SupplyItem:
 
 
 
+@dataclass(frozen=True)
+class _PendingTarget:
+    """One selected target, before its wording call."""
+
+    sample_id: str
+    sequence_id: str
+    source: str
+    facts: ObjectFacts
+    gt_bbox: list[float]
+
+
 def assemble_run(
     merged: dict,
     index: dict,
     *,
     max_teacher_per_frame: int = 2,
+    max_workers: int = 8,
     realize=None,
 ) -> AssemblyResult:
     """Assemble query records from a census merged.json + dataset index.
 
-    ``realize`` is a callable ``(facts, sample_id) -> str | None``. Whatever it
-    returns goes to human review unjudged; a target whose reply carried no
-    sentence is reported as shortfall.
+    ``realize`` is a callable ``(facts, sample_id) -> str | None``, called once
+    per selected target. Everything that can be computed locally happens first,
+    then the calls run on ``max_workers`` threads. Whatever they return goes to
+    human review unjudged; a target whose reply carried no sentence is reported
+    as shortfall.
     """
     result = AssemblyResult()
     sequences = merged.get("results", {})
     supply: list[_SupplyItem] = []
+    pending: list[_PendingTarget] = []
+    sentences: dict[int, str | None] = {}
 
     for sequence_id in sorted(sequences):
         seq = sequences[sequence_id]
@@ -142,20 +159,40 @@ def assemble_run(
 
             result.sequences.append(sequence_id)
             for source, target_facts in select_targets(facts, max_teacher=max_teacher_per_frame):
-                sentence = realize(target_facts, sample_id) if realize is not None else None
-                if sentence is None:
-                    result.shortfall.append(
-                        {"sample_id": sample_id, "reason": "no-sentence"}
-                    )
-                    continue
-                supply.append(_SupplyItem(
+                pending.append(_PendingTarget(
                     sample_id=sample_id,
                     sequence_id=sequence_id,
                     source=source,
                     facts=target_facts,
                     gt_bbox=list(entry["bbox"]),
-                    variants=[_variant(sentence)],
                 ))
+
+    if realize is not None and pending:
+        if max_workers > 1:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(realize, item.facts, item.sample_id): index
+                    for index, item in enumerate(pending)
+                }
+                for future in as_completed(futures):
+                    sentences[futures[future]] = future.result()
+        else:
+            for index, item in enumerate(pending):
+                sentences[index] = realize(item.facts, item.sample_id)
+
+    for index, item in enumerate(pending):
+        sentence = sentences.get(index)
+        if sentence is None:
+            result.shortfall.append({"sample_id": item.sample_id, "reason": "no-sentence"})
+            continue
+        supply.append(_SupplyItem(
+            sample_id=item.sample_id,
+            sequence_id=item.sequence_id,
+            source=item.source,
+            facts=item.facts,
+            gt_bbox=item.gt_bbox,
+            variants=[_variant(sentence)],
+        ))
 
     target_supplies = [
         TargetSupply(

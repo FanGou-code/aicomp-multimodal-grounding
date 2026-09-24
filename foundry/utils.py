@@ -185,14 +185,6 @@ ANNOTATION_MODEL_LICENSE = "MIT"
 ANNOTATION_API_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 ANNOTATION_MAX_TOKENS = 256
 ANNOTATION_TEMPERATURE = 0.2
-# Zhipu primarily enforces per-account concurrency, not RPM/TPM. These defaults
-# keep the client-side limiter from throttling below concurrency; tune via CLI
-# (--requests-per-minute / --tokens-per-minute) against your account's limits
-# shown at https://bigmodel.cn/usercenter/proj-mgmt/rate-limits.
-ANNOTATION_REQUESTS_PER_MINUTE = 600
-ANNOTATION_TOKENS_PER_MINUTE = 500_000
-ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST = 1_800
-
 INFERENCE_SPLITS = frozenset({"train", "val", "test"})
 ANNOTATION_SPLITS = frozenset({"train", "val"})
 PREPARATION_PROTOCOL_VERSION = 2

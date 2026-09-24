@@ -178,14 +178,17 @@ query，输出对应框。内核相同（解析 → 枚举 → 代码排序 → 
 仍兼容旧的图片根下 `indexes/` 布局。
 
 ```bash
+# 密钥每轮手动注入一次；不上库、不写入产物
+export ANNOTATION_API_KEY=...        # 或每一步加 --api-key
+
 # [1] 划分与去重（seed / 比例可调，默认 42 / 0.8）
 python scripts/prepare_split.py --raw-root /path/to/dataset \
     --seed 42 --train-ratio 0.8 --out-dir data/indexes
 
-# [2] 普查（API 调用；--resume 断点续跑、--retry-failed 重试失败项、
+# [2] 普查（API 调用，8 并发；--resume 断点续跑、--retry-failed 重试失败项、
 #     --preflight-only 只做计划与校验、--deep-verify-images 额外校验图像字节）
 python scripts/run_census.py --split train --limit-sequences 320 \
-    --num-shards 96 --run-tag census-full-1 \
+    --num-shards 8 --run-tag census-full-1 \
     --data-root /path/to/dataset --index-dir data/indexes
 
 # [3] 组装（一次 API 调用 / 目标，代码列事实 + 教师造句；--no-realize 只跑本地短路）
@@ -210,7 +213,7 @@ python scripts/package_approved.py \
     --export-to-main ../aicomp-multimodal-grounding
 
 # 辅助入口
-python scripts/check_keys.py --data-root /path/to/dataset --index-dir data/indexes
+python scripts/check_key.py --data-root /path/to/dataset --index-dir data/indexes
 python scripts/review_report.py --census-run outputs/census/census_<id>
 ```
 
@@ -336,17 +339,18 @@ HTTP 接口：`GET /api/session`、`GET /api/progress`、`GET /image`、
 
 ## 预置生产配方与规则
 
-教师身份、服务地址与限流参数固化在 `foundry/utils.py`（教师为托管开源权重模型
-GLM-4.6V，经 OpenAI 协议端点调用，account 级并发受服务方限制，可用
-`--requests-per-minute` / `--tokens-per-minute` 对齐账号配额）。教师身份没有通过 JSON
-切换的入口。产出语料由帧本身与教师措辞决定，不做任何按类别的配额或比例控制。
+教师身份与服务地址固化在 `foundry/utils.py`（教师为托管开源权重模型 GLM-4.6V，经
+OpenAI 协议端点调用）。教师身份没有通过 JSON 切换的入口。产出语料由帧本身与教师
+措辞决定，不做任何按类别的配额或比例控制。
 
 实际读取的外置文件只有 `configs/default/prompts/`（findall / attr / realize /
 parse / enumerate / direct 提示词）与 `configs/default/rules/qc.json`（冠词规则、
 KEEP 表与人工裁定的 echo 表）。提示词不含示例 query 与风格选项。
 变更配方使用新的运行标签，不覆盖已有标注。
 
-密钥只走环境变量或 `keys/`（已 ignore），仓库内不含任何凭据。
+每轮用一把手动注入的 key：`--api-key` 或环境变量 `ANNOTATION_API_KEY`，代码不轮换、
+不落盘、不记录。并发默认 8（`--concurrency`），撞到服务方的速率限制由客户端的退避
+重试吸收。仓库内不含任何凭据。
 
 ## 合并与交付
 
@@ -385,7 +389,7 @@ foundry/
   bbox.py / utils.py  共享层：坐标与 IO/指纹（零 pip 依赖）
 scripts/              CLI 入口（prepare_split / run_census / run_reverse /
                       assemble_queries / review_server / make_manifest /
-                      apply_review / package_approved / check_keys / review_report）
+                      apply_review / package_approved / check_key / review_report）
 configs/default/      实际读取的提示词与 QC 规则（findall / attr / realize /
                       parse / enumerate / direct）
 data/indexes/         划分索引与清单（纳入 Git 追踪）
@@ -399,7 +403,7 @@ outputs/              产物（census / assembly / reverse / review / approved�
 python -m unittest discover -s tests
 ```
 
-175 项测试，覆盖划分与去重、普查门控、事实与规划、事实清单与组句、逆向通路、文本 QC、契约打包、
+174 项测试，覆盖划分与去重、普查门控、事实与规划、事实清单与组句、逆向通路、文本 QC、契约打包、
 审查器 HTTP 与存储恢复、Key 池。HTTP 测试只监听本机临时端口，API 测试使用假响应，
 不消耗真实额度。
 
