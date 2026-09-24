@@ -13,7 +13,6 @@ assembled here.
 from __future__ import annotations
 
 import argparse
-import os
 import time
 import shutil
 import sys
@@ -28,7 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from PIL import Image, ImageDraw
 
 from foundry.pipeline.views import build_marked_annotation_view, jpeg_data_url
-from foundry.pipeline.api import OpenAIProtocolClient, SlidingWindowRateLimiter
+from foundry.pipeline.api import OpenAIProtocolClient, resolve_api_key
 from foundry.utils import stable_json_hash
 from foundry.pipeline.census import (
     ATTR_PROMPT_HASH,
@@ -43,22 +42,13 @@ from foundry.pipeline.census import (
 from foundry.pipeline.depth import frame_depth_facts, load_depth_millimeters, raw_depth_path
 from foundry.utils import (
     ANNOTATION_API_BASE_URL,
-    ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST,
     ANNOTATION_MODEL_LICENSE,
     ANNOTATION_MODEL_NAME,
     ANNOTATION_MODEL_REVISION,
     ANNOTATION_MODEL_WEIGHTS_URL,
     ANNOTATION_PROVIDER,
-    ANNOTATION_REQUESTS_PER_MINUTE,
-    ANNOTATION_TOKENS_PER_MINUTE,
 )
 from foundry.utils import atomic_write_json, load_json
-from foundry.pipeline.api import (
-    APIKeyPool,
-    DEFAULT_KEY_FILE,
-    comment_out_key,
-    load_api_keys,
-)
 from foundry.pipeline.contract import source_fingerprint
 from foundry.pipeline.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
 from foundry.pipeline.source import image_fingerprint, load_annotation_source, preparation_fingerprint
@@ -86,7 +76,7 @@ GENERATION_CONFIG = {
     },
     "image_detail": "high",
 }
-MAX_API_CONCURRENCY = 96  # 12 accounts x provider cap 8
+MAX_API_CONCURRENCY = 8  # one key: the provider cap this account sustains
 SELECTED_FRAMES_PER_SEQUENCE = 3
 
 
@@ -302,11 +292,10 @@ def census_shard(
     plan: dict,
     data_root: Path,
     output_root: Path,
-    key_pool: APIKeyPool,
+    api_key: str,
     resume: bool,
     retry_failed: bool,
     timeout_seconds: float,
-    rate_limiter,
     progress,
     index_dir: Path | None = None,
 ) -> dict:
@@ -323,11 +312,10 @@ def census_shard(
 
     def _client(stage: dict) -> OpenAIProtocolClient:
         return OpenAIProtocolClient(
-            key_pool=key_pool,
+            api_key=api_key,
             model=metadata["model_name"],
             base_url=metadata["api_base_url"],
             timeout_seconds=timeout_seconds,
-            rate_limiter=rate_limiter,
             enable_thinking=None,
             thinking_mode=stage["thinking_mode"],
             json_mode=stage["response_format"] == "json_object",
@@ -563,9 +551,7 @@ def run_census(
     preflight_only: bool = False,
     deep_verify_images: bool = False,
     timeout_seconds: float = 180.0,
-    requests_per_minute: int = ANNOTATION_REQUESTS_PER_MINUTE,
-    tokens_per_minute: int = ANNOTATION_TOKENS_PER_MINUTE,
-    estimated_tokens_per_request: int = ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST,
+    api_key: str | None = None,
 ) -> dict:
     split = _validate_options(split, limit_sequences, concurrency)
     output_root = output_root.resolve()
@@ -586,23 +572,7 @@ def run_census(
         f"pending_shards={len(plan['pending_shard_ids'])}",
         flush=True,
     )
-    keys = load_api_keys()
-    if plan["pending_shard_ids"] and not keys:
-        raise RuntimeError("No API keys found. Write one key per line into keys/api_keys.txt; never store keys in the repository history.")
-    key_pool = None
-    if keys:
-        key_file = Path(os.environ.get("ANNOTATION_API_KEY_FILE", str(DEFAULT_KEY_FILE)))
-        key_pool = APIKeyPool(
-            keys,
-            notify=print,
-            persist_retire=lambda key, reason: comment_out_key(key_file, key, reason),
-        )
-        print(f"API keys: {key_pool.size} loaded ({key_pool.describe()})", flush=True)
-    limiter = SlidingWindowRateLimiter(
-        requests_per_minute=requests_per_minute,
-        tokens_per_minute=tokens_per_minute,
-        estimated_tokens_per_request=estimated_tokens_per_request,
-    )
+    api_key = resolve_api_key(api_key) if plan["pending_shard_ids"] else ""
     payloads = list(plan["completed_payloads"].values())
     total_frames = sum(len(seq_ids) * 10 for seq_ids in [plan["metadata"]["selected_sequence_ids"]])
     progress = CensusProgress(total_frames)
@@ -619,11 +589,10 @@ def run_census(
                 data_root=data_root,
                 index_dir=index_dir,
                 output_root=output_root,
-                key_pool=key_pool,
+                api_key=api_key,
                 resume=resume,
                 retry_failed=retry_failed,
                 timeout_seconds=timeout_seconds,
-                rate_limiter=limiter,
                 progress=progress,
             ))
         for future in as_completed(futures):
@@ -650,7 +619,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-root", type=Path, default=Path("outputs/census"))
     parser.add_argument("--limit-sequences", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--concurrency", type=int, default=48)
+    parser.add_argument("--concurrency", type=int, default=8,
+                        help="parallel shards, each shard issues one call at a time (default 8)")
     parser.add_argument("--num-shards", type=int, default=None,
                         help="shard count; defaults to --concurrency. Part of the run fingerprint - keep stable when resuming")
     parser.add_argument("--run-tag", default="")
@@ -660,9 +630,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--deep-verify-images", action="store_true")
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
-    parser.add_argument("--requests-per-minute", type=int, default=ANNOTATION_REQUESTS_PER_MINUTE)
-    parser.add_argument("--tokens-per-minute", type=int, default=ANNOTATION_TOKENS_PER_MINUTE)
-    parser.add_argument("--estimated-tokens-per-request", type=int, default=ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST)
+    parser.add_argument("--api-key", default=None,
+                        help="key for this run; defaults to $ANNOTATION_API_KEY")
     return parser
 
 

@@ -1,5 +1,6 @@
 """Tests for the local query assembler (foundry.pipeline.assembly)."""
 
+import threading
 import unittest
 
 from foundry.pipeline.assembly import (
@@ -372,6 +373,68 @@ class AssembleRunTest(unittest.TestCase):
         teachers = [source for source, _ in targets if source == "teacher"]
         self.assertEqual(len(teachers), 2)  # dust gated out; max 2
         self.assertIn(2, [f.index for _, f in targets[1:]])
+
+
+class ConcurrencyTest(unittest.TestCase):
+    """The wording calls run in parallel and stay keyed by sample id."""
+
+    def _frames(self, count: int) -> dict:
+        return {
+            f"071_{i:08d}": (
+                [obj(1, "car", [0.0, 0.5, 0.1, 0.7]), obj(2, "car", [0.3, 0.5, 0.4, 0.7])],
+                None,
+            )
+            for i in range(1, count + 1)
+        }
+
+    def _index(self, frames: dict) -> dict:
+        return {sid: {"bbox": objects[0]["bbox"], "visible": "x"} for sid, (objects, _) in frames.items()}
+
+    def test_parallel_and_serial_produce_the_same_records(self):
+        frames = self._frames(6)
+        merged, index = make_merged(frames), self._index(frames)
+        threads = set()
+
+        def realize(target, sample_id):
+            threads.add(threading.current_thread().name)
+            return f"The {target.head} {sample_id}"
+
+        parallel = assemble_run(merged, index, max_workers=8, realize=realize)
+        used_threads = set(threads)
+        threads.clear()
+        serial = assemble_run(merged, index, max_workers=1, realize=realize)
+        self.assertEqual(
+            [r.__dict__ for r in parallel.records],
+            [r.__dict__ for r in serial.records],
+        )
+        self.assertGreater(len(used_threads), 1, "8 workers should use more than one thread")
+        self.assertEqual(len(threads), 1, "a single worker should stay on one thread")
+
+    def test_eight_calls_can_be_in_flight_at_once(self):
+        # A barrier of 8 only opens if eight calls are running simultaneously;
+        # a smaller pool would time out and fail the run.
+        frames = self._frames(8)
+        merged, index = make_merged(frames), self._index(frames)
+        barrier = threading.Barrier(8, timeout=10)
+
+        def realize(target, sample_id):
+            barrier.wait()
+            return f"The {target.head} {sample_id}"
+
+        result = assemble_run(merged, index, max_workers=8, realize=realize)
+        self.assertTrue(result.records)
+
+    def test_a_failing_call_does_not_silently_drop_the_target(self):
+        frames = self._frames(2)
+        merged, index = make_merged(frames), self._index(frames)
+
+        def realize(target, sample_id):
+            if sample_id.endswith("00000001"):
+                raise RuntimeError("boom")
+            return f"The {target.head} {sample_id}"
+
+        with self.assertRaises(RuntimeError):
+            assemble_run(merged, index, max_workers=8, realize=realize)
 
 
 if __name__ == "__main__":

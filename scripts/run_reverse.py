@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import threading
 import time
@@ -21,14 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from PIL import Image
 
-from foundry.pipeline.api import (
-    DEFAULT_KEY_FILE,
-    OpenAIProtocolClient,
-    SlidingWindowRateLimiter,
-    comment_out_key,
-    load_api_keys,
-)
-from foundry.pipeline.api import APIKeyPool
+from foundry.pipeline.api import OpenAIProtocolClient, resolve_api_key
 from foundry.pipeline.reverse import (
     PROMPT_HASHES,
     direct_messages,
@@ -44,9 +36,6 @@ from foundry.utils import (
     ANNOTATION_API_BASE_URL,
     ANNOTATION_MODEL_NAME,
     ANNOTATION_MODEL_REVISION,
-    ANNOTATION_REQUESTS_PER_MINUTE,
-    ANNOTATION_TOKENS_PER_MINUTE,
-    ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST,
     atomic_write_json,
     stable_json_hash,
 )
@@ -79,14 +68,14 @@ STAGE_CONFIG = {
     },
 }
 
-MAX_API_CONCURRENCY = 96
+MAX_API_CONCURRENCY = 8
 
 
 def build_reverse_plan(*, queries_path: Path, run_tag: str) -> dict:
     queries = json.loads(queries_path.read_text(encoding="utf-8"))
     if not isinstance(queries, dict):
         raise ValueError("The queries file must be a JSON object keyed by sample id")
-    keys = sorted(queries)
+    query_ids = sorted(queries)
     identity = {
         "protocol_version": REVERSE_PROTOCOL_VERSION,
         "run_tag": run_tag,
@@ -94,11 +83,11 @@ def build_reverse_plan(*, queries_path: Path, run_tag: str) -> dict:
         "model_revision": ANNOTATION_MODEL_REVISION,
         "prompt_hashes": PROMPT_HASHES,
         "stage_config": STAGE_CONFIG,
-        "query_hash": stable_json_hash({key: queries[key].get("query", "") for key in keys}, length=32),
+        "query_hash": stable_json_hash({key: queries[key].get("query", "") for key in query_ids}, length=32),
     }
     return {
         "queries": queries,
-        "keys": keys,
+        "query_ids": query_ids,
         "metadata": {
             **identity,
             "run_id": f"reverse_{stable_json_hash(identity, length=16)}",
@@ -107,13 +96,12 @@ def build_reverse_plan(*, queries_path: Path, run_tag: str) -> dict:
     }
 
 
-def _client(stage: dict, key_pool, rate_limiter, timeout_seconds: float) -> OpenAIProtocolClient:
+def _client(stage: dict, api_key: str, timeout_seconds: float) -> OpenAIProtocolClient:
     return OpenAIProtocolClient(
-        key_pool=key_pool,
+        api_key=api_key,
         model=ANNOTATION_MODEL_NAME,
         base_url=ANNOTATION_API_BASE_URL,
         timeout_seconds=timeout_seconds,
-        rate_limiter=rate_limiter,
         enable_thinking=None,
         thinking_mode=stage["thinking_mode"],
         json_mode=stage["response_format"] == "json_object",
@@ -218,12 +206,10 @@ def run_reverse(
     data_root: Path,
     output_root: Path = Path("outputs/reverse"),
     run_tag: str = "",
-    concurrency: int = 48,
+    concurrency: int = 8,
     timeout_seconds: float = 180.0,
-    requests_per_minute: int = ANNOTATION_REQUESTS_PER_MINUTE,
-    tokens_per_minute: int = ANNOTATION_TOKENS_PER_MINUTE,
-    estimated_tokens_per_request: int = ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST,
     limit: int = 0,
+    api_key: str | None = None,
 ) -> dict:
     if not 1 <= concurrency <= MAX_API_CONCURRENCY:
         raise ValueError(f"concurrency must be between 1 and {MAX_API_CONCURRENCY}, got {concurrency}")
@@ -231,40 +217,32 @@ def run_reverse(
     run_dir = output_root.resolve() / plan["metadata"]["run_id"]
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    keys = plan["keys"][:limit] if limit > 0 else plan["keys"]
-    keys_file = Path(os.environ.get("ANNOTATION_API_KEY_FILE", str(DEFAULT_KEY_FILE)))
-    key_pool = APIKeyPool(
-        load_api_keys(),
-        notify=print,
-        persist_retire=lambda key, reason: comment_out_key(keys_file, key, reason),
-    )
-    limiter = SlidingWindowRateLimiter(
-        requests_per_minute=requests_per_minute,
-        tokens_per_minute=tokens_per_minute,
-        estimated_tokens_per_request=estimated_tokens_per_request,
-    )
+    queries = plan["queries"]
+    todo = plan["query_ids"][:limit] if limit > 0 else plan["query_ids"]
+    key = resolve_api_key(api_key)
 
     state = _Lock()
     started = time.monotonic()
 
-    def worker(key: str) -> None:
-        clients = {
-            name: _client(stage, key_pool, limiter, timeout_seconds)
-            for name, stage in (
-                ("parse", STAGE_CONFIG["parse"]),
-                ("enumerate", STAGE_CONFIG["enumerate"]),
-                ("direct", STAGE_CONFIG["direct"]),
-            )
-        }
-        entry = plan["queries"][key]
-        state.record(key, resolve_one(clients, data_root, entry["query"], entry["visible"]))
+    clients = {
+        name: _client(stage, key, timeout_seconds)
+        for name, stage in (
+            ("parse", STAGE_CONFIG["parse"]),
+            ("enumerate", STAGE_CONFIG["enumerate"]),
+            ("direct", STAGE_CONFIG["direct"]),
+        )
+    }
 
-    with ThreadPoolExecutor(max_workers=min(concurrency, max(1, len(keys)))) as executor:
-        futures = [executor.submit(worker, key) for key in keys]
+    def worker(sample_id: str) -> None:
+        entry = queries[sample_id]
+        state.record(sample_id, resolve_one(clients, data_root, entry["query"], entry["visible"]))
+
+    with ThreadPoolExecutor(max_workers=min(concurrency, max(1, len(todo)))) as executor:
+        futures = [executor.submit(worker, sample_id) for sample_id in todo]
         for index, future in enumerate(as_completed(futures), start=1):
             future.result()
             if index % 25 == 0:
-                print(f"[reverse] {index}/{len(keys)}", flush=True)
+                print(f"[reverse] {index}/{len(todo)}", flush=True)
 
     atomic_write_json(run_dir / "predictions.json", state.predictions)
     atomic_write_json(run_dir / "routes.json", state.routes)
@@ -275,7 +253,7 @@ def run_reverse(
     routes = state.routes
     metadata = {
         **plan["metadata"],
-        "queries": len(keys),
+        "queries": len(todo),
         "api_calls": state.calls,
         "elapsed_seconds": round(time.monotonic() - started, 1),
         "route_counts": {
@@ -285,7 +263,7 @@ def run_reverse(
         "empty_predictions": sum(1 for value in state.predictions.values() if value is None),
     }
     atomic_write_json(run_dir / "metadata.json", metadata)
-    print(f"[reverse] run_id={metadata['run_id']} queries={len(keys)} routes={metadata['route_counts']}")
+    print(f"[reverse] run_id={metadata['run_id']} queries={len(todo)} routes={metadata['route_counts']}")
     print(f"[reverse] wrote {run_dir}")
     return metadata
 
@@ -297,12 +275,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, default=Path("outputs/reverse"))
     parser.add_argument("--run-tag", default="")
-    parser.add_argument("--concurrency", type=int, default=48)
+    parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
-    parser.add_argument("--requests-per-minute", type=int, default=ANNOTATION_REQUESTS_PER_MINUTE)
-    parser.add_argument("--tokens-per-minute", type=int, default=ANNOTATION_TOKENS_PER_MINUTE)
-    parser.add_argument("--estimated-tokens-per-request", type=int, default=ANNOTATION_ESTIMATED_TOKENS_PER_REQUEST)
+    parser.add_argument("--api-key", default=None,
+                        help="key for this run; defaults to $ANNOTATION_API_KEY")
     return parser
 
 

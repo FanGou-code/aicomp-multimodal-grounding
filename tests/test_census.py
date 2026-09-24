@@ -280,7 +280,7 @@ class CensusRecoveryTests(unittest.TestCase):
         from pathlib import Path
         from unittest.mock import patch
         from scripts import run_census as census
-        from foundry.pipeline.api import APIKeyPool, APIKeyPoolExhausted
+        from foundry.pipeline.api import APIError
         dataset = {f"001_{i:08d}": {"visible": f"Train/001/color/{i:08d}.png", "bbox": GT}
                    for i in range(1, 4)}
         plan = {"metadata": {"run_id": "census_recovery", "split": "train", "model_name": "fake",
@@ -295,7 +295,7 @@ class CensusRecoveryTests(unittest.TestCase):
 
         def interrupted_pass(*args, **kwargs):
             if len(calls) == 2:
-                raise APIKeyPoolExhausted("simulated stop")
+                raise APIError("simulated stop")
             return successful_pass(*args, **kwargs)
 
         complete_attr = {"status": "completed", "attributes": {}, "api_calls": []}
@@ -306,10 +306,10 @@ class CensusRecoveryTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             root = Path(tmp)
             args = dict(shard_id=0, sequence_ids=["001"], plan=plan, data_root=root,
-                        output_root=root, key_pool=APIKeyPool(["fake"]), resume=True,
-                        retry_failed=True, timeout_seconds=1, rate_limiter=None, progress=None)
+                        output_root=root, api_key="fake", resume=True,
+                        retry_failed=True, timeout_seconds=1, progress=None)
             with patch.object(census, "_run_findall_pass", side_effect=interrupted_pass):
-                with self.assertRaises(APIKeyPoolExhausted):
+                with self.assertRaises(APIError):
                     census.census_shard(**args)
             checkpoint = root / "census_recovery/shards/shard_00.json"
             saved = json.loads(checkpoint.read_text())["results"]["001"]
@@ -317,8 +317,8 @@ class CensusRecoveryTests(unittest.TestCase):
             self.assertNotEqual(saved["status"], "completed")
             calls.clear()
             with patch.object(census, "_run_findall_pass", side_effect=successful_pass), \
-                 patch.object(census, "_complete_once", side_effect=[complete_attr, APIKeyPoolExhausted("attr stop")]):
-                with self.assertRaises(APIKeyPoolExhausted):
+                 patch.object(census, "_complete_once", side_effect=[complete_attr, APIError("attr stop")]):
+                with self.assertRaises(APIError):
                     census.census_shard(**args)
             self.assertEqual(calls, ["001_00000003"])
             saved = json.loads(checkpoint.read_text())["results"]["001"]

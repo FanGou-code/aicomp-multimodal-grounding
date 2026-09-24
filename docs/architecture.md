@@ -42,7 +42,7 @@ prepare_split → census → assembly → text_qc → review → apply → packa
 | `scripts/run_census.py` | 普查入口 |
 | `scripts/assemble_queries.py` | 组装入口 |
 | `scripts/prepare_split.py` | 数据划分（--seed --train-ratio） |
-| `scripts/check_keys.py` | Key 测活 |
+| `scripts/check_key.py` | 注入的 key 测活 |
 | `scripts/review_report.py` | 审查报告 |
 | `configs/default/` | 实际读取的提示词与 qc.json；API 和桶规则固定在代码 |
 
