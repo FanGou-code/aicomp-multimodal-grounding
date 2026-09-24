@@ -27,7 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from PIL import Image, ImageDraw
 
 from foundry.pipeline.views import build_marked_annotation_view, jpeg_data_url
-from foundry.pipeline.api import APIError, client_for, resolve_api_key, validate_concurrency
+from foundry.pipeline.api import client_for, resolve_api_key, validate_concurrency
 from foundry.utils import stable_json_hash
 from foundry.pipeline.census import (
     ATTR_PROMPT_HASH,
@@ -214,28 +214,17 @@ def _complete_once(
 ) -> dict:
     """Send one request and validate the reply. Transport retries, semantics do not.
 
-    ``client`` retries transport failures (timeouts, 5xx, resets, empty
-    content). A reply that arrives but fails validation is recorded as a
-    failure, not re-asked. A sustained HTTP 429 is the same kind of event: it
-    fails this frame and leaves the rest of the shard alone.
+    ``client`` retries transient failures a bounded number of times, then
+    raises: the run stops so the operator can look at the key, and ``--resume``
+    picks up from the checkpoint. A reply that arrives but fails validation is
+    recorded as a failure, not re-asked.
     """
-    try:
-        response = client.complete(
-            messages=build_messages(),
-            max_tokens=max_tokens,
-            temperature=temperature,
-            do_sample=do_sample,
-        )
-    except APIError as exc:
-        if exc.status != 429:
-            raise
-        return {
-            "status": "failed",
-            "attempts": 1,
-            "error": f"rate limited: {exc}",
-            "api_calls": [],
-            "last_raw": "",
-        }
+    response = client.complete(
+        messages=build_messages(),
+        max_tokens=max_tokens,
+        temperature=temperature,
+        do_sample=do_sample,
+    )
     api_calls = [dict(response.record)]
     try:
         parsed = parse(response.content, **parser_kwargs)
@@ -306,6 +295,7 @@ def census_shard(
     resume: bool,
     retry_failed: bool,
     timeout_seconds: float,
+    retry: bool,
     progress,
     index_dir: Path | None = None,
 ) -> dict:
@@ -321,7 +311,9 @@ def census_shard(
         progress.sync(results)
 
     def _client(stage: dict):
-        return client_for(stage, api_key=api_key, timeout_seconds=timeout_seconds)
+        return client_for(
+            stage, api_key=api_key, timeout_seconds=timeout_seconds, retry=retry
+        )
 
     enum_client = _client(GENERATION_CONFIG["enumeration"])
     attr_client = _client(GENERATION_CONFIG["attr"])
@@ -553,6 +545,7 @@ def run_census(
     preflight_only: bool = False,
     deep_verify_images: bool = False,
     timeout_seconds: float = 180.0,
+    retry: bool = True,
     api_key: str | None = None,
 ) -> dict:
     split = _validate_options(split, limit_sequences, concurrency)
@@ -595,6 +588,7 @@ def run_census(
                 resume=resume,
                 retry_failed=retry_failed,
                 timeout_seconds=timeout_seconds,
+                retry=retry,
                 progress=progress,
             ))
         for future in as_completed(futures):
@@ -634,6 +628,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--api-key", default=None,
                         help="key for this run; defaults to $ANNOTATION_API_KEY")
+    parser.add_argument("--retry", action=argparse.BooleanOptionalAction, default=True,
+                        help="retry transient failures before stopping (default: on)")
     return parser
 
 

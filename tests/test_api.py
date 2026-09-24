@@ -16,6 +16,7 @@ from foundry.pipeline.api import (
     MAX_API_CONCURRENCY,
     APIError,
     OpenAIProtocolClient,
+    client_for,
     resolve_api_key,
     validate_concurrency,
 )
@@ -109,10 +110,11 @@ class ConstructionTest(unittest.TestCase):
             OpenAIProtocolClient(api_key="k", model="m", base_url="http://example.invalid")
 
 
-class AuthFailureTest(unittest.TestCase):
-    def test_a_refused_key_stops_immediately(self):
-        # A single key cannot be rotated away from, so an auth failure is final:
-        # one call, no retry, and the message says which HTTP status refused it.
+class RefusedKeyTest(unittest.TestCase):
+    def test_a_refused_key_is_retried_then_stops_the_run(self):
+        # No status gets a special verdict: every error is retried the same
+        # bounded way and then surfaces, carrying the status and the body so the
+        # operator can decide whether the key is dead.
         for code in (401, 402, 403):
             with self.subTest(code=code):
                 calls = []
@@ -122,10 +124,10 @@ class AuthFailureTest(unittest.TestCase):
                     raise _http_error(code)
 
                 with self.assertRaises(APIError) as ctx:
-                    _call(_client(opener))
+                    _call(_client(opener, transport_attempts=2))
                 self.assertEqual(ctx.exception.status, code)
-                self.assertEqual(len(calls), 1)
-                self.assertIn("refused", str(ctx.exception))
+                self.assertEqual(len(calls), 2)
+                self.assertIn(str(code), str(ctx.exception))
 
 
 class RetryTest(unittest.TestCase):
@@ -216,6 +218,17 @@ class RetryTest(unittest.TestCase):
         response = _call(_client(opener))
         self.assertEqual(len(calls), 2)
         self.assertEqual(json.loads(response.content), {"query": "test"})
+
+
+class ClientForTest(unittest.TestCase):
+    stage = {"thinking_mode": "disabled", "response_format": None}
+
+    def test_retry_switches_the_attempt_budgets(self):
+        retrying = client_for(self.stage, api_key="k")
+        once = client_for(self.stage, api_key="k", retry=False)
+        self.assertGreater(retrying.transport_attempts, 1)
+        self.assertGreater(retrying.rate_limit_attempts, 1)
+        self.assertEqual((once.transport_attempts, once.rate_limit_attempts), (1, 1))
 
 
 class ResponseShapeTest(unittest.TestCase):

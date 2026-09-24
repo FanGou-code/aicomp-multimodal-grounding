@@ -307,7 +307,7 @@ class CensusRecoveryTests(unittest.TestCase):
             root = Path(tmp)
             args = dict(shard_id=0, sequence_ids=["001"], plan=plan, data_root=root,
                         output_root=root, api_key="fake", resume=True,
-                        retry_failed=True, timeout_seconds=1, progress=None)
+                        retry_failed=True, timeout_seconds=1, retry=True, progress=None)
             with patch.object(census, "_run_findall_pass", side_effect=interrupted_pass):
                 with self.assertRaises(APIError):
                     census.census_shard(**args)

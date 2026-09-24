@@ -215,6 +215,7 @@ def run_reverse(
     timeout_seconds: float = 180.0,
     limit: int = 0,
     api_key: str | None = None,
+    retry: bool = True,
     resume: bool = True,
     force: bool = False,
 ) -> dict:
@@ -239,7 +240,7 @@ def run_reverse(
     started = time.monotonic()
 
     clients = {
-        name: client_for(stage, api_key=key, timeout_seconds=timeout_seconds)
+        name: client_for(stage, api_key=key, timeout_seconds=timeout_seconds, retry=retry)
         for name, stage in (
             ("parse", STAGE_CONFIG["parse"]),
             ("enumerate", STAGE_CONFIG["enumerate"]),
@@ -302,6 +303,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--api-key", default=None,
                         help="key for this run; defaults to $ANNOTATION_API_KEY")
+    parser.add_argument("--retry", action=argparse.BooleanOptionalAction, default=True,
+                        help="retry transient failures before stopping (default: on)")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
                         help="reuse the answers already in the run dir (default: on)")
     parser.add_argument("--force", action="store_true",

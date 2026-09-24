@@ -351,9 +351,10 @@ KEEP 表与人工裁定的 echo 表）。提示词不含示例 query 与风格�
 变更配方使用新的运行标签，不覆盖已有标注。
 
 每轮用一把手动注入的 key：`--api-key` 或环境变量 `ANNOTATION_API_KEY`，代码不轮换、
-不落盘、不记录。并发默认 8（`--concurrency`，上限同值），撞到服务方的速率限制由
-客户端的退避重试吸收；key 被拒（401/402/403）立即终止并指明原因，等人换 key 后
-`--resume` 续跑。三个 API 阶段都会把每条结果即时落盘，中断不丢已完成的部分：
+不落盘、不记录。并发默认 8（`--concurrency`，上限同值）。所有请求错误一视同仁：
+有限次退避重试（`--retry`，默认开；`--no-retry` 只发一次）之后终止本次运行，错误里
+带着 HTTP 状态与响应体 —— 是不是 key 死了、要不要换，由人看着办。重试与续跑都默认
+开启，关掉传 `--no-retry` / `--no-resume`。三个 API 阶段都把每条结果即时落盘：
 
 ```
 普查   分片 checkpoint + merged.json      --resume 默认开、--retry-failed 默认开
@@ -414,7 +415,7 @@ outputs/              产物（census / assembly / reverse / review / approved�
 python -m unittest discover -s tests
 ```
 
-189 项测试，覆盖划分与去重、普查门控、事实与规划、事实清单与组句、逆向通路、文本 QC、契约打包、
+190 项测试，覆盖划分与去重、普查门控、事实与规划、事实清单与组句、逆向通路、文本 QC、契约打包、
 审查器 HTTP 与存储恢复、Key 池。HTTP 测试只监听本机临时端口，API 测试使用假响应，
 不消耗真实额度。
 
