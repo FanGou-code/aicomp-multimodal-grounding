@@ -32,7 +32,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from aicomp_grounding.annotation.utils import resolve_index_dir
+from aicomp_grounding.annotation.config import resolve_index_dir
 
 
 def build_manifest_from_assembly(

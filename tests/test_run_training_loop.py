@@ -18,14 +18,14 @@ from unittest import mock
 
 import torch
 
-from aicomp_grounding.annotation_state import (
+from aicomp_grounding.contract import (
     ANNOTATION_MODE,
     ASSIGNMENT_POLICY,
     approved_dataset_fingerprint,
 )
 from aicomp_grounding.config import ANNOTATION_PROTOCOL_VERSION
 from aicomp_grounding.io import atomic_write_json, load_json
-from aicomp_grounding.sequence import source_fingerprint
+from aicomp_grounding.contract import source_fingerprint
 from aicomp_grounding.sharding import group_keys_by_scene
 from aicomp_grounding.training_core import (
     candidate_metric_value,

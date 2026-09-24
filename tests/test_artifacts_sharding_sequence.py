@@ -5,10 +5,8 @@ from __future__ import annotations
 import unittest
 
 from aicomp_grounding.artifacts import key_hash, require_metadata_match
-from aicomp_grounding.sequence import (
-    source_fingerprint,
-    validate_annotation_query,
-)
+from aicomp_grounding.contract import source_fingerprint
+from aicomp_grounding.query import validate_annotation_query
 from aicomp_grounding.sharding import (
     select_scene_ids,
     shard_keys_by_scene,

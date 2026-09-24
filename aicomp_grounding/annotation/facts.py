@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from aicomp_grounding.annotation.bbox import compute_iou
+from aicomp_grounding.bbox import compute_iou
 from aicomp_grounding.annotation.depth import (
     DEPTH_SOURCE,
     is_background as depth_in_background,

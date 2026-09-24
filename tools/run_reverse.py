@@ -31,13 +31,10 @@ from aicomp_grounding.annotation.reverse import (
     parse_messages,
     pick_kth,
 )
-from aicomp_grounding.annotation.views import jpeg_data_url
-from aicomp_grounding.annotation.utils import (
-    ANNOTATION_MODEL_NAME,
-    ANNOTATION_MODEL_REVISION,
-    atomic_write_json,
-    stable_json_hash,
-)
+from aicomp_grounding.annotation.imaging import jpeg_data_url
+from aicomp_grounding.annotation.config import ANNOTATION_MODEL_NAME, ANNOTATION_MODEL_REVISION
+from aicomp_grounding.artifacts import stable_json_hash
+from aicomp_grounding.io import atomic_write_json
 
 REVERSE_PROTOCOL_VERSION = 1
 

@@ -17,7 +17,7 @@ from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from aicomp_grounding.annotation.utils import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME
+from aicomp_grounding.annotation.config import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME
 
 
 #: Credentials come from the environment, never from the repository.

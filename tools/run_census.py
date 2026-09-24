@@ -26,9 +26,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from PIL import Image, ImageDraw
 
-from aicomp_grounding.annotation.views import build_marked_annotation_view, jpeg_data_url
+from aicomp_grounding.annotation.imaging import build_marked_annotation_view, jpeg_data_url
 from aicomp_grounding.annotation.api import client_for, resolve_api_key, validate_concurrency
-from aicomp_grounding.annotation.utils import stable_json_hash
+from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.annotation.census import (
     ATTR_PROMPT_HASH,
     FINDALL_PROMPT_HASH,
@@ -40,17 +40,10 @@ from aicomp_grounding.annotation.census import (
     trusted_objects,
 )
 from aicomp_grounding.annotation.depth import frame_depth_facts, load_depth_millimeters, raw_depth_path
-from aicomp_grounding.annotation.utils import (
-    ANNOTATION_API_BASE_URL,
-    ANNOTATION_MODEL_LICENSE,
-    ANNOTATION_MODEL_NAME,
-    ANNOTATION_MODEL_REVISION,
-    ANNOTATION_MODEL_WEIGHTS_URL,
-    ANNOTATION_PROVIDER,
-)
-from aicomp_grounding.annotation.utils import atomic_write_json, load_json
-from aicomp_grounding.annotation.contract import source_fingerprint
-from aicomp_grounding.annotation.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
+from aicomp_grounding.annotation.config import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_LICENSE, ANNOTATION_MODEL_NAME, ANNOTATION_MODEL_REVISION, ANNOTATION_MODEL_WEIGHTS_URL, ANNOTATION_PROVIDER
+from aicomp_grounding.io import atomic_write_json, load_json
+from aicomp_grounding.contract import source_fingerprint
+from aicomp_grounding.sharding import group_keys_by_scene, select_scene_ids, shard_scene_ids
 from aicomp_grounding.annotation.source import image_fingerprint, load_annotation_source, preparation_fingerprint
 
 CENSUS_PROTOCOL_VERSION = 4

@@ -7,13 +7,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aicomp_grounding.annotation_state import (
+from aicomp_grounding.contract import (
     ANNOTATION_MODE,
     ASSIGNMENT_POLICY,
     approved_dataset_fingerprint,
 )
 from aicomp_grounding.config import ANNOTATION_PROTOCOL_VERSION
-from aicomp_grounding.sequence import source_fingerprint
+from aicomp_grounding.contract import source_fingerprint
 from aicomp_grounding.sharding import group_keys_by_scene
 from aicomp_grounding.training_state import (
     accumulation_window_size,

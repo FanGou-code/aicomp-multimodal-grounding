@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from aicomp_grounding.annotation.utils import split_index_fingerprint
+from aicomp_grounding.annotation.source import split_index_fingerprint
 
 def _build_split(sequences: list[str], seed: int, train_ratio: float) -> tuple[list[str], list[str]]:
     """Deterministic sequence-level split."""

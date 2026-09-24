@@ -16,7 +16,8 @@ from pathlib import Path
 def __trusted_objects(frame):
     from aicomp_grounding.annotation.census import trusted_objects
     return trusted_objects(frame)
-from aicomp_grounding.annotation.utils import ANNOTATION_MODEL_NAME, load_json, resolve_index_dir  # noqa: E402
+from aicomp_grounding.annotation.config import ANNOTATION_MODEL_NAME, resolve_index_dir  # noqa: E402
+from aicomp_grounding.io import load_json  # noqa: E402
 from aicomp_grounding.annotation.review.store import AnnotationStore  # noqa: E402
 
 #: Single source of truth for the seeding model's annotator label. Must stay

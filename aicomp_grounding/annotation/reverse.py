@@ -20,6 +20,9 @@ import json
 import re
 from pathlib import Path
 
+from aicomp_grounding.ordinal.kernel import axis_value as kernel_axis_value
+from aicomp_grounding.ordinal.kernel import order_indices
+
 AXES = ("x", "y", "area")
 DIRECTIONS = ("asc", "desc")
 
@@ -179,14 +182,15 @@ def parse_direct_response(text: object) -> list[float] | None:
 
 
 def axis_value(axis: str, bbox: list[float]) -> float:
-    """Sort value of one box on one axis; all three come from the box alone."""
-    if axis == "x":
-        return bbox[0]
-    if axis == "y":
-        return bbox[1]
-    if axis == "area":
-        return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-    raise ValueError(f"Unsupported axis: {axis!r}")
+    """Sort value of one box on one axis; all three come from the box alone.
+
+    The parse stage only emits box-owned axes, so anything else is an error
+    rather than a missing-data ``None`` from the shared kernel.
+    """
+    value = kernel_axis_value(axis, bbox)
+    if value is None:
+        raise ValueError(f"Unsupported axis: {axis!r}")
+    return value
 
 
 def pick_kth(boxes: list[list[float]], *, k: int, axis: str, direction: str) -> list[float] | None:
@@ -197,9 +201,9 @@ def pick_kth(boxes: list[list[float]], *, k: int, axis: str, direction: str) -> 
     """
     if k < 1 or k > len(boxes):
         return None
-    order = sorted(boxes, key=lambda box: (box[0], box[1]))
-    order.sort(key=lambda box: axis_value(axis, box), reverse=(direction == "desc"))
-    return list(order[k - 1])
+    values = [axis_value(axis, box) for box in boxes]
+    order = order_indices(values, boxes, direction=direction)
+    return list(boxes[order[k - 1]])
 
 
 def parse_messages(query: str) -> list[dict]:

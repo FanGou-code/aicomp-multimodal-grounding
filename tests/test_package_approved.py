@@ -3,11 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aicomp_grounding.annotation.contract import (
+from aicomp_grounding.contract import (
     ANNOTATION_PROTOCOL_VERSION,
     validate_approved_artifact,
 )
-from aicomp_grounding.annotation.utils import load_json, stable_json_hash
+from aicomp_grounding.artifacts import stable_json_hash
+from aicomp_grounding.io import load_json
 from tools.package_approved import package
 
 
@@ -244,7 +245,7 @@ class PackageApprovedTests(unittest.TestCase):
             sys.path.insert(0, str(main_repo_path))
 
         try:
-            from aicomp_grounding.annotation_state import (
+            from aicomp_grounding.contract import (
                 validate_approved_artifact as main_repo_validate,
             )
         except ImportError:
