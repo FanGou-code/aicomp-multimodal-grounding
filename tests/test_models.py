@@ -412,17 +412,6 @@ class MockAdapterTests(unittest.TestCase):
         self.assertNotEqual(_stable_box("q"), _stable_box("other"))
         self.assertIsNotNone(validate_bbox(_stable_box("q")))
 
-    def test_mock_predict_returns_scores(self):
-        adapter = get_adapter("mock")
-        adapter.load()
-        samples = [
-            ModelInput(visible=None, infrared=None, depth=None, query="a", key="a"),
-            ModelInput(visible=None, infrared=None, depth=None, query="b", key="b"),
-        ]
-        results = adapter.predict(samples)
-        self.assertEqual([r.score for r in results], [0.5, 0.5])
-        self.assertTrue(all(r.bbox is not None for r in results))
-
 
 class MockPipelineEndToEndTests(unittest.TestCase):
     """Full inference chain on CPU: items -> mock adapter -> metrics -> ZIP."""

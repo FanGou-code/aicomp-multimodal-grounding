@@ -145,10 +145,8 @@ python -m aicomp_grounding.submission \
   --output-dir outputs/submission/<tag>
 ```
 
-`--scores` 可传各模型的分数文件做乘性加权，空字符串表示该模型不计分数；当前阵容没有
-模型产出原生置信度，该参数暂无使用者。`submission` 默认要求预测 ID 与官方模板完全
-一致、bbox 全部合法，否则拒绝出包；`--allow-fallback` 会把缺失或无效的框填成占位框，
-仅用于显式不完整的诊断包。
+`submission` 默认要求预测 ID 与官方模板完全一致、bbox 全部合法，否则拒绝出包；
+`--allow-fallback` 会把缺失或无效的框填成占位框，仅用于显式不完整的诊断包。
 
 ## 序数后处理（可选，显式步骤）
 

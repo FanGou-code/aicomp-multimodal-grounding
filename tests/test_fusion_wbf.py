@@ -10,7 +10,6 @@ from aicomp_grounding.fusion.wbf import (
     build_fusion_metadata,
     fuse_boxes,
     fuse_predictions,
-    normalize_score_files,
     wbf_fuse_key,
 )
 from aicomp_grounding.io import atomic_write_json
@@ -82,20 +81,6 @@ class FusePredictionsTests(unittest.TestCase):
         self.assertEqual(fused["q2"], [0.1, 0.1, 0.2, 0.2])  # only in A
         self.assertEqual(fused["q3"], [0.3, 0.3, 0.7, 0.7])  # only in B
 
-    def test_score_files_multiply_model_weights(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            a = self._write(root, "a.json", {"q1": [0.0, 0.0, 0.4, 0.4]})
-            b = self._write(root, "b.json", {"q1": [0.2, 0.2, 0.6, 0.6]})
-            scores_b = self._write(root, "scores_b.json", {"q1": 1.0})
-            scores_a = self._write(root, "scores_a.json", {"q1": 0.1})
-            fused = fuse_predictions(
-                [a, b],
-                weights=[1.0, 1.0],
-                score_files=[scores_a, scores_b],
-            )
-        # Effective weights 0.1 vs 1.0 -> result sits next to model B's box.
-        self.assertGreater(fused["q1"][0], 0.18)
 
     def test_weight_count_mismatch_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
@@ -132,44 +117,6 @@ class FusionMetadataTests(unittest.TestCase):
                 [a, b2], weights=[1.0, 1.0], iou_threshold=0.55
             )
             self.assertNotEqual(first["run_id"], changed_inputs["run_id"])
-
-    def test_score_file_content_is_part_of_identity(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            a = self._write(root, "a.json", {"q1": [0.1, 0.1, 0.5, 0.5]})
-            b = self._write(root, "b.json", {"q1": [0.2, 0.2, 0.6, 0.6]})
-            scores = self._write(root, "scores.json", {"q1": 1.0})
-
-            first = build_fusion_metadata(
-                [a, b],
-                weights=[1.0, 1.0],
-                iou_threshold=0.55,
-                score_files=[scores, None],
-            )
-            self.assertEqual(
-                first["inputs"]["scores"][0]["path"], "scores.json"
-            )
-            self.assertIn("sha256", first["inputs"]["scores"][0])
-
-            self._write(root, "scores.json", {"q1": 0.5})
-            changed_scores = build_fusion_metadata(
-                [a, b],
-                weights=[1.0, 1.0],
-                iou_threshold=0.55,
-                score_files=[scores, None],
-            )
-            self.assertNotEqual(first["run_id"], changed_scores["run_id"])
-
-
-class ScoreCliPathsTests(unittest.TestCase):
-    def test_blank_cli_score_values_become_none(self):
-        self.assertEqual(
-            normalize_score_files(["", "scores_dino.json", ""]),
-            [None, Path("scores_dino.json"), None],
-        )
-
-    def test_no_score_values_returns_none(self):
-        self.assertIsNone(normalize_score_files(None))
 
 
 if __name__ == "__main__":

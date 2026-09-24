@@ -220,21 +220,20 @@ class ResumeFilesTests(unittest.TestCase):
             shard_path = root / "shard_checkpoints/shard_00.checkpoint.json"
             atomic_write_json(shard_path, {
                 "metadata": build_shard_metadata(metadata, 0, keys[1:]),
-                "predictions": {keys[1]: [0, 0, 1, 1]}, "scores": {keys[1]: 0.5},
+                "predictions": {keys[1]: [0, 0, 1, 1]},
             })
-            predictions, scores = load_resume_predictions(root, metadata, keys)
+            predictions = load_resume_predictions(root, metadata, keys)
             self.assertEqual(set(predictions), set(keys[:2]))
             atomic_write_json(root / "checkpoint.json", {
-                "metadata": metadata, "predictions": predictions, "scores": scores,
+                "metadata": metadata, "predictions": predictions,
             })
             atomic_write_json(shard_path, {
                 "metadata": build_shard_metadata(metadata, 0, keys[2:]),
                 "assigned_keys": keys[2:], "predictions": {keys[2]: [0.1, 0.1, 0.5, 0.5]},
             })
-            final, final_scores = load_resume_predictions(root, metadata, keys)
+            final = load_resume_predictions(root, metadata, keys)
             self.assertEqual(set(final), set(keys))
             self.assertEqual(final[keys[1]], [0, 0, 1, 1])
-            self.assertEqual(final_scores[keys[1]], 0.5)
 
     def test_conflicting_results_and_wrong_shard_assignment_are_rejected(self):
         keys = ["001_1", "002_1"]

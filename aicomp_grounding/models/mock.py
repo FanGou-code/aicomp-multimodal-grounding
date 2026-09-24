@@ -70,7 +70,7 @@ class MockAdapter:
 
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:
         return [
-            Prediction(bbox=_stable_box(sample.query), score=0.5)
+            Prediction(bbox=_stable_box(sample.query))
             for sample in samples
         ]
 

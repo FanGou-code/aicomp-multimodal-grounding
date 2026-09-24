@@ -504,7 +504,7 @@ class Glm46VAdapter:
             generated_tokens, skip_special_tokens=False
         )
         return [
-            Prediction(bbox=parse_glm_box(text), score=None)
+            Prediction(bbox=parse_glm_box(text))
             for text in text_outputs
         ]
 

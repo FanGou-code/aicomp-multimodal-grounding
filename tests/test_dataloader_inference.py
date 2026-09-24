@@ -27,7 +27,7 @@ class _FakePreparedAdapter:
 
     def predict_from_inputs(self, inputs: dict) -> list[Prediction]:
         return [
-            Prediction(bbox=[0.1, 0.2, 0.3, 0.4], score=None)
+            Prediction(bbox=[0.1, 0.2, 0.3, 0.4])
             for _ in inputs["queries"]
         ]
 
@@ -43,7 +43,7 @@ class _FakeLegacyAdapter:
         self.loaded = True
 
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:
-        return [Prediction(bbox=[0.5, 0.5, 0.6, 0.6], score=None) for _ in samples]
+        return [Prediction(bbox=[0.5, 0.5, 0.6, 0.6]) for _ in samples]
 
 
 def _make_items(root: Path, count: int) -> list[dict]:

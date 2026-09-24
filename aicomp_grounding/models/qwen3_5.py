@@ -397,7 +397,7 @@ class Qwen3_5Adapter:
             generated_tokens, skip_special_tokens=False
         )
         return [
-            Prediction(bbox=parse_bbox_from_text(text), score=None)
+            Prediction(bbox=parse_bbox_from_text(text))
             for text in text_outputs
         ]
 

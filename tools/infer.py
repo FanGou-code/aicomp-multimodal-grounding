@@ -231,7 +231,6 @@ def _run_inference_loop(
     batch_size: int,
     batch_save: int,
     existing_predictions: dict[str, list[float] | None] | None = None,
-    scores: dict[str, float | None] | None = None,
     device: str = "cuda",
     checkpoint_path: Path | None = None,
     checkpoint_metadata: dict | None = None,
@@ -254,8 +253,6 @@ def _run_inference_loop(
             results = adapter.predict(batch)
             for sample, result in zip(batch, results, strict=True):
                 predictions[sample.key] = result.bbox
-                if scores is not None and result.score is not None:
-                    scores[sample.key] = result.score
             batch.clear()
 
         start_time = time.time()
@@ -309,7 +306,6 @@ def _run_inference_loop(
                         {
                             "metadata": checkpoint_metadata,
                             "predictions": predictions,
-                            "scores": scores or {},
                             "assigned_keys": [item["key"] for item in items],
                         },
                     )
@@ -330,7 +326,6 @@ def _run_dataloader_inference_loop(
     batch_save: int,
     num_workers: int,
     existing_predictions: dict[str, list[float] | None] | None = None,
-    scores: dict[str, float | None] | None = None,
     device: str = "cuda",
     checkpoint_path: Path | None = None,
     checkpoint_metadata: dict | None = None,
@@ -410,8 +405,6 @@ def _run_dataloader_inference_loop(
         )
         for key, result in zip(keys, results, strict=True):
             predictions[key] = result.bbox
-            if scores is not None and result.score is not None:
-                scores[key] = result.score
         processed_count += len(keys)
         since_last_save += len(keys)
 
@@ -434,7 +427,6 @@ def _run_dataloader_inference_loop(
                     {
                         "metadata": checkpoint_metadata,
                         "predictions": predictions,
-                        "scores": scores or {},
                         "assigned_keys": [item["key"] for item in items],
                     },
                 )
@@ -479,7 +471,6 @@ def _run_shard_worker(
         if checkpoint_dir is not None
         else None
     )
-    scores: dict[str, float | None] = {}
     if getattr(args, "num_workers", 0) > 0:
         predictions = _run_dataloader_inference_loop(
             items,
@@ -491,7 +482,6 @@ def _run_shard_worker(
             batch_save=args.batch_save,
             num_workers=args.num_workers,
             device=device,
-            scores=scores,
             checkpoint_path=checkpoint_path,
             checkpoint_metadata=shard_metadata,
         )
@@ -505,11 +495,10 @@ def _run_shard_worker(
             batch_size=args.batch_size,
             batch_save=args.batch_save,
             device=device,
-            scores=scores,
             checkpoint_path=checkpoint_path,
             checkpoint_metadata=shard_metadata,
         )
-    return shard_id, predictions, scores
+    return shard_id, predictions
 
 
 def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
@@ -588,9 +577,9 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     print(f"Run id: {run_id}")
     print(f"Output dir: {run_dir}")
 
-    predictions, scores = (
+    predictions = (
         load_resume_predictions(run_dir, metadata, selected_keys)
-        if args.resume else ({}, {})
+        if args.resume else {}
     )
     if any(key not in predictions for key in selected_keys) and adapter.name != "mock":
         args.model_path = require_local_model_path(args.model_path)
@@ -603,7 +592,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
         if predictions:
             atomic_write_json(
                 checkpoint_path,
-                {"metadata": metadata, "predictions": predictions, "scores": scores,
+                {"metadata": metadata, "predictions": predictions,
                  "assigned_keys": selected_keys},
             )
             if commit_hook is not None:
@@ -636,14 +625,13 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
             # create CPU workers just like the single-shard path.
             with ProcessPoolExecutor(max_workers=len(shards), mp_context=context) as pool:
                 shard_results = list(pool.map(_run_shard_worker, worker_payloads))
-        for _, shard_predictions, shard_scores in shard_results:
+        for _, shard_predictions in shard_results:
             # Recover shard_id and metadata from the result is not necessary;
             # validation is done below against the same shard assignments.
             for key, value in shard_predictions.items():
                 if key in predictions:
                     raise ValueError(f"Duplicate prediction key across shards: {key!r}")
                 predictions[key] = value
-            scores.update(shard_scores)
         for shard_id, shard in enumerate(shards):
             shard_metadata = build_shard_metadata(
                 metadata,
@@ -676,8 +664,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
                 batch_save=args.batch_save,
                 num_workers=args.num_workers,
                 existing_predictions=predictions,
-                scores=scores,
-                checkpoint_path=checkpoint_path,
+                    checkpoint_path=checkpoint_path,
                 checkpoint_metadata=metadata,
                 commit_hook=commit_hook,
             )
@@ -691,21 +678,18 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
                 batch_size=args.batch_size,
                 batch_save=args.batch_save,
                 existing_predictions=predictions,
-                scores=scores,
-                checkpoint_path=checkpoint_path,
+                    checkpoint_path=checkpoint_path,
                 checkpoint_metadata=metadata,
                 commit_hook=commit_hook,
             )
     validate_checkpoint_payload(
-        {"metadata": metadata, "predictions": predictions, "scores": scores},
+        {"metadata": metadata, "predictions": predictions},
         metadata, selected_keys, require_complete=True, label="inference result",
     )
     atomic_write_json(predictions_path, predictions)
-    if scores:
-        atomic_write_json(run_dir / "scores.json", scores)
     atomic_write_json(
         checkpoint_path,
-        {"metadata": metadata, "predictions": predictions, "scores": scores,
+        {"metadata": metadata, "predictions": predictions,
          "assigned_keys": selected_keys},
     )
     if commit_hook is not None:
@@ -729,7 +713,7 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     atomic_write_json(metadata_path, metadata)
     atomic_write_json(
         checkpoint_path,
-        {"metadata": metadata, "predictions": predictions, "scores": scores,
+        {"metadata": metadata, "predictions": predictions,
          "assigned_keys": selected_keys},
     )
     if commit_hook is not None:
