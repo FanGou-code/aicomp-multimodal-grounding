@@ -35,7 +35,6 @@ from aicomp_grounding.serving.engine.training_core import (
     prepare_training_plan,
     run_training,
 )
-from aicomp_grounding.serving.engine.training_state import validate_approved_artifact  # noqa: F401
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
 from aicomp_grounding.serving.models.base import DEFAULT_LORA_PROJECTIONS, language_model_lora_targets
 from aicomp_grounding.serving.messages import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
