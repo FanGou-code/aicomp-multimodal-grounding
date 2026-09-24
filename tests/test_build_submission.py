@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aicomp_grounding.submission import build_submission
-from aicomp_grounding.test_data import validate_official_test_template
+from aicomp_grounding.testset import validate_official_test_template
 
 
 class BuildSubmissionTests(unittest.TestCase):

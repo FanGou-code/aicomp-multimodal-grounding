@@ -33,7 +33,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from PIL import Image  # noqa: E402
 
-from aicomp_grounding.annotation.api import resolve_api_key  # noqa: E402
+from aicomp_grounding.annotation.client import resolve_api_key  # noqa: E402
 from aicomp_grounding.annotation.census import findall_messages  # noqa: E402
 from aicomp_grounding.annotation.imaging import build_marked_annotation_view, jpeg_data_url  # noqa: E402
 from aicomp_grounding.annotation.config import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME, ANNOTATION_TEMPERATURE  # noqa: E402

@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION
-from aicomp_grounding.test_data import (
+from aicomp_grounding.testset import (
     OFFICIAL_TEMPLATE_CANONICAL_SHA256,
     build_test_preparation_contract,
     validate_official_test_template,

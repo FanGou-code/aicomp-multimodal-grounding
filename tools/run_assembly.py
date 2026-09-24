@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from aicomp_grounding.annotation.api import client_for, resolve_api_key, validate_concurrency  # noqa: E402
+from aicomp_grounding.annotation.client import client_for, resolve_api_key, validate_concurrency  # noqa: E402
 from aicomp_grounding.annotation.assembly import assemble_run, audit_assembly  # noqa: E402
 from aicomp_grounding.annotation.realize import (  # noqa: E402
     REALIZE_PROMPT_HASH,

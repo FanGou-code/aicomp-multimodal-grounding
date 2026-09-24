@@ -11,7 +11,7 @@ from pathlib import Path
 
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.io import atomic_write_json, load_json, require_distinct_paths
-from aicomp_grounding.test_data import (
+from aicomp_grounding.testset import (
     OFFICIAL_QUERY_COUNT,
     OFFICIAL_TEMPLATE_CANONICAL_SHA256,
     validate_official_test_template,

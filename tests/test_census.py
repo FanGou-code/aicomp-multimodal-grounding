@@ -280,7 +280,7 @@ class CensusRecoveryTests(unittest.TestCase):
         from pathlib import Path
         from unittest.mock import patch
         from tools import run_census as census
-        from aicomp_grounding.annotation.api import APIError
+        from aicomp_grounding.annotation.client import APIError
         dataset = {f"001_{i:08d}": {"visible": f"Train/001/color/{i:08d}.png", "bbox": GT}
                    for i in range(1, 4)}
         plan = {"metadata": {"run_id": "census_recovery", "split": "train", "model_name": "fake",

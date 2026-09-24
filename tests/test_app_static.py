@@ -6,7 +6,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-WEB_DIR = Path(__file__).resolve().parents[1] / "aicomp_grounding" / "annotation" / "review" / "web"
+WEB_DIR = Path(__file__).resolve().parents[1] / "aicomp_grounding" / "annotation" / "review" / "static"
 APP_JS = WEB_DIR / "app.js"
 INDEX_HTML = WEB_DIR / "index.html"
 

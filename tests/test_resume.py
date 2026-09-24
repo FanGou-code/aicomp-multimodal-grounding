@@ -82,10 +82,10 @@ class AssembleResumeTest(unittest.TestCase):
         )
 
     def _run(self, *extra: str) -> None:
-        from tools import assemble_queries
+        from tools import run_assembly
 
         argv = [
-            "assemble_queries",
+            "run_assembly",
             "--census-run", str(self.root / "census"),
             "--data-root", str(self.root / "dataset"),
             "--index-dir", str(self.root / "index"),
@@ -98,8 +98,8 @@ class AssembleResumeTest(unittest.TestCase):
         ]
 
         with patch("sys.argv", argv), \
-             patch.object(assemble_queries, "client_for", lambda *_a, **_k: _CountingClient(self.calls)):
-            assemble_queries.main()
+             patch.object(run_assembly, "client_for", lambda *_a, **_k: _CountingClient(self.calls)):
+            run_assembly.main()
 
     @property
     def _manifest(self) -> dict:

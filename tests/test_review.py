@@ -16,7 +16,7 @@ from pathlib import Path
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 
-from aicomp_grounding.annotation.review.census_session import build_assembly_session
+from aicomp_grounding.annotation.review.sessions import build_assembly_session
 from aicomp_grounding.annotation.review.server import create_server
 from aicomp_grounding.annotation.review.store import AnnotationStore
 
