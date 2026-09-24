@@ -28,9 +28,21 @@ env/
 .env.*
 *.pem
 *.key
+*api_keys.txt
+keys/
+
+# Caches & coverage
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
 
 # Data files & Datasets (shared offline via ModelScope, never committed)
-data/
+# 例外：data/indexes/ 是划分与跨集去重的审计记录，随仓库分发。
+data/*
+!data/indexes/
 
 # Model weights & LoRA adapters (any location)
 # NOTE: *.bin / *.pt are intentionally broad — weight files of any naming land here.
@@ -58,4 +70,3 @@ docs/handoff*.md
 *handoff*.md
 docs/sop*.md
 AGENTS.md
-

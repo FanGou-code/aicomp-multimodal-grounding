@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.prepare_rgbdt import validate_test_depth_references
+from tools.prepare_rgbdt import validate_test_depth_references
 
 
 def _write_color_image(path: Path, shape: tuple[int, int] = (4, 6)) -> None:
@@ -151,7 +151,7 @@ class DepthReferenceTests(unittest.TestCase):
             self.assertIn("Official Test template not found", errors[0])
 
     def test_offline_infer_resume_defaults_to_true(self):
-        from offline.infer import parse_args
+        from tools.infer import parse_args
         with unittest.mock.patch("sys.argv", ["infer.py"]):
             args = parse_args()
             self.assertTrue(args.resume)

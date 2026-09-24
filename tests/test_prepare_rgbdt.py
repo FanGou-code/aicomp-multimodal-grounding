@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.prepare_rgbdt import (
+from tools.prepare_rgbdt import (
     build_split,
     parse_groundtruth,
     prepare_dataset,
@@ -218,7 +218,7 @@ class PrepareDatasetTests(unittest.TestCase):
             overwrite_matching = _args(root, dry_run=False)
             overwrite_matching.overwrite_depth = True
             overwrite_matching.overwrite_indexes = True
-            with patch("scripts.prepare_rgbdt.process_depth_to_jet") as rewrite:
+            with patch("tools.prepare_rgbdt.process_depth_to_jet") as rewrite:
                 manifest = prepare_dataset(overwrite_matching)
             rewrite.assert_not_called()
             self.assertEqual(manifest["stats"]["depth_reused"], 2)
@@ -315,7 +315,7 @@ class PrepareDatasetTests(unittest.TestCase):
             prepare_test_depth(overwrite)
             self.assertEqual(output.read_bytes(), raw.read_bytes())
 
-            with patch("scripts.prepare_rgbdt.copy_precolored_depth") as rewrite:
+            with patch("tools.prepare_rgbdt.copy_precolored_depth") as rewrite:
                 matching = prepare_test_depth(overwrite)
             rewrite.assert_not_called()
             self.assertEqual(matching["reused"], 1)
