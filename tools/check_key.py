@@ -35,8 +35,8 @@ from PIL import Image  # noqa: E402
 
 from aicomp_grounding.annotation.api import resolve_api_key  # noqa: E402
 from aicomp_grounding.annotation.census import findall_messages  # noqa: E402
-from aicomp_grounding.annotation.views import build_marked_annotation_view, jpeg_data_url  # noqa: E402
-from aicomp_grounding.annotation.utils import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME, ANNOTATION_TEMPERATURE  # noqa: E402
+from aicomp_grounding.annotation.imaging import build_marked_annotation_view, jpeg_data_url  # noqa: E402
+from aicomp_grounding.annotation.config import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME, ANNOTATION_TEMPERATURE  # noqa: E402
 
 REALISTIC_MAX_TOKENS = 2048
 
@@ -68,7 +68,8 @@ def build_payload(*, probe: str, data_root: Path, model: str, index_dir: Path | 
             "max_tokens": 1,
             "thinking": {"type": "disabled"},
         }
-    from aicomp_grounding.annotation.utils import resolve_index_dir
+    from aicomp_grounding.annotation.config import resolve_index_dir
+
     index_path = resolve_index_dir(data_root, index_dir) / "train.json"
     if not index_path.is_file():
         raise SystemExit(f"train index not found at {index_path} (realistic probe needs it; try --probe minimal)")

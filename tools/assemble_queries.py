@@ -29,13 +29,10 @@ from aicomp_grounding.annotation.realize import (  # noqa: E402
     parse_realize_response,
     realize_messages,
 )
-from aicomp_grounding.annotation.utils import (  # noqa: E402
-    atomic_write_json,
-    load_json,
-    resolve_index_dir,
-)
+from aicomp_grounding.annotation.config import resolve_index_dir  # noqa: E402
+from aicomp_grounding.io import atomic_write_json, load_json  # noqa: E402
 from aicomp_grounding.annotation.text_qc import apply_text_qc  # noqa: E402
-from aicomp_grounding.annotation.views import jpeg_data_url  # noqa: E402
+from aicomp_grounding.annotation.imaging import jpeg_data_url  # noqa: E402
 
 
 def _target_view(image, bbox) -> str:

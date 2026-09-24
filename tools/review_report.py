@@ -18,9 +18,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from aicomp_grounding.annotation.bbox import compute_iou  # noqa: E402
+from aicomp_grounding.bbox import compute_iou  # noqa: E402
 from aicomp_grounding.annotation.census import trusted_objects  # noqa: E402
-from aicomp_grounding.annotation.utils import load_json  # noqa: E402
+from aicomp_grounding.io import load_json  # noqa: E402
 from aicomp_grounding.annotation.review.census_session import TEACHER_ANNOTATOR  # noqa: E402
 from aicomp_grounding.annotation.review.store import AnnotationStore  # noqa: E402
 

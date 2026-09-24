@@ -29,7 +29,7 @@ import math
 import re
 from pathlib import Path
 
-from aicomp_grounding.annotation_state import validate_approved_artifact
+from aicomp_grounding.contract import validate_approved_artifact
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.io import load_json
 from aicomp_grounding.config import TRAINING_PROTOCOL_VERSION

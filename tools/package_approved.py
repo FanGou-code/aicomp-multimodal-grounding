@@ -26,31 +26,22 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from aicomp_grounding.annotation.contract import (
+from aicomp_grounding.contract import (
     ANNOTATION_MODE,
     ANNOTATION_PROTOCOL_VERSION,
     ASSIGNMENT_POLICY,
     RENDER_PROTOCOL,
     approved_dataset_fingerprint,
-    clean_query_text,
-    group_keys_by_scene,
     source_fingerprint,
-    trusted_dataset_image_fingerprint,
-    validate_annotation_query,
     validate_approved_artifact,
     validate_training_artifacts,
 )
-from aicomp_grounding.annotation.utils import (
-    ANNOTATION_API_BASE_URL,
-    ANNOTATION_MODEL_LICENSE,
-    ANNOTATION_MODEL_NAME,
-    ANNOTATION_MODEL_REVISION,
-    ANNOTATION_MODEL_WEIGHTS_URL,
-    ANNOTATION_PROVIDER,
-    atomic_write_json,
-    load_json,
-    stable_json_hash,
-)
+from aicomp_grounding.images import trusted_dataset_image_fingerprint
+from aicomp_grounding.query import clean_query_text, validate_annotation_query
+from aicomp_grounding.sharding import group_keys_by_scene
+from aicomp_grounding.annotation.config import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_LICENSE, ANNOTATION_MODEL_NAME, ANNOTATION_MODEL_REVISION, ANNOTATION_MODEL_WEIGHTS_URL, ANNOTATION_PROVIDER
+from aicomp_grounding.artifacts import stable_json_hash
+from aicomp_grounding.io import atomic_write_json, load_json
 
 
 def build_parser() -> argparse.ArgumentParser:

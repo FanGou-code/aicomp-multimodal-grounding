@@ -15,7 +15,7 @@ from pathlib import Path
 from aicomp_grounding.artifacts import key_hash, stable_json_hash
 from aicomp_grounding.bbox import format_qwen_bbox, quantize_bbox_1000
 from aicomp_grounding.images import is_trusted_image_fingerprint, trusted_dataset_image_fingerprint
-from aicomp_grounding.sequence import source_fingerprint
+from aicomp_grounding.contract import source_fingerprint
 
 VECTORS = json.loads((Path(__file__).parent / "shared_vectors.json").read_text())
 

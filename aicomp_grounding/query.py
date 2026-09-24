@@ -1,4 +1,10 @@
-"""Validation for synthetic English visual-grounding queries."""
+"""Validation for synthetic English visual-grounding queries.
+
+Two layers: ``validate_generated_query`` checks format only; the
+``validate_annotation_query`` wrapper adds the annotation-product rules (no
+scaffolding vocabulary, no generic categories) that both the annotation
+pipeline and the training-side contract enforce.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,46 @@ _WORD = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)?")
 _COORDINATES = re.compile(r"[\[(]\s*[+-]?\d+(?:\.\d+)?\s*,\s*[+-]?\d+(?:\.\d+)?")
 _CONTROL_TOKEN = re.compile(r"<\|[^<>\r\n]*\|>")
 _FORBIDDEN = ("red rectangle", "red outline", "bounding box", "image 1", "image 2", "first image", "second image")
+
+_ANNOTATION_SCAFFOLD = (
+    "highlighted",
+    "marked target",
+    "marked object",
+    "outlined target",
+    "red rectangle",
+    "red outline",
+    "annotated image",
+    "annotation view",
+    "this frame",
+    "current frame",
+    "in the frame",
+    "within the frame",
+    "this image",
+    "current image",
+    "in the image",
+    "within the image",
+    "crop",
+    "same target",
+    "visible image",
+    "thermal image",
+    "infrared image",
+    "depth image",
+    "depth map",
+)
+# NOTE: "image" is deliberately absent here. The official test dialect uses
+# "of the image" as a frame anchor (303 occurrences) and v5 targets that
+# dialect, so a blanket ban would reject legitimate queries. Real scaffolding
+# ("this image", "in the image", "annotated image", ...) is still caught by
+# _ANNOTATION_SCAFFOLD above.
+_ANNOTATION_TERM = re.compile(
+    r"\b(?:target|crop|annotation|annotated|bbox|coordinate|"
+    r"infrared|thermal|depth|rgb)\b",
+    flags=re.IGNORECASE,
+)
+_GENERIC_CATEGORY = re.compile(
+    r"\b(?:thing|item|entity)\b",
+    flags=re.IGNORECASE,
+)
 
 # Words that signal the query disambiguates the target spatially or ordinally
 # among scene objects, rather than relying on a bare attribute label. Queries
@@ -56,6 +102,30 @@ def validate_generated_query(text: str, *, min_words: int = 1, max_words: int = 
     return True, ""
 
 
+def validate_annotation_query(query: str) -> tuple[bool, str]:
+    valid, reason = validate_generated_query(query, min_words=1, max_words=55)
+    if not valid:
+        return valid, reason
+    lowered = clean_query_text(query).lower()
+    marker = next(
+        (
+            phrase
+            for phrase in _ANNOTATION_SCAFFOLD
+            if re.search(rf"(?<![a-z]){re.escape(phrase)}(?![a-z])", lowered)
+        ),
+        None,
+    )
+    if marker:
+        return False, f"query mentions annotation scaffolding {marker!r}"
+    marker_match = _ANNOTATION_TERM.search(clean_query_text(query))
+    if marker_match:
+        return False, f"query mentions annotation term {marker_match.group(0)!r}"
+    generic_match = _GENERIC_CATEGORY.search(clean_query_text(query))
+    if generic_match:
+        return False, f"query uses generic category {generic_match.group(0)!r}"
+    return True, ""
+
+
 def validate_query_style(text: str) -> tuple[bool, str]:
     """Reject bare-label queries that lack positional disambiguation."""
     cleaned = clean_query_text(text)
@@ -76,7 +146,7 @@ def validate_query_style(text: str) -> tuple[bool, str]:
 
 
 def preflight_check_dataset(data: dict, *, split_name: str = "dataset") -> list[str]:
-    """Validate a training/val dataset dict before GPU training.
+    """Validate a dataset dict structurally before training.
 
     Returns a list of error strings; empty list means all checks passed.
     Only rejects structural problems (missing fields, empty queries,
@@ -92,7 +162,7 @@ def preflight_check_dataset(data: dict, *, split_name: str = "dataset") -> list[
     bad_bbox_ids: list[str] = []
     missing_field_ids: list[str] = []
 
-    required_fields = ("visible", "infrared", "depth", "query", "bbox")
+    required_fields = ("visible", "infrared", "depth", "query", "bbox", "width", "height")
 
     for key, item in data.items():
         for field in required_fields:

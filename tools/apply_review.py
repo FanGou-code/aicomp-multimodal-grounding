@@ -22,11 +22,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from aicomp_grounding.annotation.utils import (  # noqa: E402
-    ANNOTATION_MODEL_NAME,
-    atomic_write_json,
-    load_json,
-)
+from aicomp_grounding.annotation.config import ANNOTATION_MODEL_NAME  # noqa: E402
+from aicomp_grounding.io import atomic_write_json, load_json  # noqa: E402
 from aicomp_grounding.annotation.review.store import AnnotationStore, JOURNAL_NAME, QUERY_SNAPSHOT_NAME  # noqa: E402
 from aicomp_grounding.annotation.text_qc import apply_text_qc  # noqa: E402
 

@@ -30,7 +30,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from aicomp_grounding.annotation.utils import atomic_write_json
+from aicomp_grounding.io import atomic_write_json
 
 JOURNAL_NAME = "annotations.jsonl"
 QUERY_SNAPSHOT_NAME = "annotations.queries.json"

@@ -27,7 +27,7 @@ import hashlib
 import json
 import re
 
-from aicomp_grounding.annotation.bbox import compute_iou
+from aicomp_grounding.bbox import compute_iou
 
 def _load_prompt(name: str, default: str) -> str:
     """Load a prompt from configs/default/prompts/<name>.md, falling back to default."""

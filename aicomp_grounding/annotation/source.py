@@ -1,22 +1,27 @@
 """Annotation-source index loading and fingerprinting.
 
-The census reads the main repository's prepared dataset through the split
-index (`data/indexes/<split>.json`) and pins every run to the exact index
-bytes via the split manifest. These helpers were absorbed from the retired
-v4 generation entry so the census depends only on foundry modules.
+The census reads the prepared dataset through the split index
+(`data/indexes/<split>.json`) and pins every run to the exact index bytes via
+the split manifest.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
-from aicomp_grounding.annotation.utils import resolve_index_dir, split_index_fingerprint, stable_json_hash
-from aicomp_grounding.annotation.utils import PREPARATION_PROTOCOL_VERSION
-from aicomp_grounding.annotation.views import (
-    trusted_dataset_image_fingerprint,
-    verify_dataset_images,
-)
-from aicomp_grounding.annotation.utils import load_json
+from aicomp_grounding.annotation.config import resolve_index_dir
+from aicomp_grounding.artifacts import stable_json_hash
+from aicomp_grounding.config import PREPARATION_PROTOCOL_VERSION
+from aicomp_grounding.images import trusted_dataset_image_fingerprint, verify_dataset_images
+from aicomp_grounding.io import load_json
+
+
+def split_index_fingerprint(data: dict) -> str:
+    """Preserve the serialization used by the committed protocol-2 indexes."""
+    encoded = json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def load_annotation_source(data_root: Path, split: str, *, index_dir: Path | None = None) -> dict:
