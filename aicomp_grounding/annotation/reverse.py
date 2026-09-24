@@ -27,59 +27,17 @@ AXES = ("x", "y", "area")
 DIRECTIONS = ("asc", "desc")
 
 
-def _load_prompt(name: str, default: str) -> str:
-    try:
-        path = Path(__file__).resolve().parents[2] / "configs" / "default" / "prompts" / f"{name}.md"
-        if path.is_file():
-            return path.read_text(encoding="utf-8").strip()
-    except Exception:
-        pass
-    return default
+def read_prompt(name: str) -> str:
+    """Load ``prompts/<name>.md``; a missing file is an error, not a fallback."""
+    path = Path(__file__).resolve().parent / "prompts" / f"{name}.md"
+    if not path.is_file():
+        raise FileNotFoundError(f"Prompt file not found: {path}")
+    return path.read_text(encoding="utf-8").strip()
 
 
-_PARSE_DEFAULT = """Parse this English query for a visual grounding task and output its intent as JSON.
-
-Query: {query}
-
-Rules:
-- "category": the shortest common noun naming the object to locate. Lower case, singular. Do not include color, size, position, material, or any attribute. If the query locates a part of an object, name the whole object.
-- "selection": how the target is picked out among several instances of that category.
-  - {"mode": "unique"} when the query names one specific object, with no ordering and no comparison to another instance.
-  - {"mode": "rank", "k": <int>, "axis": <axis>, "direction": <"asc" | "desc">} when the query picks one instance by an ordered position.
-
-Axis must be exactly one of:
-  "x"     left/right position in the image   (leftmost = asc, rightmost = desc)
-  "y"     top/bottom position in the image   (topmost  = asc, bottommost = desc)
-  "area"  size in the image                  (smallest = asc, largest = desc)
-
-k counts instances of "category" along that axis; k = 1 is the first in "direction".
-When no ordering is expressed, use "unique"; never invent a rank.
-
-Output JSON only:
-{"category": "<noun>", "selection": {"mode": "unique"}}
-{"category": "<noun>", "selection": {"mode": "rank", "k": 3, "axis": "x", "direction": "asc"}}"""
-
-_ENUMERATE_DEFAULT = """One RGB image.
-
-Task: list EVERY {category} visible in this image. Include small, distant, blurry, partially occluded, and instances cut off by the image edge. Do not stop at any number. Count first, then list.
-
-Order does not matter; give each a tight bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
-
-Output JSON only:
-{"count": <int>, "objects": [{"bbox": [x1, y1, x2, y2]}, ...]}"""
-
-_DIRECT_DEFAULT = """Locate the object this query refers to in the image.
-
-Query: {query}
-
-Give one tight bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
-
-Output JSON only:
-{"bbox": [x1, y1, x2, y2]}"""
-
-PARSE_PROMPT = _load_prompt("parse", _PARSE_DEFAULT)
-ENUMERATE_PROMPT = _load_prompt("enumerate", _ENUMERATE_DEFAULT)
-DIRECT_PROMPT = _load_prompt("direct", _DIRECT_DEFAULT)
+PARSE_PROMPT = read_prompt("parse")
+ENUMERATE_PROMPT = read_prompt("enumerate")
+DIRECT_PROMPT = read_prompt("direct")
 
 PROMPT_HASHES = {
     name: hashlib.sha256(text.encode("utf-8")).hexdigest()

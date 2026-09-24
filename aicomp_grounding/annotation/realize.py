@@ -16,26 +16,15 @@ from pathlib import Path
 
 from aicomp_grounding.annotation.facts import ObjectFacts
 
-def _load_prompt(name: str, default: str) -> str:
-    try:
-        path = Path(__file__).resolve().parents[2] / "configs" / "default" / "prompts" / f"{name}.md"
-        if path.is_file():
-            return path.read_text(encoding="utf-8").strip()
-    except Exception:
-        pass
-    return default
+def read_prompt(name: str) -> str:
+    """Load ``prompts/<name>.md``; a missing file is an error, not a fallback."""
+    path = Path(__file__).resolve().parent / "prompts" / f"{name}.md"
+    if not path.is_file():
+        raise FileNotFoundError(f"Prompt file not found: {path}")
+    return path.read_text(encoding="utf-8").strip()
 
 
-_REALIZE_DEFAULT = """The image has a box drawn around one object.
-
-Write ONE short English noun phrase that identifies exactly that object and nothing else in the image. Everything listed below is true of it; use whichever of those facts you need, and as many as you need, to make the phrase unambiguous.
-
-Use only the facts listed below. Do not add any property that is not listed. Do not refer to the image, the frame, the box, or the rectangle. Do not mention that you were given facts.
-
-Output JSON only:
-{"query": "<the noun phrase>"}"""
-
-REALIZE_PROMPT = _load_prompt("realize", _REALIZE_DEFAULT)
+REALIZE_PROMPT = read_prompt("realize")
 REALIZE_PROMPT_HASH = hashlib.sha256(REALIZE_PROMPT.encode("utf-8")).hexdigest()
 
 #: Decoding for the wording call: thinking off, provider default temperature.

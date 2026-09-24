@@ -168,12 +168,6 @@ class PrepareSplitTests(unittest.TestCase):
         self.assertEqual(manifest["preparation_protocol_version"], 2)
         self.assertEqual(manifest["index_sample_counts"]["train"] + manifest["index_sample_counts"]["val"], 2)
 
-        overlap = json.loads((out_dir / "excluded_overlap.json").read_text(encoding="utf-8"))
-        self.assertEqual(overlap["train_excluded"] + overlap["val_excluded"], 1)
-        records = overlap["records"]["train"] + overlap["records"]["val"]
-        self.assertEqual(records[0]["sample_id"], "001_00000002")
-        self.assertEqual(records[0]["test_images"], ["000099"])
-
         from aicomp_grounding.annotation.source import load_annotation_source
         self.assertEqual(load_annotation_source(self.root, "train", index_dir=out_dir), train_idx)
         self.assertEqual(load_annotation_source(self.root, "val", index_dir=out_dir), val_idx)

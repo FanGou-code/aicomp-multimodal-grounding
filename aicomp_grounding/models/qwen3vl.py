@@ -20,7 +20,7 @@ from aicomp_grounding.models.base import (
     require_local_model_path,
     run_generation,
 )
-from aicomp_grounding.prompts import (
+from aicomp_grounding.messages import (
     GROUNDING_SYSTEM_PROMPT,
     build_training_messages,
     build_grounding_messages,

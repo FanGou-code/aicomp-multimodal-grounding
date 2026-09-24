@@ -1,6 +1,6 @@
 """Census protocol: one enumeration call per frame, code validates the envelope.
 
-Pass (prompt in ``configs/default/prompts/``):
+Pass (prompt in ``annotation/prompts/``):
 - ``findall`` once per frame: recognise the red-boxed category, count how many
   instances of it the frame holds, then branch --
   * two or more: list every instance of that category, no cap
@@ -27,42 +27,19 @@ import hashlib
 import json
 import re
 
+from pathlib import Path
+
 from aicomp_grounding.bbox import compute_iou
 
-def _load_prompt(name: str, default: str) -> str:
-    """Load a prompt from configs/default/prompts/<name>.md, falling back to default."""
-    try:
-        from pathlib import Path
-        config_path = Path(__file__).resolve().parents[2] / "configs" / "default" / "prompts" / f"{name}.md"
-        if config_path.is_file():
-            return config_path.read_text(encoding="utf-8").strip()
-    except Exception:
-        pass
-    return default
+def read_prompt(name: str) -> str:
+    """Load ``prompts/<name>.md``; a missing file is an error, not a fallback."""
+    path = Path(__file__).resolve().parent / "prompts" / f"{name}.md"
+    if not path.is_file():
+        raise FileNotFoundError(f"Prompt file not found: {path}")
+    return path.read_text(encoding="utf-8").strip()
 
-_FINDALL_DEFAULT = """The red rectangle marks one reference object in the scene.
-
-Step 1. Name the category of the object inside the red rectangle, then count how many instances of that category the whole frame contains.
-
-Step 2. Branch on that count:
-- If the frame contains TWO OR MORE instances of that category: list EVERY instance of it — small, distant, blurry, partially occluded, cut off by the image edge. Do not stop at any number. Do not cap the list.
-- If the frame contains EXACTLY ONE instance (the reference object itself): do not list that category. Instead list the other objects in the frame you are most confident about — clear outline, nameable at a glance, any category. Skip tiny clutter and anything you cannot identify precisely.
-
-Order the list from left to right. Number them 1..N. For each object give a short common category name and its bounding box as normalized coordinates [x1, y1, x2, y2]: four decimal fractions where 0 is the left/top edge of the image and 1 is the right/bottom edge. NEVER use pixel values.
-
-Output JSON only:
-{"mode": "instances" or "other", "category": "<the red-boxed category>", "count": <int>, "objects": [{"i": 1, "category": "<category name>", "bbox": [x1, y1, x2, y2]}, ...]}
-
-"mode" is "instances" when you listed every instance of the red-boxed category, "other" when you listed other confident objects instead. "count" must equal the number of objects you listed."""
-
-_ATTR_DEFAULT = """The image shows numbered boxes around objects in the scene.
-For each numbered object report only what is directly visible: its color and one notable visible feature.
-Do not guess occluded or unclear properties.
-Output JSON only:
-{"1": {"color": "...", "features": "..."}, ...}"""
-
-FINDALL_PROMPT = _load_prompt("findall", _FINDALL_DEFAULT)
-ATTR_PROMPT = _load_prompt("attr", _ATTR_DEFAULT)
+FINDALL_PROMPT = read_prompt("findall")
+ATTR_PROMPT = read_prompt("attr")
 
 FINDALL_PROMPT_HASH = hashlib.sha256(FINDALL_PROMPT.encode("utf-8")).hexdigest()
 ATTR_PROMPT_HASH = hashlib.sha256(ATTR_PROMPT.encode("utf-8")).hexdigest()

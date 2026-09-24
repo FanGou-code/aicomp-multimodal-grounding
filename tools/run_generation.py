@@ -31,7 +31,6 @@ from aicomp_grounding.annotation.realize import (  # noqa: E402
 )
 from aicomp_grounding.annotation.config import resolve_index_dir  # noqa: E402
 from aicomp_grounding.io import atomic_write_json, load_json  # noqa: E402
-from aicomp_grounding.annotation.text_qc import apply_text_qc  # noqa: E402
 from aicomp_grounding.annotation.imaging import jpeg_data_url  # noqa: E402
 from aicomp_grounding.paths import output_dir
 
@@ -178,7 +177,6 @@ def main() -> None:
         sentences=sentences,
         on_sentence=lambda item_id, sentence: append_sentence(sentences_path, item_id, sentence),
     )
-    text_edits = apply_text_qc(result.records)
     audit = audit_generation(result.records) if result.records else {
         "count": 0, "sources": {"real": 0, "teacher": 0},
         "verbatim_repeat_rate": 0.0, "mean_words": 0.0,
@@ -198,15 +196,12 @@ def main() -> None:
             "realized": not args.no_realize,
             "realize_prompt_hash": REALIZE_PROMPT_HASH,
             "realize_stage": REALIZE_STAGE,
-            "text_qc_edits": len(text_edits),
         },
         "records": [record.__dict__ for record in result.records],
         "shortfall": result.shortfall,
     }
     atomic_write_json(out_dir / "generation.json", manifest)
     atomic_write_json(out_dir / "audit.json", audit)
-    if text_edits:
-        atomic_write_json(out_dir / "text_edits.json", text_edits)
 
     print(f"generated {audit['count']} records "
           f"(real {audit['sources']['real']} / teacher {audit['sources']['teacher']}) "

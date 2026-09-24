@@ -255,7 +255,7 @@ class CardAndMessageTests(unittest.TestCase):
 
 
 class ProtocolDocSyncTest(unittest.TestCase):
-    """configs/default/prompts/ must carry the prompts verbatim.
+    """annotation/prompts/ must carry the prompts verbatim.
 
     Machine check for the doc/code dual source: the prompt constants are read
     from those files, so any prompt edit lands in both or in neither.
@@ -267,8 +267,8 @@ class ProtocolDocSyncTest(unittest.TestCase):
         from aicomp_grounding.annotation.census import ATTR_PROMPT, FINDALL_PROMPT
 
         root = Path(__file__).resolve().parents[1]
-        findall_doc = (root / "configs" / "default" / "prompts" / "findall.md").read_text(encoding="utf-8")
-        attr_doc = (root / "configs" / "default" / "prompts" / "attr.md").read_text(encoding="utf-8")
+        findall_doc = (root / "aicomp_grounding" / "annotation" / "prompts" / "findall.md").read_text(encoding="utf-8")
+        attr_doc = (root / "aicomp_grounding" / "annotation" / "prompts" / "attr.md").read_text(encoding="utf-8")
         self.assertEqual(FINDALL_PROMPT, findall_doc.strip(), "code FINDALL_PROMPT drifts from config")
         self.assertEqual(ATTR_PROMPT, attr_doc.strip(), "code ATTR_PROMPT drifts from config")
 

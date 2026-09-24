@@ -1,15 +1,15 @@
-"""Prompt construction kept separate so leakage can be tested offline."""
+"""Grounding message construction; the system prompt text lives in ``prompts/``."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
-GROUNDING_SYSTEM_PROMPT = (
-    "You are a visual grounding assistant. The images are ordered as visible RGB, "
-    "infrared, and depth. Locate the object described by the query. Output only "
-    "<|box_start|>(x1,y1),(x2,y2)<|box_end|>, using integer coordinates from 0 to 1000."
-)
+SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "grounding.md"
+
+#: The system prompt ships as package data so the run identity can hash the file.
+GROUNDING_SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
 
 GROUNDING_PROMPT_PROTOCOL = {
     "version": 1,
