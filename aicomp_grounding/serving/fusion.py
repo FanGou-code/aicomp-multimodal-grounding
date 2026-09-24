@@ -176,7 +176,3 @@ def main() -> None:
     print(f"[wbf] run_id: {metadata['run_id']}")
     print(f"[wbf] queries: {len(fused)} | fused valid boxes: {valid}")
     print(f"[wbf] predictions saved: {predictions_path}")
-
-
-if __name__ == "__main__":
-    main()

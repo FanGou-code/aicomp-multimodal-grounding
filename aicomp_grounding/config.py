@@ -10,11 +10,6 @@ from __future__ import annotations
 import platform
 from importlib import metadata as importlib_metadata
 
-# Annotation generation constants (teacher model identity, API endpoint,
-# rate budgets) live in the external query-foundry repository. This module
-# retains only ANNOTATION_PROTOCOL_VERSION — the product contract version the
-# training side enforces when loading approved.json artifacts.
-
 INFERENCE_COMPUTE_DTYPE = "bfloat16"
 RUNTIME_PYTHON_VERSION = platform.python_version()
 

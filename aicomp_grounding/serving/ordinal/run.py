@@ -114,7 +114,7 @@ def build_resolve_metadata(
     stats: dict | None = None,
 ) -> dict:
     """Identity of one resolve run: the single enumeration it consumed."""
-    from aicomp_grounding.serving.ordinal.resolve import AXES
+    from aicomp_grounding.ordinal_kernel import AXES
 
     identity = {
         "version": CHECKPOINT_VERSION,

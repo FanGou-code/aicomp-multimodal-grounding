@@ -151,7 +151,3 @@ def main() -> None:
         default_bbox=args.default_bbox,
         allow_fallback=args.allow_fallback,
     )
-
-
-if __name__ == "__main__":
-    main()

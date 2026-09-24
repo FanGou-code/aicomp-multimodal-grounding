@@ -87,8 +87,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=PROJECT_ROOT / "outputs" / "approved",
-        help="base output directory (default: outputs/approved)",
+        default=PROJECT_ROOT / "outputs" / "annotations",
+        help="base output directory (default: outputs/annotations)",
     )
     parser.add_argument(
         "--output",
@@ -298,7 +298,6 @@ def package_single(
         "render_protocol": RENDER_PROTOCOL,
         "generation_config": {
             "query_max_tokens": 4096,
-            "temperature": 0.2,
             "enable_thinking": None,
             "thinking_mode": "disabled",
             "response_format": None,
@@ -343,7 +342,7 @@ def package_single(
 
     # Determine destination paths
     if output_path is None:
-        base_dir = output_dir or (PROJECT_ROOT / "outputs" / "approved")
+        base_dir = output_dir or (PROJECT_ROOT / "outputs" / "annotations")
         output_path = base_dir / resolved_run_id / resolved_split / "approved.json"
 
     qc_report = None

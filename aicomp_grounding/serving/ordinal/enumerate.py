@@ -236,7 +236,3 @@ def main() -> None:
         f"decode_failed={stats['enum_decode_failed']} thought={stats['enum_thought']}"
     )
     print(f"[ordinal-enum] wrote {run_dir}")
-
-
-if __name__ == "__main__":
-    main()

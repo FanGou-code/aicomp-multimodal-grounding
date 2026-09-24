@@ -10,14 +10,14 @@ Supports splitting into parts for multi-user annotation.
 Usage::
 
     # From generation
-    python scripts/make_manifest.py --generation outputs/generation/asm-train-r5/generation.json \
+    python tools/make_manifest.py --generation outputs/generation/asm-train-r5/generation.json \
         --data-root /path/to/dataset
 
     # From any query JSON (generic — zero pipeline dependency)
-    python scripts/make_manifest.py --source my_queries.json --images-root /path/to/images
+    python tools/make_manifest.py --source my_queries.json --images-root /path/to/images
 
     # Split into parts
-    python scripts/make_manifest.py --source my_queries.json --images-root /path/to/images \
+    python tools/make_manifest.py --source my_queries.json --images-root /path/to/images \
         --split 2 --part 1
 """
 

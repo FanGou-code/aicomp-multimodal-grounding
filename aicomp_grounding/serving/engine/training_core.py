@@ -643,7 +643,6 @@ def run_training(
             collate_fn=collate_cpu,
             num_workers=num_workers,
             pin_memory=num_workers > 0,
-            persistent_workers=num_workers > 0,
         )
 
     val_loader = DataLoader(
@@ -814,7 +813,8 @@ def run_training(
             with _autocast(device, compute_dtype):
                 outputs = model(**batch)
             raw_loss = outputs.loss
-            if not torch.isfinite(raw_loss):
+            loss_value = raw_loss.item()
+            if not math.isfinite(loss_value):
                 raise FloatingPointError(
                     f"Non-finite training loss at epoch {epoch + 1}, batch {batch_index + 1}"
                 )
@@ -824,7 +824,7 @@ def run_training(
                 grad_accum_steps,
             )
             (raw_loss / divisor).backward()
-            epoch_loss += raw_loss.item()
+            epoch_loss += loss_value
             if should_optimizer_step(batch_index, len(train_loader), grad_accum_steps):
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 optimizer.step()

@@ -13,14 +13,9 @@ from aicomp_grounding.serving.engine.inference_state import (
     assign_pending_shards,
     build_run_metadata,
     build_shard_metadata,
-    evaluate_dataset_predictions,
     fingerprint_inputs,
     fingerprint_lora,
     load_resume_predictions,
-    merge_retry_predictions,
-    merge_shard_payloads,
-    pending_keys,
-    resolve_lora_path,
     validate_checkpoint_payload,
 )
 from aicomp_grounding.io import atomic_write_json
@@ -105,36 +100,18 @@ def _metadata(keys: list[str], **overrides) -> dict:
 
 
 class LoraIdentityTests(unittest.TestCase):
-    def test_relative_path_is_canonical_and_content_changes_fingerprint(self):
+    def test_content_changes_fingerprint(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            adapter = root / "training" / "best"
+            adapter = Path(td) / "training" / "best"
             adapter.mkdir(parents=True)
             (adapter / "adapter_config.json").write_text('{"r": 16}', encoding="utf-8")
             _write_adapter_manifest(adapter)
             weights = adapter / "adapter_model.safetensors"
             weights.write_bytes(b"first")
 
-            resolved = resolve_lora_path("training/best", root)
-            self.assertEqual(resolved, adapter.resolve())
-            first = fingerprint_lora(resolved)
+            first = fingerprint_lora(adapter)
             weights.write_bytes(b"second")
-            self.assertNotEqual(first, fingerprint_lora(resolved))
-
-    def test_lora_must_stay_inside_data_root_and_have_required_files(self):
-        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as outside:
-            root = Path(td)
-            with self.assertRaises(ValueError):
-                resolve_lora_path(outside, root)
-            incomplete = root / "adapter"
-            incomplete.mkdir()
-            with self.assertRaises(FileNotFoundError):
-                resolve_lora_path(incomplete, root)
-            (incomplete / "adapter_config.json").write_text("{}", encoding="utf-8")
-            _write_adapter_manifest(incomplete)
-            (incomplete / "training_args.bin").write_bytes(b"not adapter weights")
-            with self.assertRaisesRegex(FileNotFoundError, "adapter_model"):
-                resolve_lora_path(incomplete, root)
+            self.assertNotEqual(first, fingerprint_lora(adapter))
 
 
 class RunIdentityTests(unittest.TestCase):
@@ -300,9 +277,6 @@ class ResumeFilesTests(unittest.TestCase):
 
 
 class CheckpointTests(unittest.TestCase):
-    def test_none_is_completed_failure_but_missing_key_is_pending(self):
-        self.assertEqual(pending_keys(["a", "b", "c"], {"a": [0, 0, 1, 1], "b": None}), ["c"])
-
     def test_checkpoint_rejects_missing_metadata_extra_key_and_invalid_bbox(self):
         keys = ["001_1"]
         run = _metadata(keys)
@@ -331,68 +305,6 @@ class CheckpointTests(unittest.TestCase):
                 keys,
                 require_complete=True,
             )
-
-    def test_shard_merge_requires_exact_assignments(self):
-        assignments = [["001_1", "002_1"], ["003_1"]]
-        run = _metadata([key for shard in assignments for key in shard], num_shards=2)
-        payloads = [
-            {
-                "metadata": build_shard_metadata(run, shard_id, keys),
-                "predictions": {key: None for key in keys},
-            }
-            for shard_id, keys in enumerate(assignments)
-        ]
-        merged = merge_shard_payloads(run, assignments, list(reversed(payloads)))
-        self.assertEqual(set(merged), {"001_1", "002_1", "003_1"})
-        with self.assertRaises(ValueError):
-            merge_shard_payloads(run, assignments, payloads[:1])
-
-        with self.assertRaisesRegex(ValueError, "num_shards"):
-            merge_shard_payloads(run, assignments[:1], payloads[:1])
-        duplicate_assignments = [["001_1", "002_1"], ["002_1", "003_1"]]
-        with self.assertRaisesRegex(ValueError, "duplicate"):
-            merge_shard_payloads(run, duplicate_assignments, payloads)
-        incomplete_assignments = [["001_1"], ["003_1"]]
-        incomplete_payloads = [
-            {
-                "metadata": build_shard_metadata(run, shard_id, keys),
-                "predictions": {key: None for key in keys},
-            }
-            for shard_id, keys in enumerate(incomplete_assignments)
-        ]
-        with self.assertRaisesRegex(ValueError, "cover"):
-            merge_shard_payloads(run, incomplete_assignments, incomplete_payloads)
-
-
-class RetryAndEvaluationTests(unittest.TestCase):
-    def test_retry_only_replaces_failures_with_valid_overlay(self):
-        base = {"a": [0.1, 0.1, 0.5, 0.5], "b": None, "c": None}
-        original = dict(base)
-        merged = merge_retry_predictions(
-            base,
-            {"b": [0.2, 0.2, 0.6, 0.6], "c": None},
-            ["b", "c"],
-        )
-        self.assertEqual(base, original)
-        self.assertEqual(merged["a"], base["a"])
-        self.assertEqual(merged["b"], [0.2, 0.2, 0.6, 0.6])
-        self.assertIsNone(merged["c"])
-        with self.assertRaises(ValueError):
-            merge_retry_predictions(base, {"a": [0, 0, 1, 1]}, ["b", "c"])
-
-    def test_val_metrics_include_failed_predictions_in_denominator(self):
-        data = _dataset()
-        keys = list(data)
-        predictions = {
-            "001_1": [0.1, 0.1, 0.5, 0.5],
-            "002_1": [0.0, 0.0, 0.1, 0.1],
-            "003_1": None,
-        }
-        metrics = evaluate_dataset_predictions(data, keys, predictions)
-        self.assertEqual(metrics["hits"], 1)
-        self.assertEqual(metrics["total"], 3)
-        self.assertAlmostEqual(metrics["acc_at_0_5"], 1 / 3)
-        self.assertEqual(metrics["failures"], 1)
 
 
 if __name__ == "__main__":

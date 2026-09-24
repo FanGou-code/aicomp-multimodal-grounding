@@ -33,7 +33,9 @@ def _build_split(sequences: list[str], seed: int, train_ratio: float) -> tuple[l
     random.Random(seed).shuffle(shuffled)
     split_idx = int(len(shuffled) * train_ratio)
     if not 0 < split_idx < len(shuffled):
-        raise ValueError(f'train_ratio={train_ratio} produces empty split')
+        raise ValueError(
+            f'train_ratio={train_ratio} produces empty split over {len(shuffled)} sequences'
+        )
     return sorted(shuffled[:split_idx]), sorted(shuffled[split_idx:])
 
 
@@ -187,7 +189,8 @@ def build_indexes(
             # Read image dimensions
             try:
                 img_w, img_h = _png_size(visible_path)
-            except Exception:
+            except Exception as exc:
+                print(f"skip unreadable PNG header {visible_path}: {exc}", flush=True)
                 continue
 
             bbox = _normalize_bbox(x, y, w, h, img_w, img_h)

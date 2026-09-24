@@ -52,28 +52,3 @@ class ProjectPaths:
     @classmethod
     def from_root(cls, root: str | Path = ".") -> "ProjectPaths":
         return cls(root=Path(root).resolve())
-
-    @property
-    def data(self) -> Path:
-        return self.root / "data"
-
-    @property
-    def outputs(self) -> Path:
-        return self.root / "outputs"
-
-    def output(self, family: str) -> Path:
-        return output_dir(family, root=self.outputs)
-
-    @property
-    def submission_template(self) -> Path:
-        return self.data / "Test" / "queries" / "queries.json"
-
-    def dataset_index(self, split: str) -> Path:
-        if split not in {"train", "val", "test"}:
-            raise ValueError(f"Unsupported dataset split: {split!r}")
-        return self.data / "indexes" / f"{split}.json"
-
-    def annotation_artifact(self, annotation_run_id: str, split: str) -> Path:
-        if split not in {"train", "val"}:
-            raise ValueError(f"Approved annotations do not support split: {split!r}")
-        return self.output("annotations") / annotation_run_id / split / "approved.json"
