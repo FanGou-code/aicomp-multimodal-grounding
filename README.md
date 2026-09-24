@@ -69,8 +69,8 @@ huggingface-cli download Qwen/Qwen3-VL-8B-Instruct \
    原始数据到可用输入的整理——逐帧校验三路模态存在且尺寸对齐、解析 `groundtruth.txt`
    并归一化真值框、把 16 位毫米深度按固定标定渲染为 JET 伪彩。
 2. 训练只消费 `outputs/annotations/<run_id>/{train,val}/approved.json`（协议 12）。
-   该产物由上游数据工程仓 [query-foundry](https://github.com/FanGou-code/query-foundry)
-   生产：跨集去重、镜头序列级划分、三模态事实普查与文本质检、4 重 SHA-256 指纹封包。
+   该产物由本仓标注侧（`aicomp_grounding/annotation/`）生产：跨集去重、镜头序列级划分、
+   三模态事实普查与文本质检、4 重 SHA-256 指纹封包。
 
 ```bash
 python tools/prepare_rgbdt.py --dataset-root data              # 校验 + 深度伪彩
@@ -224,6 +224,7 @@ aicomp_grounding/          核心库：坐标与合同、运行身份、训练�
 aicomp_grounding/models/   各底座适配器（qwen3vl / qwen3_5 / glm46v / mock）
 aicomp_grounding/fusion/   加权框融合（WBF）
 aicomp_grounding/ordinal/  序数后处理（解析 / 枚举 / 取第 k）+ prompts/*.md
+aicomp_grounding/annotation/  标注侧：普查 / 生成 / 人审 / 封包 / 逆向通路
 tools/                     全部 CLI 入口（预处理 / 划分 / 标注 / 训练 / 推理 / 打包）
 tests/                     CPU 单元测试
 docs/                      架构、数据合同、序数契约、赛题说明
@@ -237,7 +238,7 @@ docs/                      架构、数据合同、序数契约、赛题说明
 | `docs/data-contract.md` | `data/` 布局、三模态格式、`approved.json` 字段表、校验点、提交格式 |
 | `docs/ordinal-contract.md` | 序数后处理的中间表示、解码参数表、门、run-id 语义 |
 | `docs/research.md` | 赛题背景与官方评测口径 |
-| [query-foundry](https://github.com/FanGou-code/query-foundry) | 上游数据工程仓：跨集去重、序列级划分、三模态事实普查、人审质检与产物封包 |
+| `docs/annotation.md` | 标注侧：跨集去重、序列级划分、三模态事实普查、人审质检与产物封包 |
 
 ## 限制
 
