@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aicomp-grounding"
 version = "1.0.0"
-description = "RGBDT tri-modal (visible / infrared / depth) visual grounding system"
+description = "RGBDT tri-modal (visible / infrared / depth) visual grounding system with its annotation pipeline"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -60,12 +60,17 @@ target-version = "py312"
 # 窄规则集：只保留能发现「明显错误」的检查（E4/E7/E9 语法与导入；F 未定义名、
 # 未用导入、重定义）。更宽的类别经审阅后按下列结论不启用（2026-09-15）：
 #   - B905（zip 未声明 strict）：已全部补 strict=True，行为由代码本身保证；
-#   - B023（闭包捕获循环变量）：facts.py 的 anchors() 与 api.py 的回调均在定义后
-#     同一轮内被调用，当前不触发；属「若改为延迟调用会静默算错」的脆弱点，决定不改；
+#   - B008（默认参数里调用函数）：run_census 那处是刻意用默认参数绑住每轮的值，
+#     正是为了避免 B023，属误报；
+#   - B023（闭包捕获循环变量）：facts 的 anchors() 与 api 的回调均在定义后同一轮内
+#     被调用，当前不触发；属「若改为延迟调用会静默算错」的脆弱点，决定不改；
+#   - B033（集合字面量重复元素）：text_qc.py 的那处已修；
 #   - TRY003/TRY004、ARG、SIM、C4、RET：异常类型约定与写法偏好，不是缺陷。
 select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.lint.per-file-ignores]
 # Entrypoints insert the repository root into sys.path before importing the package.
-"scripts/*.py" = ["E402"]
-"offline/*.py" = ["E402"]
+"tools/*.py" = ["E402"]
+# 过渡豁免：utils.py / views.py 的中部导入在 Wave 2 拆解后删除。
+"aicomp_grounding/annotation/utils.py" = ["E402"]
+"aicomp_grounding/annotation/views.py" = ["E402"]

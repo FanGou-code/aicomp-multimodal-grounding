@@ -274,7 +274,7 @@ class ResumeFilesTests(unittest.TestCase):
         import contextlib
         import io
         from PIL import Image
-        from offline.infer import run_cli
+        from tools.infer import run_cli
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             data = root / "data"

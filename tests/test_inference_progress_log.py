@@ -1,6 +1,6 @@
 import unittest
 
-from offline.infer import _format_eta, _now_str
+from tools.infer import _format_eta, _now_str
 
 
 class InferenceProgressLogTests(unittest.TestCase):

@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from aicomp_grounding.models.base import ModelInput, Prediction
-from offline.infer import _run_dataloader_inference_loop
+from tools.infer import _run_dataloader_inference_loop
 
 
 
