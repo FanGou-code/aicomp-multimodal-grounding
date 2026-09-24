@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from PIL import Image
 
-from foundry.pipeline.api import OpenAIProtocolClient, resolve_api_key
+from foundry.pipeline.api import client_for, resolve_api_key, validate_concurrency
 from foundry.pipeline.reverse import (
     PROMPT_HASHES,
     direct_messages,
@@ -33,7 +33,6 @@ from foundry.pipeline.reverse import (
 )
 from foundry.pipeline.views import jpeg_data_url
 from foundry.utils import (
-    ANNOTATION_API_BASE_URL,
     ANNOTATION_MODEL_NAME,
     ANNOTATION_MODEL_REVISION,
     atomic_write_json,
@@ -68,9 +67,6 @@ STAGE_CONFIG = {
     },
 }
 
-MAX_API_CONCURRENCY = 8
-
-
 def build_reverse_plan(*, queries_path: Path, run_tag: str) -> dict:
     queries = json.loads(queries_path.read_text(encoding="utf-8"))
     if not isinstance(queries, dict):
@@ -94,18 +90,6 @@ def build_reverse_plan(*, queries_path: Path, run_tag: str) -> dict:
             "queries_path": str(queries_path),
         },
     }
-
-
-def _client(stage: dict, api_key: str, timeout_seconds: float) -> OpenAIProtocolClient:
-    return OpenAIProtocolClient(
-        api_key=api_key,
-        model=ANNOTATION_MODEL_NAME,
-        base_url=ANNOTATION_API_BASE_URL,
-        timeout_seconds=timeout_seconds,
-        enable_thinking=None,
-        thinking_mode=stage["thinking_mode"],
-        json_mode=stage["response_format"] == "json_object",
-    )
 
 
 def _complete(client, messages, stage: dict) -> tuple[str, dict]:
@@ -192,6 +176,27 @@ class _Lock:
             self.done += 1
 
 
+def _load_results(path: Path) -> dict:
+    """Queries already answered in an earlier run, keyed by sample id."""
+    if not path.is_file():
+        return {}
+    done: dict = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        row = json.loads(line)
+        done[row.pop("key")] = row
+    return done
+
+
+def _append_result(path: Path, key: str, outcome: dict) -> None:
+    """Persist one answered query as it arrives, so a crash costs nothing."""
+    row = json.dumps({"key": key, **outcome}, ensure_ascii=False)
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(row + "\n")
+
+
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as handle:
@@ -210,22 +215,31 @@ def run_reverse(
     timeout_seconds: float = 180.0,
     limit: int = 0,
     api_key: str | None = None,
+    resume: bool = True,
+    force: bool = False,
 ) -> dict:
-    if not 1 <= concurrency <= MAX_API_CONCURRENCY:
-        raise ValueError(f"concurrency must be between 1 and {MAX_API_CONCURRENCY}, got {concurrency}")
+    validate_concurrency(concurrency)
     plan = build_reverse_plan(queries_path=queries_path, run_tag=run_tag)
     run_dir = output_root.resolve() / plan["metadata"]["run_id"]
     run_dir.mkdir(parents=True, exist_ok=True)
 
     queries = plan["queries"]
-    todo = plan["query_ids"][:limit] if limit > 0 else plan["query_ids"]
+    order = plan["query_ids"][:limit] if limit > 0 else plan["query_ids"]
     key = resolve_api_key(api_key)
+
+    journal = run_dir / "results.jsonl"
+    if force and journal.exists():
+        journal.unlink()
+    already = _load_results(journal) if resume else {}
+    if already:
+        print(f"[reverse] resuming: {len(already)} quer(ies) already answered", flush=True)
+    todo = [sample_id for sample_id in order if sample_id not in already]
 
     state = _Lock()
     started = time.monotonic()
 
     clients = {
-        name: _client(stage, key, timeout_seconds)
+        name: client_for(stage, api_key=key, timeout_seconds=timeout_seconds)
         for name, stage in (
             ("parse", STAGE_CONFIG["parse"]),
             ("enumerate", STAGE_CONFIG["enumerate"]),
@@ -233,14 +247,22 @@ def run_reverse(
         )
     }
 
-    def worker(sample_id: str) -> None:
+    for sample_id, outcome in already.items():
+        state.record(sample_id, outcome)
+
+    def worker(sample_id: str) -> dict:
         entry = queries[sample_id]
-        state.record(sample_id, resolve_one(clients, data_root, entry["query"], entry["visible"]))
+        return resolve_one(clients, data_root, entry["query"], entry["visible"])
 
     with ThreadPoolExecutor(max_workers=min(concurrency, max(1, len(todo)))) as executor:
-        futures = [executor.submit(worker, sample_id) for sample_id in todo]
+        futures = {
+            executor.submit(worker, sample_id): sample_id for sample_id in todo
+        }
         for index, future in enumerate(as_completed(futures), start=1):
-            future.result()
+            sample_id = futures[future]
+            outcome = future.result()
+            state.record(sample_id, outcome)
+            _append_result(journal, sample_id, outcome)
             if index % 25 == 0:
                 print(f"[reverse] {index}/{len(todo)}", flush=True)
 
@@ -280,6 +302,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--api-key", default=None,
                         help="key for this run; defaults to $ANNOTATION_API_KEY")
+    parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
+                        help="reuse the answers already in the run dir (default: on)")
+    parser.add_argument("--force", action="store_true",
+                        help="start over in an existing run dir, discarding its answers")
     return parser
 
 

@@ -13,6 +13,7 @@ The manifest is the input for human review.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -20,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from foundry.pipeline.api import OpenAIProtocolClient, resolve_api_key  # noqa: E402
+from foundry.pipeline.api import client_for, resolve_api_key, validate_concurrency  # noqa: E402
 from foundry.pipeline.assembly import assemble_run, audit_assembly  # noqa: E402
 from foundry.pipeline.realize import (  # noqa: E402
     REALIZE_PROMPT_HASH,
@@ -29,8 +30,6 @@ from foundry.pipeline.realize import (  # noqa: E402
     realize_messages,
 )
 from foundry.utils import (  # noqa: E402
-    ANNOTATION_API_BASE_URL,
-    ANNOTATION_MODEL_NAME,
     atomic_write_json,
     load_json,
     resolve_index_dir,
@@ -59,15 +58,7 @@ def build_realizer(data_root: Path, index: dict, api_key: str):
     """One API call per target: the target's facts in, one sentence out."""
     from PIL import Image
 
-    client = OpenAIProtocolClient(
-        api_key=api_key,
-        model=ANNOTATION_MODEL_NAME,
-        base_url=ANNOTATION_API_BASE_URL,
-        timeout_seconds=180.0,
-        enable_thinking=None,
-        thinking_mode=REALIZE_STAGE["thinking_mode"],
-        json_mode=REALIZE_STAGE["response_format"] == "json_object",
-    )
+    client = client_for(REALIZE_STAGE, api_key=api_key)
     cache: dict[str, object] = {}
 
     def realize(facts, sample_id):
@@ -84,6 +75,27 @@ def build_realizer(data_root: Path, index: dict, api_key: str):
         return parse_realize_response(response.content)
 
     return realize
+
+
+def load_sentences(path: Path) -> dict:
+    """Wording already obtained in an earlier run, keyed by item id."""
+    if not path.is_file():
+        return {}
+    done: dict = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        row = json.loads(line)
+        done[row["item_id"]] = row["query"]
+    return done
+
+
+def append_sentence(path: Path, item_id: str, sentence) -> None:
+    """Persist one wording result as it arrives, so a crash costs nothing."""
+    row = json.dumps({"item_id": item_id, "query": sentence}, ensure_ascii=False)
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(row + "\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -119,8 +131,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "not 1 per sequence). Metadata-only: assembly always "
                              "covers the census-selected frames; the flag drives the "
                              "downstream review session's sampling mode.")
+    parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
+                        help="reuse the wording already in the output dir (default: on)")
     parser.add_argument("--force", action="store_true",
-                        help="allow writing into an existing output dir (default: refuse)")
+                        help="start over in an existing output dir, discarding its wording")
     parser.add_argument("--no-realize", action="store_true",
                         help="skip the wording call; produces no records, only shortfall")
     return parser
@@ -128,11 +142,30 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    validate_concurrency(args.concurrency)
     merged_path = args.census_run / "merged.json"
     if not merged_path.exists():
         raise SystemExit(f"merged.json not found under {args.census_run}")
     merged = load_json(merged_path)
     index = load_json(resolve_index_dir(args.data_root, args.index_dir) / f"{args.split}.json")
+
+    metadata = merged.get("metadata", {})
+    run_id = metadata.get("run_id", args.census_run.name)
+    tag = args.run_tag or f"asm-{run_id}"
+    out_dir = args.output_root / tag
+    if out_dir.exists() and not (args.resume or args.force):
+        raise SystemExit(
+            f"output dir already exists: {out_dir} "
+            "(pass --resume to continue it or --force to start over)"
+        )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sentences_path = out_dir / "sentences.jsonl"
+    if args.force and sentences_path.exists():
+        sentences_path.unlink()
+    sentences = load_sentences(sentences_path) if args.resume else {}
+    if sentences:
+        print(f"resuming: {len(sentences)} wording(s) already on file")
+
     realize = None if args.no_realize else build_realizer(
         args.data_root, index, resolve_api_key(args.api_key)
     )
@@ -142,6 +175,8 @@ def main() -> None:
         max_teacher_per_frame=args.max_teacher_per_frame,
         max_workers=args.concurrency,
         realize=realize,
+        sentences=sentences,
+        on_sentence=lambda item_id, sentence: append_sentence(sentences_path, item_id, sentence),
     )
     text_edits = apply_text_qc(result.records)
     audit = audit_assembly(result.records) if result.records else {
@@ -149,13 +184,6 @@ def main() -> None:
         "verbatim_repeat_rate": 0.0, "mean_words": 0.0,
     }
 
-    metadata = merged.get("metadata", {})
-    run_id = metadata.get("run_id", args.census_run.name)
-    tag = args.run_tag or f"asm-{run_id}"
-    out_dir = args.output_root / tag
-    if out_dir.exists() and not args.force:
-        raise SystemExit(f"output dir already exists: {out_dir} (pass --force to overwrite)")
-    out_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
         "metadata": {
             "assembler_version": 1,

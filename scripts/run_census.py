@@ -27,7 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from PIL import Image, ImageDraw
 
 from foundry.pipeline.views import build_marked_annotation_view, jpeg_data_url
-from foundry.pipeline.api import OpenAIProtocolClient, resolve_api_key
+from foundry.pipeline.api import APIError, client_for, resolve_api_key, validate_concurrency
 from foundry.utils import stable_json_hash
 from foundry.pipeline.census import (
     ATTR_PROMPT_HASH,
@@ -76,7 +76,6 @@ GENERATION_CONFIG = {
     },
     "image_detail": "high",
 }
-MAX_API_CONCURRENCY = 8  # one key: the provider cap this account sustains
 SELECTED_FRAMES_PER_SEQUENCE = 3
 
 
@@ -88,8 +87,7 @@ def _validate_options(split, limit_sequences, concurrency) -> str:
         limit_sequences is not None and (not isinstance(limit_sequences, int) or limit_sequences <= 0)
     ):
         raise ValueError(f"limit_sequences must be a positive integer or None, got {limit_sequences!r}")
-    if not 1 <= concurrency <= MAX_API_CONCURRENCY:
-        raise ValueError(f"concurrency must be between 1 and {MAX_API_CONCURRENCY}, got {concurrency}")
+    validate_concurrency(concurrency)
     return normalized
 
 
@@ -218,14 +216,26 @@ def _complete_once(
 
     ``client`` retries transport failures (timeouts, 5xx, resets, empty
     content). A reply that arrives but fails validation is recorded as a
-    failure, not re-asked.
+    failure, not re-asked. A sustained HTTP 429 is the same kind of event: it
+    fails this frame and leaves the rest of the shard alone.
     """
-    response = client.complete(
-        messages=build_messages(),
-        max_tokens=max_tokens,
-        temperature=temperature,
-        do_sample=do_sample,
-    )
+    try:
+        response = client.complete(
+            messages=build_messages(),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            do_sample=do_sample,
+        )
+    except APIError as exc:
+        if exc.status != 429:
+            raise
+        return {
+            "status": "failed",
+            "attempts": 1,
+            "error": f"rate limited: {exc}",
+            "api_calls": [],
+            "last_raw": "",
+        }
     api_calls = [dict(response.record)]
     try:
         parsed = parse(response.content, **parser_kwargs)
@@ -310,16 +320,8 @@ def census_shard(
     if progress is not None:
         progress.sync(results)
 
-    def _client(stage: dict) -> OpenAIProtocolClient:
-        return OpenAIProtocolClient(
-            api_key=api_key,
-            model=metadata["model_name"],
-            base_url=metadata["api_base_url"],
-            timeout_seconds=timeout_seconds,
-            enable_thinking=None,
-            thinking_mode=stage["thinking_mode"],
-            json_mode=stage["response_format"] == "json_object",
-        )
+    def _client(stage: dict):
+        return client_for(stage, api_key=api_key, timeout_seconds=timeout_seconds)
 
     enum_client = _client(GENERATION_CONFIG["enumeration"])
     attr_client = _client(GENERATION_CONFIG["attr"])
