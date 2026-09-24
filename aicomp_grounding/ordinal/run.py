@@ -19,8 +19,6 @@ RESOLVE_RUN_PREFIX = "ordinal_resolve_"
 
 CHECKPOINT_VERSION = 1
 
-AXIS_SET_VERSION = 1
-
 #: Filename of the thinking sidecar, one JSON object per query.
 THINKING_FILENAME = "thinking.jsonl"
 

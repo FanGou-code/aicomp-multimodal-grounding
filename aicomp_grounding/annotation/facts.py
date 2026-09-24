@@ -35,10 +35,6 @@ def category_head(category: str) -> str:
     return words[-1] if words else category
 
 
-def article_for(word: str) -> str:
-    return "an" if word[:1].lower() in "aeiou" else "a"
-
-
 @dataclass(frozen=True)
 class ObjectFacts:
     index: int

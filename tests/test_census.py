@@ -234,8 +234,9 @@ class SelectionTests(unittest.TestCase):
         frames = sorted(c["frame_no"] for c in chosen)
         self.assertEqual(frames, [3, 7, 9])
 
-    def test_deterministic(self):
-        self.assertEqual(select_frames(self._candidates(), k=3), select_frames(self._candidates(), k=3))
+    def test_selection_order_is_stable(self):
+        chosen = select_frames(self._candidates(), k=3)
+        self.assertEqual([c["frame_no"] for c in chosen], [7, 3, 9])
 
     def test_fewer_than_k(self):
         chosen = select_frames([{"sample_id": "x", "frame_no": 2, "count": 1}], k=3)

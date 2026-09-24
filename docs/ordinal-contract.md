@@ -1,4 +1,4 @@
-# 序数后处理契约（主仓 ↔ gtquery 共用）
+# 序数后处理契约（服务侧 ↔ 标注侧共用）
 
 两个仓库共用同一条内核与同一套中间表示的语义，入口与出口相反。共用的不是报文格式：
 两仓面向不同的模型、不同的提示词，各自的 JSON 信封独立，互不解析对方的产物。
@@ -15,7 +15,7 @@
 {category, k, axis, direction, count, color, feature}
 ```
 
-| 字段 | 含义 | 逆向（主仓） | 正向（gtquery） |
+| 字段 | 含义 | 逆向（服务侧） | 正向（标注侧） |
 |---|---|---|---|
 | `category` | 目标类别 | parse 解析出 | 枚举时模型认出 |
 | `k` | 第几个（1-based） | parse 解析出 | 代码排序算出 |
@@ -68,7 +68,7 @@ area   (x2-x1)(y2-y1)     asc = 最小，desc = 最大
 
 官方另有一处警告：`presence_penalty` 取值过高会导致语言混杂与性能下降。
 
-### 3.2 gtquery · glm-4.6v（智谱 API）
+### 3.2 标注侧 · glm-4.6v（智谱 API）
 
 | 阶段 | thinking | do_sample | temperature | top_p | response_format | max_tokens |
 |---|---|---|---|---|---|---|
@@ -92,7 +92,7 @@ area   (x2-x1)(y2-y1)     asc = 最小，desc = 最大
 
 ## 4. 主仓的门
 
-以下是主仓 `ordinal.resolve` 返回的理由码，gtquery 侧不实现这一套：它产出给的是人，
+以下是主仓 `ordinal.resolve` 返回的理由码，标注侧不实现这一套：它产出给的是人，
 不做出包判定。
 
 ```
@@ -127,5 +127,5 @@ run-id 标识一套参数配置。全部解码参数（含 `enable_thinking`）�
 
 ## 6. 产物
 
-主仓产物见 `data-contract.md`；gtquery 输出 `outputs/{census,assembly,reverse}/<run_id>/`。
+主仓产物见 `data-contract.md`；标注侧输出 `outputs/{census,assembly,reverse}/<run_id>/`。
 落盘原则：可重算的不落盘，模型输出与人审结果必留。

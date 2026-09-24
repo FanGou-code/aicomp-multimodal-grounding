@@ -11,7 +11,7 @@ human-confirmed) and consolidated into ``annotations.absent.json`` as
 from a crash is ignored.
 
 Snapshots are always re-derived from a full journal replay at write time, so
-concurrent writer processes (auto_annotate.py and server.py) never drop each
+concurrent writer processes (the review server and the apply step) never drop each
 other's entries. Readers re-replay automatically whenever the journal file
 changes on disk, which hot-reloads annotations written by other processes.
 Query edits are journaled as bbox-less records and replay as text + annotator
@@ -45,10 +45,6 @@ def _now() -> str:
 
 def _is_absent_annotator(annotator: object) -> bool:
     return isinstance(annotator, str) and annotator.endswith(ABSENT_SUFFIX)
-
-
-def _atomic_write_json(path: Path, data: dict) -> None:
-    atomic_write_json(path, data)
 
 
 class AnnotationStore:
@@ -274,6 +270,6 @@ class AnnotationStore:
         # Caller holds both thread and process locks, so all snapshots reflect
         # the same journal. Readers recover from the journal after any crash.
         self._replay()
-        _atomic_write_json(self.snapshot_path, self._state)
-        _atomic_write_json(self.queries_path, self._queries)
-        _atomic_write_json(self.absent_path, self._absent)
+        atomic_write_json(self.snapshot_path, self._state)
+        atomic_write_json(self.queries_path, self._queries)
+        atomic_write_json(self.absent_path, self._absent)

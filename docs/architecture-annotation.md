@@ -25,13 +25,12 @@ prepare_split → census → assembly → text_qc → review → apply → packa
 | `foundry/review/census_session.py` | Census / assembly 会话构建器 |
 | `foundry/pipeline/census.py` | 普查协议：提示词、响应解析、确定性门 |
 | `foundry/pipeline/assembly.py` | 组装器：句族实现 + 唯一性门 + 目标选择 |
-| `foundry/pipeline/planner.py` | 配额分配 + 句族多样性 |
+| `aicomp_grounding/annotation/selection.py` | 候选去重与选用 |
 | `foundry/pipeline/facts.py` | 帧级事实提取（ObjectFacts / Realization） |
 | `foundry/pipeline/text_qc.py` | 文本 QC（冠词引擎 + echo 表） |
-| `foundry/pipeline/contract.py` | 训练合同校验 + 指纹计算（协议版本 12，零 pip 依赖） |
-| `foundry/pipeline/buckets.py` | 冻结四桶分类器 + 配额份额 |
+| `aicomp_grounding/contract.py` | 训练合同校验 + 指纹计算（协议版本 12） |
 | `foundry/pipeline/depth.py` | 深度事实提取 |
-| `foundry/pipeline/api.py` | Key 池 + API 客户端 |
+| `aicomp_grounding/annotation/client.py` | 单 key 注入的 API 客户端 |
 | `foundry/pipeline/views.py` | 红框渲染 + 图片指纹 |
 | `foundry/pipeline/sharding.py` | 分片 + 序列解析 |
 | `foundry/pipeline/source.py` | 标注源索引加载 + 指纹 |
@@ -44,7 +43,7 @@ prepare_split → census → assembly → text_qc → review → apply → packa
 | `scripts/prepare_split.py` | 数据划分（--seed --train-ratio） |
 | `scripts/check_key.py` | 注入的 key 测活 |
 | `scripts/review_report.py` | 审查报告 |
-| `configs/default/` | 实际读取的提示词与 qc.json；API 和桶规则固定在代码 |
+| `configs/default/` | 实际读取的提示词与 qc.json；API 配置固定在代码 |
 
 ## 已删除（git 可溯）
 

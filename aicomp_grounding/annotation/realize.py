@@ -16,10 +16,6 @@ from pathlib import Path
 
 from aicomp_grounding.annotation.facts import ObjectFacts
 
-#: Which way a direction reads.
-DIRECTION_SIDE = {"asc": "left", "desc": "right"}
-
-
 def _load_prompt(name: str, default: str) -> str:
     try:
         path = Path(__file__).resolve().parents[2] / "configs" / "default" / "prompts" / f"{name}.md"
