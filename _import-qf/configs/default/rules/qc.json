@@ -1,0 +1,1244 @@
+{
+  "keep": [
+    "antlers",
+    "bare branches",
+    "black handlebars",
+    "black shorts",
+    "blue tail feathers",
+    "branches",
+    "broken log segments",
+    "buds on branches",
+    "bushes",
+    "bushes near water",
+    "bushy foliage",
+    "cart with wheels",
+    "dark clothing",
+    "dark pants",
+    "dark pants on person",
+    "dark reddish foliage",
+    "dense foliage",
+    "dense shrubbery",
+    "evergreen foliage",
+    "fluffy fur",
+    "grass on sloped area",
+    "grass on sloped bank",
+    "gray leggings",
+    "green socks",
+    "green wings",
+    "large antlers",
+    "leafy branches",
+    "leafy foliage",
+    "leafy trees",
+    "light-colored clothing",
+    "light-colored fur",
+    "long hair, carrying a bag",
+    "long legs",
+    "long tail feathers",
+    "metal railing with blue accents",
+    "metal railing with vertical bars",
+    "mixed shrubbery",
+    "muddy fur",
+    "multiple devices",
+    "pants and white shoes",
+    "pink socks",
+    "platform with wheels",
+    "raised arms",
+    "red border and text",
+    "shorter tail feathers",
+    "shorts",
+    "small antlers",
+    "small narrow leaves",
+    "smaller antlers",
+    "spots",
+    "striped fur",
+    "tall trees",
+    "tall trees with pink blossoms",
+    "text and logo",
+    "text and model number",
+    "tree foliage",
+    "trees and foliage",
+    "trees behind bridge",
+    "wheels",
+    "white feathers",
+    "white logo",
+    "white tail feathers",
+    "white text",
+    "white text and symbols",
+    "windows",
+    "wooden planks",
+    "wooden slats",
+    "yellow socks"
+  ],
+  "plural_mass_lastwords": [
+    "antlers",
+    "bark",
+    "bars",
+    "branches",
+    "buds",
+    "bushes",
+    "clothing",
+    "devices",
+    "ears",
+    "equipment",
+    "feathers",
+    "feet",
+    "foliage",
+    "fur",
+    "grass",
+    "hair",
+    "handlebars",
+    "jeans",
+    "leaves",
+    "limbs",
+    "pants",
+    "plants",
+    "segments",
+    "shorts",
+    "shrubbery",
+    "signtext",
+    "socks",
+    "spots",
+    "text",
+    "trees",
+    "water",
+    "wheels",
+    "windows"
+  ],
+  "exceptions": {
+    "in light clothing": [
+      "",
+      "in light clothing"
+    ],
+    "in jacket": [
+      "",
+      "in a jacket"
+    ],
+    "in water": [
+      "",
+      "in the water"
+    ],
+    "in distance": [
+      "",
+      "in the distance"
+    ],
+    "in dark jacket": [
+      "",
+      "in a dark jacket"
+    ],
+    "in light pink clothing": [
+      "",
+      "in light pink clothing"
+    ],
+    "in shaded area": [
+      "",
+      "in a shaded area"
+    ],
+    "perched on branch": [
+      "",
+      "perched on a branch"
+    ],
+    "perched on middle branch": [
+      "",
+      "perched on a middle branch"
+    ],
+    "perched on lower branch": [
+      "",
+      "perched on a lower branch"
+    ],
+    "perched on a branch tip": [
+      "",
+      "perched on a branch tip"
+    ],
+    "perched on boat edge": [
+      "",
+      "perched on the boat edge"
+    ],
+    "on desk": [
+      "",
+      "on a desk"
+    ],
+    "on windowsill": [
+      "",
+      "on a windowsill"
+    ],
+    "on stairs": [
+      "",
+      "on the stairs"
+    ],
+    "on wooden structure near stairs": [
+      "",
+      "on a wooden structure near stairs"
+    ],
+    "on grass": [
+      "",
+      "on grass"
+    ],
+    "in grass": [
+      "",
+      "in grass"
+    ],
+    "head down": [
+      "with",
+      "its head down"
+    ],
+    "head visible": [
+      "with",
+      "its head visible"
+    ],
+    "head visible, alert posture": [
+      "with",
+      "its head visible, alert posture"
+    ],
+    "head": [
+      "with",
+      "its head"
+    ],
+    "horn visible": [
+      "with",
+      "its horn visible"
+    ],
+    "hump on back": [
+      "with",
+      "a hump on its back"
+    ],
+    "saddle on back": [
+      "with",
+      "a saddle on its back"
+    ],
+    "brown patches on back": [
+      "with",
+      "brown patches on its back"
+    ],
+    "white patch on rear": [
+      "with",
+      "a white patch on its rear"
+    ],
+    "white marking on face": [
+      "with",
+      "a white marking on its face"
+    ],
+    "taxi sign on roof": [
+      "with",
+      "a taxi sign on its roof"
+    ],
+    "shirt on person": [
+      "with",
+      "a shirt on"
+    ],
+    "partially visible": [
+      "",
+      "partially visible"
+    ],
+    "rock with peacock": [
+      "with",
+      "a rock"
+    ],
+    "small dark shape on water": [
+      "with",
+      "a small dark shape on the water"
+    ],
+    "wooden boat on water": [
+      "with",
+      "a wooden boat on the water"
+    ],
+    "canopy on boat": [
+      "with",
+      "a canopy on the boat"
+    ],
+    "large rock in water": [
+      "with",
+      "a large rock in the water"
+    ],
+    "rock in water area": [
+      "with",
+      "a rock in the water"
+    ],
+    "rocky formation near water": [
+      "with",
+      "a rocky formation near the water"
+    ],
+    "animal grazing near water puddle": [
+      "with",
+      "an animal grazing near a water puddle"
+    ],
+    "animal grazing at trough": [
+      "with",
+      "an animal grazing at a trough"
+    ],
+    "animal standing in shallow water": [
+      "with",
+      "an animal standing in shallow water"
+    ],
+    "large bear sitting on ground": [
+      "with",
+      "a large bear sitting on the ground"
+    ],
+    "monkey sitting on rock": [
+      "with",
+      "a monkey sitting on a rock"
+    ],
+    "lion lying on grass": [
+      "with",
+      "a lion lying on grass"
+    ],
+    "peacock standing on rock": [
+      "with",
+      "a peacock standing on a rock"
+    ],
+    "small animal on concrete patch": [
+      "with",
+      "a small animal on a concrete patch"
+    ],
+    "small animal on ground": [
+      "with",
+      "a small animal on the ground"
+    ],
+    "small size, sitting on ground": [
+      "with",
+      "a small size, sitting on the ground"
+    ],
+    "small size near fence": [
+      "with",
+      "a small size near a fence"
+    ],
+    "small car parked near cones": [
+      "with",
+      "a small car parked near the cones"
+    ],
+    "small vehicle in distance": [
+      "with",
+      "a small vehicle in the distance"
+    ],
+    "small square shape on wall": [
+      "with",
+      "a small square shape on the wall"
+    ],
+    "small utility box on sidewalk": [
+      "with",
+      "a small utility box on the sidewalk"
+    ],
+    "box on trolley": [
+      "with",
+      "a box on a trolley"
+    ],
+    "box truck with logo on front": [
+      "with",
+      "a box truck with a logo on the front"
+    ],
+    "sedan parked on road": [
+      "with",
+      "a sedan parked on the road"
+    ],
+    "sneaker with number 197": [
+      "with",
+      "a sneaker with the number 197"
+    ],
+    "speed limit sign with number 5": [
+      "with",
+      "a speed limit sign with the number 5"
+    ],
+    "blue vehicle with speed limit sign with number 5": [
+      "with",
+      "a blue vehicle with a speed limit sign with the number 5"
+    ],
+    "taxi": [
+      "with",
+      "a taxi"
+    ],
+    "taxi sign on roof ": [
+      "with",
+      "a taxi sign on its roof"
+    ],
+    "person wearing backpack": [
+      "with",
+      "a person wearing a backpack"
+    ],
+    "person wearing dark pants": [
+      "with",
+      "a person wearing dark pants"
+    ],
+    "person wearing hat": [
+      "with",
+      "a person wearing a hat"
+    ],
+    "person in wheelchair": [
+      "with",
+      "a person in a wheelchair"
+    ],
+    "person near horse": [
+      "with",
+      "a person near a horse"
+    ],
+    "child sitting on pony": [
+      "with",
+      "a child sitting on a pony"
+    ],
+    "wearing graphic t-shirt": [
+      "with",
+      "wearing a graphic t-shirt"
+    ],
+    "wearing hat": [
+      "with",
+      "wearing a hat"
+    ],
+    "wearing backpack": [
+      "with",
+      "wearing a backpack"
+    ],
+    "carrying bag": [
+      "with",
+      "carrying a bag"
+    ],
+    "near building entrance": [
+      "",
+      "near the building entrance"
+    ],
+    "near the building entrance": [
+      "",
+      "near the building entrance"
+    ],
+    "near water": [
+      "",
+      "near water"
+    ],
+    "by water's edge": [
+      "",
+      "by the water's edge"
+    ],
+    "short hair, crouching posture": [
+      "with",
+      "short hair, crouching posture"
+    ],
+    "long hair, crouching posture": [
+      "with",
+      "long hair, crouching posture"
+    ],
+    "ornate railing on bridge": [
+      "with",
+      "an ornate railing on the bridge"
+    ],
+    "sedan with visible front grille": [
+      "with",
+      "a sedan with a visible front grille"
+    ],
+    "plush toy with yellow belly": [
+      "with",
+      "a plush toy with a yellow belly"
+    ],
+    "plush toy with pink ribbon": [
+      "with",
+      "a plush toy with a pink ribbon"
+    ],
+    "plush toy with rounded shape": [
+      "with",
+      "a plush toy with a rounded shape"
+    ],
+    "plush toy with cartoonish face": [
+      "with",
+      "a plush toy with a cartoonish face"
+    ],
+    "plush toy with yellow detail": [
+      "with",
+      "a plush toy with a yellow detail"
+    ],
+    "plush toy with blue bow": [
+      "with",
+      "a plush toy with a blue bow"
+    ],
+    "plush toy with yellow bow": [
+      "with",
+      "a plush toy with a yellow bow"
+    ],
+    "plush toy with white face": [
+      "with",
+      "a plush toy with a white face"
+    ],
+    "office chair with black seat": [
+      "with",
+      "an office chair with a black seat"
+    ],
+    "wheeled platform with handle": [
+      "with",
+      "a wheeled platform with a handle"
+    ],
+    "wooden door with handle": [
+      "with",
+      "a wooden door with a handle"
+    ],
+    "wooden door with metal handle": [
+      "with",
+      "a wooden door with a metal handle"
+    ],
+    "double door with handle": [
+      "with",
+      "a double door with a handle"
+    ],
+    "sneaker with white sole": [
+      "with",
+      "a sneaker with a white sole"
+    ],
+    "shoe with white sole": [
+      "with",
+      "a shoe with a white sole"
+    ],
+    "wired keyboard with cord": [
+      "with",
+      "a wired keyboard with a cord"
+    ],
+    "cart with metal frame": [
+      "with",
+      "a cart with a metal frame"
+    ],
+    "stone wall with metal railing": [
+      "with",
+      "a stone wall with a metal railing"
+    ],
+    "smooth bark with subtle texture": [
+      "with",
+      "smooth bark with a subtle texture"
+    ],
+    "leafy bush with white blossoms": [
+      "with",
+      "a leafy bush with white blossoms"
+    ],
+    "leafy plant with broad leaves": [
+      "with",
+      "a leafy plant with broad leaves"
+    ],
+    "bird with dark markings": [
+      "with",
+      "a bird with dark markings"
+    ],
+    "anemometer with three cups": [
+      "with",
+      "an anemometer with three cups"
+    ],
+    "wheeled platform": [
+      "with",
+      "a wheeled platform"
+    ]
+  },
+  "echo_table": [
+    {
+      "item_id": "028_00000026#04",
+      "before": "The deer lying deer in dirt bed",
+      "after": "The deer lying in a dirt bed"
+    },
+    {
+      "item_id": "030_00000001#05",
+      "before": "The yellow car with a bumper car with orange lights",
+      "after": "The yellow bumper car with orange lights"
+    },
+    {
+      "item_id": "035_00000067#04",
+      "before": "The yellow animal with a stuffed animal on tree",
+      "after": "The yellow stuffed animal on a tree"
+    },
+    {
+      "item_id": "039_00000042#05",
+      "before": "The brown deer with a spotted deer with white tail",
+      "after": "The brown spotted deer with a white tail"
+    },
+    {
+      "item_id": "047_00000314#02",
+      "before": "The brown shelter with a wooden shelter structure",
+      "after": "The brown shelter with a wooden structure"
+    },
+    {
+      "item_id": "058_00000194#06",
+      "before": "The gray rock with a large rock in foreground",
+      "after": "The large gray rock in the foreground"
+    },
+    {
+      "item_id": "065_00000313#04",
+      "before": "The green tree with a tall slender tree",
+      "after": "The tall slender green tree"
+    },
+    {
+      "item_id": "071_00000080#05",
+      "before": "The gray pole with a tall pole with shadow",
+      "after": "The tall gray pole with a shadow"
+    },
+    {
+      "item_id": "072_00000001#03",
+      "before": "The orange boat with a pedal boat with canopy",
+      "after": "The orange pedal boat with a canopy"
+    },
+    {
+      "item_id": "082_00000188#04",
+      "before": "The white bird with a small bird in background",
+      "after": "The small white bird in the background"
+    },
+    {
+      "item_id": "083_00000062#04",
+      "before": "The red hydrant with a fire hydrant with chains",
+      "after": "The red fire hydrant with chains"
+    },
+    {
+      "item_id": "085_00000298#03",
+      "before": "The gray rock with a medium rock",
+      "after": "The medium-sized gray rock"
+    },
+    {
+      "item_id": "087_00000335#04",
+      "before": "The bear interacting bear",
+      "after": "The bear interacting with another bear"
+    },
+    {
+      "item_id": "089_00000001#01",
+      "before": "The gray rock with a large rock formation",
+      "after": "The gray rock with a large formation"
+    },
+    {
+      "item_id": "089_00000311#04",
+      "before": "The brown bear with a large bear sitting on the ground",
+      "after": "The large brown bear sitting on the ground"
+    },
+    {
+      "item_id": "090_00000062#03",
+      "before": "The yellow branch perched on a branch",
+      "after": "The yellow branch"
+    },
+    {
+      "item_id": "091_00000275#01",
+      "before": "The brown log with a large log with holes",
+      "after": "The large brown log with holes"
+    },
+    {
+      "item_id": "095_00000169#04",
+      "before": "The brown boat with a wooden boat on the water",
+      "after": "The brown wooden boat on the water"
+    },
+    {
+      "item_id": "096_00000102#05",
+      "before": "The brown shelter with a wooden shelter",
+      "after": "The brown wooden shelter"
+    },
+    {
+      "item_id": "099_00000377#02",
+      "before": "The white boat with a panda-shaped boat with canopy",
+      "after": "The white panda-shaped boat with a canopy"
+    },
+    {
+      "item_id": "104_00000073#03",
+      "before": "The dark car with a compact car shape",
+      "after": "The dark car with a compact shape"
+    },
+    {
+      "item_id": "104_00000089#05",
+      "before": "The white car with a small car shape",
+      "after": "The small white car"
+    },
+    {
+      "item_id": "107_00000316#02",
+      "before": "The green vegetation with a dense vegetation along riverbank",
+      "after": "The dense green vegetation along a riverbank"
+    },
+    {
+      "item_id": "117_00000104#06",
+      "before": "The dark tree with a large tree with dense foliage",
+      "after": "The large dark tree with dense foliage"
+    },
+    {
+      "item_id": "119_00000031#02",
+      "before": "The brown log with broken log segments",
+      "after": "The brown log with broken segments"
+    },
+    {
+      "item_id": "120_00000001#03",
+      "before": "The brown door with a wooden door with a handle",
+      "after": "The large gray rock"
+    },
+    {
+      "item_id": "122_00000093#06",
+      "before": "The light door with a wooden door with a handle",
+      "after": "The light wooden door with a handle"
+    },
+    {
+      "item_id": "122_00000163#06",
+      "before": "The light door with a wooden door with a handle",
+      "after": "The light wooden door with a handle"
+    },
+    {
+      "item_id": "123_00000076#01",
+      "before": "The black chair with an office chair with wheels",
+      "after": "The black office chair with wheels"
+    },
+    {
+      "item_id": "123_00000076#03",
+      "before": "The door with a wooden door with a handle",
+      "after": "The wooden door with a handle"
+    },
+    {
+      "item_id": "123_00000150#01",
+      "before": "The chair with an office chair with wheels",
+      "after": "The office chair with wheels"
+    },
+    {
+      "item_id": "124_00000141#05",
+      "before": "The brown door with a wooden door",
+      "after": "The brown wooden door"
+    },
+    {
+      "item_id": "126_00000098#03",
+      "before": "The door with a wooden door with a handle",
+      "after": "The wooden door with a handle"
+    },
+    {
+      "item_id": "127_00000001#02",
+      "before": "The white chair with an office chair with wheels",
+      "after": "The white office chair with wheels"
+    },
+    {
+      "item_id": "127_00000169#02",
+      "before": "The black chair with an office chair with wheels",
+      "after": "The black office chair with wheels"
+    },
+    {
+      "item_id": "127_00000372#02",
+      "before": "The chair with an office chair with wheels",
+      "after": "The office chair with wheels"
+    },
+    {
+      "item_id": "129_00000359#02",
+      "before": "The white chair with an office chair with wheels",
+      "after": "The white office chair with wheels"
+    },
+    {
+      "item_id": "130_00000274#02",
+      "before": "The white boat with a covered boat with people",
+      "after": "The white covered boat with people"
+    },
+    {
+      "item_id": "131_00000033#04",
+      "before": "The green boat with a covered boat with canopy",
+      "after": "The green covered boat with a canopy"
+    },
+    {
+      "item_id": "134_00000082#02",
+      "before": "The white bird with a white bird",
+      "after": "The white bird with another white bird"
+    },
+    {
+      "item_id": "139_00000189#04",
+      "before": "The gray rock with a large flat rock",
+      "after": "The large flat gray rock"
+    },
+    {
+      "item_id": "139_00000189#06",
+      "before": "The gray rock with a large rectangular rock formation",
+      "after": "The gray rock with a large rectangular formation"
+    },
+    {
+      "item_id": "139_00000304#02",
+      "before": "The gray rock with a flat rock surface",
+      "after": "The gray rock with a flat surface"
+    },
+    {
+      "item_id": "147_00000087#03",
+      "before": "The black keyboard with a wired keyboard with a cord",
+      "after": "The black wired keyboard with a cord"
+    },
+    {
+      "item_id": "147_00000160#02",
+      "before": "The white chair with an office chair with wheels",
+      "after": "The white office chair with wheels"
+    },
+    {
+      "item_id": "151_00000001#04",
+      "before": "The gray rock with a large rock",
+      "after": "The large gray rock"
+    },
+    {
+      "item_id": "152_00000004#03",
+      "before": "The blue rock with a peacock standing on a rock",
+      "after": "The blue rock with a peacock standing on it"
+    },
+    {
+      "item_id": "153_00000327#04",
+      "before": "The green bush with a leafy bush",
+      "after": "The leafy green bush"
+    },
+    {
+      "item_id": "158_00000338#02",
+      "before": "The brown pole with a vertical pole",
+      "after": "The brown vertical pole"
+    },
+    {
+      "item_id": "161_00000309#02",
+      "before": "The brown log with a long, horizontal log",
+      "after": "The long horizontal brown log"
+    },
+    {
+      "item_id": "163_00000195#03",
+      "before": "The brown log with a short, broken log",
+      "after": "The short broken brown log"
+    },
+    {
+      "item_id": "164_00000064#03",
+      "before": "The brown log with a broken log",
+      "after": "The broken brown log"
+    },
+    {
+      "item_id": "167_00000197#01",
+      "before": "The paddle ping pong paddle",
+      "after": "The ping pong paddle"
+    },
+    {
+      "item_id": "168_00000030#01",
+      "before": "The paddle ping pong paddle with white logo",
+      "after": "The ping pong paddle with a white logo"
+    },
+    {
+      "item_id": "168_00000403#03",
+      "before": "The light door with a wooden door with a handle",
+      "after": "The light wooden door with a handle"
+    },
+    {
+      "item_id": "169_00000001#03",
+      "before": "The door with a wooden door with a handle",
+      "after": "The wooden door with a handle"
+    },
+    {
+      "item_id": "171_00000162#06",
+      "before": "The brown door with a wooden door with a handle",
+      "after": "The brown wooden door with a metal handle"
+    },
+    {
+      "item_id": "171_00000263#03",
+      "before": "The brown door with a wooden door with a handle",
+      "after": "The brown wooden door with a metal handle"
+    },
+    {
+      "item_id": "172_00000369#04",
+      "before": "The brown door with a wooden door with a handle",
+      "after": "The brown wooden door with a metal handle"
+    },
+    {
+      "item_id": "173_00000278#03",
+      "before": "The light door with a wooden door with a metal handle",
+      "after": "The light wooden door with a metal handle"
+    },
+    {
+      "item_id": "176_00000143#02",
+      "before": "The light door with a double door with a handle",
+      "after": "The light double door with a handle"
+    },
+    {
+      "item_id": "180_00000074#03",
+      "before": "The brown log with a fallen log on grass",
+      "after": "The brown fallen log on the grass"
+    },
+    {
+      "item_id": "180_00000265#02",
+      "before": "The brown log with a fallen log on grass",
+      "after": "The brown fallen log on the grass"
+    },
+    {
+      "item_id": "184_00000047#01",
+      "before": "The black chair with an office chair with wheels",
+      "after": "The black office chair with wheels"
+    },
+    {
+      "item_id": "191_00000001#01",
+      "before": "The person standing person with jeans",
+      "after": "The standing person with jeans"
+    },
+    {
+      "item_id": "192_00000391#05",
+      "before": "The brown door with a wooden door with a handle",
+      "after": "The brown wooden door with a metal handle"
+    },
+    {
+      "item_id": "195_00000413#01",
+      "before": "The white chair with an office chair with wheels",
+      "after": "The white office chair with wheels"
+    },
+    {
+      "item_id": "196_00000001#02",
+      "before": "The white toy with a plush toy with a pink ribbon",
+      "after": "The white plush toy with a pink ribbon"
+    },
+    {
+      "item_id": "196_00000364#02",
+      "before": "The white toy with a plush toy with a rounded shape",
+      "after": "The white plush toy with a rounded shape"
+    },
+    {
+      "item_id": "196_00000364#03",
+      "before": "The blue toy with a plush toy with a cartoonish face",
+      "after": "The blue plush toy with a cartoonish face"
+    },
+    {
+      "item_id": "198_00000400#03",
+      "before": "The brown door with a wooden door with a metal handle",
+      "after": "The brown wooden door with a metal handle"
+    },
+    {
+      "item_id": "199_00000001#02",
+      "before": "The teal toy with a plush toy with a yellow belly",
+      "after": "The teal plush toy with a yellow belly"
+    },
+    {
+      "item_id": "199_00000315#03",
+      "before": "The blue toy with a stuffed toy in hand",
+      "after": "The blue stuffed toy"
+    },
+    {
+      "item_id": "200_00000027#03",
+      "before": "The white toy with a plush toy with blue limbs",
+      "after": "The white plush toy with blue limbs"
+    },
+    {
+      "item_id": "201_00000047#02",
+      "before": "The white toy with a plush toy with a yellow detail",
+      "after": "The white plush toy with a yellow detail"
+    },
+    {
+      "item_id": "201_00000047#03",
+      "before": "The white toy with a plush toy with blue clothing",
+      "after": "The white plush toy with blue clothing"
+    },
+    {
+      "item_id": "202_00000135#02",
+      "before": "The blue toy with a plush toy with eyes",
+      "after": "The blue plush toy with eyes"
+    },
+    {
+      "item_id": "202_00000135#03",
+      "before": "The white toy with a plush toy with a yellow bow",
+      "after": "The white plush toy with a yellow bow"
+    },
+    {
+      "item_id": "203_00000184#04",
+      "before": "The black penguin with a stuffed penguin shape",
+      "after": "The black stuffed penguin"
+    },
+    {
+      "item_id": "203_00000272#03",
+      "before": "The purple toy with a stuffed toy with purple hair",
+      "after": "The purple stuffed toy with purple hair"
+    },
+    {
+      "item_id": "204_00000001#01",
+      "before": "The white chair with an office chair with a black seat",
+      "after": "The white office chair with a black seat"
+    },
+    {
+      "item_id": "206_00000002#02",
+      "before": "The blue object with a blurry object in motion",
+      "after": "The blurry blue object in motion"
+    },
+    {
+      "item_id": "207_00000041#02",
+      "before": "The blue toy with a stuffed toy",
+      "after": "The blue stuffed toy"
+    },
+    {
+      "item_id": "207_00000041#04",
+      "before": "The black toy with a stuffed toy",
+      "after": "The black stuffed toy"
+    },
+    {
+      "item_id": "213_00000147#02",
+      "before": "The gray building with a metal roof building",
+      "after": "The gray building with a metal roof"
+    },
+    {
+      "item_id": "218_00000184#02",
+      "before": "The toy with a stuffed toy",
+      "after": "The stuffed toy"
+    },
+    {
+      "item_id": "218_00000350#01",
+      "before": "The chair with an office chair with a black seat",
+      "after": "The office chair with a black seat"
+    },
+    {
+      "item_id": "221_00000065#05",
+      "before": "The gray rock with a large rounded rock",
+      "after": "The large rounded gray rock"
+    },
+    {
+      "item_id": "223_00000031#04",
+      "before": "The dark rock with a large, rugged rock",
+      "after": "The large rugged dark rock"
+    },
+    {
+      "item_id": "236_00000030#06",
+      "before": "The brown rock with a small rock near water",
+      "after": "The small brown rock near the water"
+    },
+    {
+      "item_id": "237_00000061#01",
+      "before": "The rock sitting on rock",
+      "after": "The rock sitting on another rock"
+    },
+    {
+      "item_id": "237_00000117#02",
+      "before": "The brown rock with a monkey sitting on a rock",
+      "after": "The brown rock with a monkey sitting on it"
+    },
+    {
+      "item_id": "242_00000281#05",
+      "before": "The black bench with a park bench with slatted seat",
+      "after": "The black park bench with a slatted seat"
+    },
+    {
+      "item_id": "246_00000272#04",
+      "before": "The red cone with a striped traffic cone",
+      "after": "The red striped traffic cone"
+    },
+    {
+      "item_id": "248_00000096#04",
+      "before": "The tree flowering tree",
+      "after": "The flowering tree"
+    },
+    {
+      "item_id": "248_00000219#04",
+      "before": "The green tree with an evergreen tree",
+      "after": "The green evergreen tree"
+    },
+    {
+      "item_id": "251_00000245#02",
+      "before": "The gray rock with a large rock with irregular shape",
+      "after": "The small gray rock"
+    },
+    {
+      "item_id": "258_00000214#02",
+      "before": "The white bridge with an ornate railing on the bridge",
+      "after": "The white bridge with an ornate railing"
+    },
+    {
+      "item_id": "265_00000171#02",
+      "before": "The rock with a large rounded rock",
+      "after": "The large rounded gray rock"
+    },
+    {
+      "item_id": "265_00000171#03",
+      "before": "The gray rock with a medium-sized rock",
+      "after": "The medium-sized gray rock"
+    },
+    {
+      "item_id": "265_00000171#04",
+      "before": "The gray rock with a small rock",
+      "after": "The small gray rock"
+    },
+    {
+      "item_id": "265_00000171#04",
+      "before": "The rock with a small rock",
+      "after": "The small gray rock"
+    },
+    {
+      "item_id": "272_00000207#01",
+      "before": "The green leaf with an elongated leaf shape",
+      "after": "The green leaf with an elongated shape"
+    },
+    {
+      "item_id": "272_00000207#04",
+      "before": "The white bud with a closed bud",
+      "after": "The white closed tulip bud"
+    },
+    {
+      "item_id": "272_00000207#05",
+      "before": "The pale bud with an unopened bud",
+      "after": "The pale unopened tulip bud"
+    },
+    {
+      "item_id": "273_00000054#02",
+      "before": "The red wheelchair with a person in a wheelchair",
+      "after": "The red wheelchair with a person in it"
+    },
+    {
+      "item_id": "280_00000210#02",
+      "before": "The person with jeans on person",
+      "after": "The person wearing jeans"
+    },
+    {
+      "item_id": "288_00000001#03",
+      "before": "The black cat with a small animal (cat) on grass",
+      "after": "The small black cat on the grass"
+    },
+    {
+      "item_id": "288_00000207#03",
+      "before": "The brown tree with a vertical tree trunk",
+      "after": "The brown tree with a vertical trunk"
+    },
+    {
+      "item_id": "291_00000061#04",
+      "before": "The person with dark pants on person",
+      "after": "The person wearing dark pants"
+    },
+    {
+      "item_id": "294_00000439#01",
+      "before": "The red hydrant with a fire hydrant with multiple caps",
+      "after": "The red fire hydrant with multiple caps"
+    },
+    {
+      "item_id": "295_00000009#01",
+      "before": "The green tree with a leafy tree with hanging branches",
+      "after": "The leafy green tree with hanging branches"
+    },
+    {
+      "item_id": "306_00000203#02",
+      "before": "The gray rock with a large rock",
+      "after": "The large gray rock"
+    },
+    {
+      "item_id": "326_00000022#03",
+      "before": "The gray rock with a rounded rock",
+      "after": "The rounded gray rock"
+    },
+    {
+      "item_id": "326_00000022#05",
+      "before": "The rock with a small rock",
+      "after": "The small gray rock"
+    },
+    {
+      "item_id": "327_00000144#03",
+      "before": "The yellow boat with a duck - shaped boat",
+      "after": "The yellow duck-shaped boat"
+    },
+    {
+      "item_id": "327_00000193#02",
+      "before": "The blue boat with a canopy on the boat",
+      "after": "The blue pedal boat with a canopy"
+    },
+    {
+      "item_id": "332_00000058#04",
+      "before": "The black car with a compact car",
+      "after": "The compact black car"
+    },
+    {
+      "item_id": "332_00000193#01",
+      "before": "The green tree with a large tree with dense foliage",
+      "after": "The large green tree with dense foliage"
+    },
+    {
+      "item_id": "336_00000049#04",
+      "before": "The green bush with a rounded bush shape",
+      "after": "The green bush with a rounded shape"
+    },
+    {
+      "item_id": "336_00000132#06",
+      "before": "The bush with a rounded bush shape",
+      "after": "The bush with a rounded shape"
+    },
+    {
+      "item_id": "336_00000132#06",
+      "before": "The green bush with a rounded bush shape",
+      "after": "The green bush with a rounded shape"
+    },
+    {
+      "item_id": "343_00000015#04",
+      "before": "The red cone with a traffic cone",
+      "after": "The red traffic cone"
+    },
+    {
+      "item_id": "344_00000001#02",
+      "before": "The white truck with a box truck with a logo on the front",
+      "after": "The white box truck with a logo on the front"
+    },
+    {
+      "item_id": "348_00000442#05",
+      "before": "The gray bear with a rock near bear",
+      "after": "The gray bear with a rock near it"
+    },
+    {
+      "item_id": "352_00000386#02",
+      "before": "The gray fence with a metal fence with vertical bars",
+      "after": "The gray metal fence with vertical bars"
+    },
+    {
+      "item_id": "355_00000254#04",
+      "before": "The deer standing deer facing forward",
+      "after": "The deer standing and facing forward"
+    },
+    {
+      "item_id": "369_00000001#01",
+      "before": "The brown animal with a small animal on the ground",
+      "after": "The small brown animal on the ground"
+    },
+    {
+      "item_id": "370_00000016#01",
+      "before": "The rock with a large rock formation",
+      "after": "The large rock formation"
+    },
+    {
+      "item_id": "370_00000016#03",
+      "before": "The gray rock with a large rock on ground",
+      "after": "The large gray rock on the ground"
+    },
+    {
+      "item_id": "370_00000026#01",
+      "before": "The gray rock with a large rock structure",
+      "after": "The large gray rock structure"
+    },
+    {
+      "item_id": "371_00000023#01",
+      "before": "The gray rock with a large rock with rough texture",
+      "after": "The large gray rock with a rough texture"
+    },
+    {
+      "item_id": "378_00000001#02",
+      "before": "The brown log with a small log on ground",
+      "after": "The small brown log on the ground"
+    },
+    {
+      "item_id": "379_00000366#03",
+      "before": "The brown log with a long, fallen log",
+      "after": "The long fallen brown log"
+    },
+    {
+      "item_id": "387_00000135#01",
+      "before": "The brown rock with a small rock formation",
+      "after": "The small brown rock formation"
+    },
+    {
+      "item_id": "387_00000135#03",
+      "before": "The white tiger with a striped tiger",
+      "after": "The white striped tiger"
+    },
+    {
+      "item_id": "387_00000135#04",
+      "before": "The rock with a large rock",
+      "after": "The large brown rock"
+    },
+    {
+      "item_id": "389_00000002#05",
+      "before": "The green house with a small house structure",
+      "after": "The green house with a small structure"
+    },
+    {
+      "item_id": "391_00000046#02",
+      "before": "The gray rock with a large rectangular rock",
+      "after": "The large rectangular gray rock"
+    },
+    {
+      "item_id": "391_00000046#03",
+      "before": "The gray rock with a large rock structure with caves",
+      "after": "The gray rock structure with caves"
+    },
+    {
+      "item_id": "393_00000295#03",
+      "before": "The gray rock with a small rock on ground",
+      "after": "The small gray rock on the ground"
+    },
+    {
+      "item_id": "394_00000283#03",
+      "before": "The person standing person with raised arms",
+      "after": "The standing person with raised arms"
+    },
+    {
+      "item_id": "395_00000305#03",
+      "before": "The person standing person",
+      "after": "The standing person"
+    },
+    {
+      "item_id": "400_00000152#05",
+      "before": "The child with a small child in light-colored top",
+      "after": "The small child in a light-colored top"
+    }
+  ],
+  "description": "Text QC rules: article engine exceptions and head-echo adjudication table."
+}

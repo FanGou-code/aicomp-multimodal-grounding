@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "query-foundry"
+version = "0.1.0"
+description = "Visual grounding annotation pipeline: census, assembly, and review tools"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: POSIX :: Linux",
+]
+
+[project.optional-dependencies]
+pipeline = ["Pillow", "numpy"]
+
+[project.urls]
+Homepage = "https://github.com/FanGou-code/query-foundry"
+Repository = "https://github.com/FanGou-code/query-foundry"
+Issues = "https://github.com/FanGou-code/query-foundry/issues"
+
+[tool.setuptools.packages.find]
+include = ["foundry*", "scripts*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# 窄规则集：只保留能发现「明显错误」的检查（E4/E7/E9 语法与导入；F 未定义名、
+# 未用导入、重定义）。更宽的类别经审阅后按下列结论不启用（2026-09-15）：
+#   - B033（集合字面量重复元素）：text_qc.py 的那处已修；
+#   - B008（默认参数里调用函数）：run_census.py 那处是刻意用默认参数绑住每轮的值，
+#     正是为了避免 B023，属误报；
+#   - B023、ARG、SIM、TRY、C4：闭包捕获循环变量（当轮即调用，不触发）、未用参数、
+#     写法与异常类型约定，均非缺陷。
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*.py" = ["E402"]
+"foundry/review/*.py" = ["E402"]
+"foundry/pipeline/api.py" = ["E402"]
+"foundry/pipeline/views.py" = ["E402"]
+"foundry/utils.py" = ["E402"]
