@@ -111,6 +111,11 @@ class _PendingTarget:
     facts: ObjectFacts
     gt_bbox: list[float]
 
+    @property
+    def item_id(self) -> str:
+        """Stable id of this target across runs of the same census."""
+        return f"{self.sample_id}#{self.facts.index:02d}"
+
 
 def assemble_run(
     merged: dict,
@@ -119,20 +124,27 @@ def assemble_run(
     max_teacher_per_frame: int = 2,
     max_workers: int = 8,
     realize=None,
+    sentences: dict[str, str | None] | None = None,
+    on_sentence=None,
 ) -> AssemblyResult:
     """Assemble query records from a census merged.json + dataset index.
 
     ``realize`` is a callable ``(facts, sample_id) -> str | None``, called once
-    per selected target. Everything that can be computed locally happens first,
-    then the calls run on ``max_workers`` threads. Whatever they return goes to
-    human review unjudged; a target whose reply carried no sentence is reported
-    as shortfall.
+    per selected target that has no wording yet. Everything that can be computed
+    locally happens first, then the calls run on ``max_workers`` threads.
+    Whatever they return goes to human review unjudged; a target whose reply
+    carried no sentence is reported as shortfall.
+
+    ``sentences`` carries wording obtained earlier, keyed by ``item_id``; those
+    targets are not called again, and it is updated in place with the fresh
+    results. ``on_sentence(item_id, sentence)`` is invoked on the calling thread
+    as each fresh result arrives, which is where a caller persists it if it
+    wants a resumable run.
     """
     result = AssemblyResult()
     sequences = merged.get("results", {})
     supply: list[_SupplyItem] = []
     pending: list[_PendingTarget] = []
-    sentences: dict[int, str | None] = {}
 
     for sequence_id in sorted(sequences):
         seq = sequences[sequence_id]
@@ -167,21 +179,29 @@ def assemble_run(
                     gt_bbox=list(entry["bbox"]),
                 ))
 
-    if realize is not None and pending:
+    done = sentences if sentences is not None else {}
+    todo = [item for item in pending if item.item_id not in done]
+
+    def record(item: _PendingTarget, sentence: str | None) -> None:
+        done[item.item_id] = sentence
+        if on_sentence is not None:
+            on_sentence(item.item_id, sentence)
+
+    if realize is not None and todo:
         if max_workers > 1:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
-                    executor.submit(realize, item.facts, item.sample_id): index
-                    for index, item in enumerate(pending)
+                    executor.submit(realize, item.facts, item.sample_id): item
+                    for item in todo
                 }
                 for future in as_completed(futures):
-                    sentences[futures[future]] = future.result()
+                    record(futures[future], future.result())
         else:
-            for index, item in enumerate(pending):
-                sentences[index] = realize(item.facts, item.sample_id)
+            for item in todo:
+                record(item, realize(item.facts, item.sample_id))
 
-    for index, item in enumerate(pending):
-        sentence = sentences.get(index)
+    for item in pending:
+        sentence = done.get(item.item_id)
         if sentence is None:
             result.shortfall.append({"sample_id": item.sample_id, "reason": "no-sentence"})
             continue

@@ -13,9 +13,11 @@ from urllib.error import HTTPError
 
 from foundry.pipeline.api import (
     ENV_API_KEY,
+    MAX_API_CONCURRENCY,
     APIError,
     OpenAIProtocolClient,
     resolve_api_key,
+    validate_concurrency,
 )
 
 BASE_URL = "https://api.example.invalid/v1"
@@ -83,6 +85,18 @@ class ResolveApiKeyTest(unittest.TestCase):
                 resolve_api_key(None)
             with self.assertRaises(SystemExit):
                 resolve_api_key("   ")
+
+
+class ConcurrencyTest(unittest.TestCase):
+    def test_the_injected_value_is_returned(self):
+        self.assertEqual(validate_concurrency(1), 1)
+        self.assertEqual(validate_concurrency(MAX_API_CONCURRENCY), MAX_API_CONCURRENCY)
+
+    def test_out_of_range_or_non_integer_values_are_refused(self):
+        for bad in (0, -1, MAX_API_CONCURRENCY + 1, 1.5, "8", True, None):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    validate_concurrency(bad)
 
 
 class ConstructionTest(unittest.TestCase):

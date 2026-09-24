@@ -1,7 +1,9 @@
 """Tests for the reverse pass (foundry.pipeline.reverse)."""
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from foundry.pipeline.reverse import (
     AXES,
@@ -149,3 +151,33 @@ class PickKthTest(unittest.TestCase):
 
     def test_axes_are_the_reverse_set(self):
         self.assertEqual(AXES, ("x", "y", "area"))
+
+
+class ResultJournalTest(unittest.TestCase):
+    """The reverse pass journals each answer so an interrupted run resumes."""
+
+    def _row(self, key: str) -> dict:
+        return {"key": key, "bbox": [0.1, 0.2, 0.3, 0.4], "route": "kernel",
+                "calls": [{"response_id": "r1"}], "thinking": ["why"]}
+
+    def test_append_then_load_round_trips(self):
+        from scripts.run_reverse import _append_result, _load_results
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "results.jsonl"
+            self.assertEqual(_load_results(path), {})
+            _append_result(path, "a", {"bbox": [0.0, 0.0, 1.0, 1.0], "route": "direct",
+                                       "calls": [], "thinking": []})
+            _append_result(path, "b", {"bbox": None, "route": "fallback", "calls": [], "thinking": []})
+            done = _load_results(path)
+            self.assertEqual(sorted(done), ["a", "b"])
+            self.assertEqual(done["b"]["bbox"], None)
+            self.assertNotIn("key", done["a"])
+
+    def test_an_empty_journal_file_loads_as_nothing_done(self):
+        from scripts.run_reverse import _load_results
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "results.jsonl"
+            path.write_text("\n\n", encoding="utf-8")
+            self.assertEqual(_load_results(path), {})

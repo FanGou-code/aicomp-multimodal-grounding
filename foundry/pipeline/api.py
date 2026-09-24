@@ -17,9 +17,14 @@ from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from foundry.utils import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_NAME
+
 
 #: Credentials come from the environment, never from the repository.
 ENV_API_KEY = "ANNOTATION_API_KEY"
+
+#: One key per run, so the ceiling is what a single account sustains.
+MAX_API_CONCURRENCY = 8
 
 
 class APIError(RuntimeError):
@@ -42,6 +47,15 @@ def resolve_api_key(cli_value: str | None = None) -> str:
             f"No API key: pass --api-key or set ${ENV_API_KEY} for this run."
         )
     return key
+
+
+def validate_concurrency(value: object) -> int:
+    """The concurrency to run with; outside 1..MAX_API_CONCURRENCY is refused."""
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_API_CONCURRENCY:
+        raise ValueError(
+            f"concurrency must be between 1 and {MAX_API_CONCURRENCY}, got {value!r}"
+        )
+    return value
 
 
 def _usage(payload: object) -> dict[str, int]:
@@ -226,3 +240,22 @@ class OpenAIProtocolClient:
                 "usage": _usage(payload.get("usage")),
             },
         )
+
+
+def client_for(
+    stage: dict, *, api_key: str, timeout_seconds: float = 180.0
+) -> OpenAIProtocolClient:
+    """A client for one stage's decoding config, against the annotation endpoint.
+
+    The provider and model identity live in ``foundry.utils``; the caller passes
+    the stage config it already carries (``thinking_mode``, ``response_format``).
+    """
+    return OpenAIProtocolClient(
+        api_key=api_key,
+        model=ANNOTATION_MODEL_NAME,
+        base_url=ANNOTATION_API_BASE_URL,
+        timeout_seconds=timeout_seconds,
+        enable_thinking=None,
+        thinking_mode=stage["thinking_mode"],
+        json_mode=stage["response_format"] == "json_object",
+    )

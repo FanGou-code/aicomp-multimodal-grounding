@@ -191,11 +191,12 @@ python scripts/run_census.py --split train --limit-sequences 320 \
     --num-shards 8 --run-tag census-full-1 \
     --data-root /path/to/dataset --index-dir data/indexes
 
-# [3] 组装（一次 API 调用 / 目标，代码列事实 + 教师造句；--no-realize 只跑本地短路）
+# [3] 组装（一次 API 调用 / 目标，8 并发；代码列事实 + 教师造句；
+#     --no-realize 只跑本地短路、--resume 复用已落盘的措辞、--force 重头来）
 python scripts/assemble_queries.py --census-run outputs/census/census_<id> \
     --run-tag asm-<tag> --data-root /path/to/dataset --index-dir data/indexes
 
-# [3b] 逆向（query → 框）
+# [3b] 逆向（query → 框，8 并发；--resume 复用已完成的题、--force 重头来）
 python scripts/run_reverse.py --queries /path/to/queries.json \
     --data-root /path/to/dataset --run-tag reverse-<tag>
 
@@ -326,8 +327,9 @@ HTTP 接口：`GET /api/session`、`GET /api/progress`、`GET /image`、
 | 文件 | 内容 |
 |---|---|
 | `outputs/census/census_<id>/` | 普查结果 `merged.json`、运行计划与分片 checkpoint |
-| `outputs/assembly/<tag>/assembly.json` | 组装后的语料（每条含 sample_id、object_index、query、bbox、family、facts） |
-| `outputs/reverse/<run_id>/` | 逆向通路产物：`predictions.json`、`routes.json`、`thinking.jsonl`、`metadata.json` |
+| `outputs/assembly/<tag>/assembly.json` | 组装后的语料（每条含 sample_id、object_index、query、bbox） |
+| `outputs/assembly/<tag>/sentences.jsonl` | 逐条落盘的措辞；中断后 `--resume` 从这里续跑 |
+| `outputs/reverse/<run_id>/` | 逆向通路产物：`predictions.json`、`routes.json`、`thinking.jsonl`、`metadata.json`，以及逐条落盘的 `results.jsonl`（`--resume` 的续跑依据） |
 | `outputs/review/<run_tag>/annotations.jsonl` | 追加日志，apply 优先重放的状态来源 |
 | `outputs/review/<run_tag>/annotations.predictions.json` | 框结果：`{item_id: [x1,y1,x2,y2]}` 归一化 0–1 XYXY |
 | `outputs/review/<run_tag>/annotations.queries.json` | 人工修订后的 query 文本 |
@@ -349,8 +351,17 @@ KEEP 表与人工裁定的 echo 表）。提示词不含示例 query 与风格�
 变更配方使用新的运行标签，不覆盖已有标注。
 
 每轮用一把手动注入的 key：`--api-key` 或环境变量 `ANNOTATION_API_KEY`，代码不轮换、
-不落盘、不记录。并发默认 8（`--concurrency`），撞到服务方的速率限制由客户端的退避
-重试吸收。仓库内不含任何凭据。
+不落盘、不记录。并发默认 8（`--concurrency`，上限同值），撞到服务方的速率限制由
+客户端的退避重试吸收；key 被拒（401/402/403）立即终止并指明原因，等人换 key 后
+`--resume` 续跑。三个 API 阶段都会把每条结果即时落盘，中断不丢已完成的部分：
+
+```
+普查   分片 checkpoint + merged.json      --resume 默认开、--retry-failed 默认开
+组装   sentences.jsonl（每条措辞一行）     --resume 默认开、--force 重头来
+逆向   results.jsonl（每条答案一行）       --resume 默认开、--force 重头来
+```
+
+仓库内不含任何凭据。
 
 ## 合并与交付
 
@@ -403,7 +414,7 @@ outputs/              产物（census / assembly / reverse / review / approved�
 python -m unittest discover -s tests
 ```
 
-174 项测试，覆盖划分与去重、普查门控、事实与规划、事实清单与组句、逆向通路、文本 QC、契约打包、
+189 项测试，覆盖划分与去重、普查门控、事实与规划、事实清单与组句、逆向通路、文本 QC、契约打包、
 审查器 HTTP 与存储恢复、Key 池。HTTP 测试只监听本机临时端口，API 测试使用假响应，
 不消耗真实额度。
 

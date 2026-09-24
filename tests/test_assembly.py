@@ -437,5 +437,95 @@ class ConcurrencyTest(unittest.TestCase):
             assemble_run(merged, index, max_workers=8, realize=realize)
 
 
+class ResumeTest(unittest.TestCase):
+    """Wording obtained earlier is reused instead of paid for twice."""
+
+    def _fixture(self, count: int = 4):
+        frames = {
+            f"072_{i:08d}": (
+                [obj(1, "car", [0.0, 0.5, 0.1, 0.7]), obj(2, "car", [0.3, 0.5, 0.4, 0.7])],
+                None,
+            )
+            for i in range(1, count + 1)
+        }
+        index = {sid: {"bbox": objects[0]["bbox"], "visible": "x"} for sid, (objects, _) in frames.items()}
+        return make_merged(frames), index
+
+    def _item_ids(self, merged, index):
+        seen = []
+
+        def realize(target, sample_id):
+            seen.append(f"{sample_id}#{target.index:02d}")
+            return f"The {target.head} {sample_id}"
+
+        assemble_run(merged, index, realize=realize, max_workers=1)
+        return seen
+
+    def test_a_cached_sentence_is_not_asked_again(self):
+        merged, index = self._fixture()
+        item_ids = self._item_ids(merged, index)
+        self.assertGreater(len(item_ids), 2)
+        cached = {item_id: f"already said {item_id}" for item_id in item_ids[:2]}
+        expected = [item_id for item_id in item_ids if item_id not in cached]
+        called = []
+
+        def realize(target, sample_id):
+            called.append(f"{sample_id}#{target.index:02d}")
+            return f"The {target.head} {sample_id}"
+
+        result = assemble_run(merged, index, realize=realize, max_workers=8, sentences=cached)
+        self.assertEqual(sorted(called), sorted(expected))
+        texts = {r.query for r in result.records}
+        self.assertTrue(set(cached.values()) & texts)
+
+    def test_a_cached_failure_is_not_asked_again(self):
+        merged, index = self._fixture()
+        item_ids = self._item_ids(merged, index)
+        cached = {item_ids[0]: None}
+        result = assemble_run(
+            merged, index,
+            realize=lambda target, sample_id: f"The {target.head} {sample_id}",
+            max_workers=8, sentences=cached,
+        )
+        self.assertEqual(
+            [s["reason"] for s in result.shortfall if s["sample_id"] in item_ids[0]],
+            ["no-sentence"],
+        )
+
+    def test_a_resumed_run_matches_the_uninterrupted_one(self):
+        merged, index = self._fixture()
+
+        def realize(target, sample_id):
+            return f"The {target.head} {sample_id}"
+
+        whole = assemble_run(merged, index, realize=realize, max_workers=1)
+        cache: dict = {}
+        assemble_run(merged, index, realize=realize, max_workers=1, sentences=cache)
+        self.assertTrue(cache)
+        resumed = assemble_run(
+            merged, index, realize=realize, max_workers=1, sentences=dict(cache),
+        )
+        self.assertEqual(
+            [r.__dict__ for r in resumed.records],
+            [r.__dict__ for r in whole.records],
+        )
+
+    def test_every_fresh_result_is_handed_to_the_persister(self):
+        merged, index = self._fixture()
+        calls, written = [], {}
+
+        def realize(target, sample_id):
+            item_id = f"{sample_id}#{target.index:02d}"
+            calls.append(item_id)
+            return f"The {target.head} {item_id}"
+
+        assemble_run(
+            merged, index, realize=realize, max_workers=8,
+            sentences={}, on_sentence=written.__setitem__,
+        )
+        self.assertEqual(sorted(written), sorted(calls))
+        self.assertTrue(all(written[item_id].endswith(item_id) for item_id in written))
+
+
 if __name__ == "__main__":
     unittest.main()
