@@ -26,6 +26,13 @@ ENV_API_KEY = "ANNOTATION_API_KEY"
 #: One key per run, so the ceiling is what a single account sustains.
 MAX_API_CONCURRENCY = 8
 
+#: Bounded retry budgets. Every API error gets the same treatment: back off and
+#: try again this many times, then stop the run for the operator to look at.
+#: 429 keeps its own budget because waiting out a rate limit should not consume
+#: the attempts left for a flaky connection.
+TRANSPORT_ATTEMPTS = 5
+RATE_LIMIT_ATTEMPTS = 8
+
 
 class APIError(RuntimeError):
     def __init__(self, message: str, *, status: int | None = None) -> None:
@@ -75,8 +82,8 @@ class OpenAIProtocolClient:
         model: str,
         base_url: str,
         timeout_seconds: float = 180.0,
-        transport_attempts: int = 5,
-        rate_limit_attempts: int = 8,
+        transport_attempts: int = TRANSPORT_ATTEMPTS,
+        rate_limit_attempts: int = RATE_LIMIT_ATTEMPTS,
         opener: Callable = urlopen,
         sleeper: Callable[[float], None] = time.sleep,
         enable_thinking: bool | None = False,
@@ -157,42 +164,31 @@ class OpenAIProtocolClient:
                 return self._parse_response(parsed, headers)
             except HTTPError as exc:
                 detail = exc.read(2048).decode("utf-8", errors="replace")
-                if exc.code in (401, 402, 403):
-                    raise APIError(
-                        f"API HTTP {exc.code} (the injected key was refused): {detail}",
-                        status=exc.code,
-                    ) from exc
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                try:
+                    parsed_delay = float(retry_after) if retry_after else 0.0
+                except ValueError:
+                    parsed_delay = 0.0
                 if exc.code == 429:
-                    # A rate limit is temporary (provider docs: back off and
-                    # retry), so it never consumes a transport attempt.
+                    # Waiting out a rate limit must not consume the attempts
+                    # left for a flaky connection, so it has its own budget.
                     rate_limit_retries += 1
                     if rate_limit_retries >= self.rate_limit_attempts:
                         raise APIError(
                             f"API HTTP 429 persisted after {rate_limit_retries} backoffs: {detail}",
                             status=429,
                         ) from exc
-                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
-                    try:
-                        parsed_delay = float(retry_after) if retry_after else 0.0
-                    except ValueError:
-                        parsed_delay = 0.0
                     delay = parsed_delay if parsed_delay > 0.0 else 2 ** (rate_limit_retries - 1)
-                elif 500 <= exc.code < 600:
+                else:
+                    # Every other status is retried the same way, then stops the
+                    # run. Whether the key is dead is the operator's call, not
+                    # this loop's: the status and body travel with the error.
                     transport_failures += 1
                     if transport_failures == self.transport_attempts:
                         raise APIError(
                             f"API HTTP {exc.code}: {detail}", status=exc.code
                         ) from exc
-                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
-                    try:
-                        parsed_delay = float(retry_after) if retry_after else 0.0
-                    except ValueError:
-                        parsed_delay = 0.0
                     delay = parsed_delay if parsed_delay > 0.0 else 2 ** (transport_failures - 1)
-                else:
-                    raise APIError(
-                        f"API HTTP {exc.code}: {detail}", status=exc.code
-                    ) from exc
             except (TimeoutError, URLError, ConnectionResetError, HTTPException) as exc:
                 # ConnectionResetError covers http.client.RemoteDisconnected
                 # (provider closes the connection without a response); other
@@ -243,18 +239,21 @@ class OpenAIProtocolClient:
 
 
 def client_for(
-    stage: dict, *, api_key: str, timeout_seconds: float = 180.0
+    stage: dict, *, api_key: str, timeout_seconds: float = 180.0, retry: bool = True
 ) -> OpenAIProtocolClient:
     """A client for one stage's decoding config, against the annotation endpoint.
 
     The provider and model identity live in ``foundry.utils``; the caller passes
     the stage config it already carries (``thinking_mode``, ``response_format``).
+    ``retry=False`` sends every request exactly once.
     """
     return OpenAIProtocolClient(
         api_key=api_key,
         model=ANNOTATION_MODEL_NAME,
         base_url=ANNOTATION_API_BASE_URL,
         timeout_seconds=timeout_seconds,
+        transport_attempts=TRANSPORT_ATTEMPTS if retry else 1,
+        rate_limit_attempts=RATE_LIMIT_ATTEMPTS if retry else 1,
         enable_thinking=None,
         thinking_mode=stage["thinking_mode"],
         json_mode=stage["response_format"] == "json_object",

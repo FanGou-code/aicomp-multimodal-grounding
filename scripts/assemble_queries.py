@@ -54,11 +54,11 @@ def _target_view(image, bbox) -> str:
     return jpeg_data_url(view)
 
 
-def build_realizer(data_root: Path, index: dict, api_key: str):
+def build_realizer(data_root: Path, index: dict, api_key: str, retry: bool = True):
     """One API call per target: the target's facts in, one sentence out."""
     from PIL import Image
 
-    client = client_for(REALIZE_STAGE, api_key=api_key)
+    client = client_for(REALIZE_STAGE, api_key=api_key, retry=retry)
     cache: dict[str, object] = {}
 
     def realize(facts, sample_id):
@@ -131,6 +131,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "not 1 per sequence). Metadata-only: assembly always "
                              "covers the census-selected frames; the flag drives the "
                              "downstream review session's sampling mode.")
+    parser.add_argument("--retry", action=argparse.BooleanOptionalAction, default=True,
+                        help="retry transient failures before stopping (default: on)")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
                         help="reuse the wording already in the output dir (default: on)")
     parser.add_argument("--force", action="store_true",
@@ -167,7 +169,7 @@ def main() -> None:
         print(f"resuming: {len(sentences)} wording(s) already on file")
 
     realize = None if args.no_realize else build_realizer(
-        args.data_root, index, resolve_api_key(args.api_key)
+        args.data_root, index, resolve_api_key(args.api_key), retry=args.retry
     )
     result = assemble_run(
         merged,
