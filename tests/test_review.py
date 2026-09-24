@@ -222,7 +222,7 @@ class StoreReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             a, b = AnnotationStore(tmp), AnnotationStore(tmp)
             first_inside, second_started, second_inside, release = (threading.Event() for _ in range(4))
-            original = module._atomic_write_json
+            original = module.atomic_write_json
             def write_snapshot(path, data):
                 if path.name == "annotations.predictions.json":
                     if "b" in data:
@@ -235,7 +235,7 @@ class StoreReplayTest(unittest.TestCase):
             def second_write():
                 second_started.set()
                 b.set("b", [0, 0, 1, 1], "reviewer")
-            with patch.object(module, "_atomic_write_json", side_effect=write_snapshot), ThreadPoolExecutor(2) as pool:
+            with patch.object(module, "atomic_write_json", side_effect=write_snapshot), ThreadPoolExecutor(2) as pool:
                 first = pool.submit(a.set, "a", [0, 0, 1, 1], "reviewer")
                 self.assertTrue(first_inside.wait(5))
                 second = pool.submit(second_write)

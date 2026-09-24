@@ -408,7 +408,7 @@ class MockAdapterTests(unittest.TestCase):
     def test_predictions_are_deterministic_and_valid(self):
         from aicomp_grounding.bbox import validate_bbox
 
-        self.assertEqual(_stable_box("q"), _stable_box("q"))
+        self.assertEqual(_stable_box("q"), [0.272745, 0.133137, 0.612941, 0.484118])
         self.assertNotEqual(_stable_box("q"), _stable_box("other"))
         self.assertIsNotNone(validate_bbox(_stable_box("q")))
 

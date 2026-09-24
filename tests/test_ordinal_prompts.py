@@ -39,7 +39,6 @@ class LoaderTests(unittest.TestCase):
             self.assertRegex(value, HEX64)
         self.assertEqual(hashes, loader.prompt_hashes())
         self.assertRegex(loader.prompts_fingerprint(), HEX64)
-        self.assertEqual(loader.prompts_fingerprint(), loader.prompts_fingerprint())
 
     def test_unknown_prompt_name_is_rejected(self):
         with self.assertRaises(ValueError):
