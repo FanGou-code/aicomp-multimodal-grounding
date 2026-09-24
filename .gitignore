@@ -39,10 +39,8 @@ keys/
 htmlcov/
 .ipynb_checkpoints/
 
-# Data files & Datasets (shared offline via ModelScope, never committed)
-# 例外：data/indexes/ 是划分与跨集去重的审计记录，随仓库分发。
-data/*
-!data/indexes/
+# Data files & Datasets: never committed, never distributed.
+data/
 
 # Model weights & LoRA adapters (any location)
 # NOTE: *.bin / *.pt are intentionally broad — weight files of any naming land here.
@@ -66,7 +64,6 @@ outputs/
 
 # Internal working notes and platform runbook: kept in the local checkout,
 # never published (README + docs/ carry everything an external user needs).
-docs/handoff*.md
 *handoff*.md
 docs/sop*.md
 AGENTS.md

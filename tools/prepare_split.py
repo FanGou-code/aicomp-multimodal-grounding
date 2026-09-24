@@ -154,7 +154,6 @@ def build_indexes(
         raw_root=raw_root,
     )
 
-    excluded_records: dict[str, list[dict]] = {"train": [], "val": []}
     all_sequences = sorted(
         p.name for p in raw_train.iterdir() if p.is_dir() and p.name.isdigit()
     )
@@ -200,12 +199,6 @@ def build_indexes(
             if test_hashes and visible_path.is_file():
                 vis_hash = _hash_file(visible_path)
                 if vis_hash in test_hashes:
-                    split_key = "train" if seq in train_set else "val"
-                    excluded_records[split_key].append({
-                        "sample_id": sample_id,
-                        "visible": f"Train/{seq}/color/{filename}",
-                        "test_images": sorted(set(test_hashes[vis_hash])),
-                    })
                     stats["excluded_hash"] += 1
                     continue
 
@@ -249,23 +242,6 @@ def build_indexes(
             json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8",
         )
         tmp.replace(manifest_path)
-
-        total_excluded = len(excluded_records["train"]) + len(excluded_records["val"])
-        if total_excluded > 0:
-            audit_data = {
-                "description": "Samples excluded because their visible image matches a Test image (SHA-256).",
-                "test_images_hashed": len(test_hashes),
-                "train_excluded": len(excluded_records["train"]),
-                "val_excluded": len(excluded_records["val"]),
-                "records": excluded_records,
-            }
-            overlap_path = out_dir / "excluded_overlap.json"
-            tmp = overlap_path.with_name(overlap_path.name + ".tmp")
-            tmp.write_text(
-                json.dumps(audit_data, ensure_ascii=False, indent=1),
-                encoding="utf-8",
-            )
-            tmp.replace(overlap_path)
 
     return stats
 

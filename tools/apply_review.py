@@ -25,7 +25,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from aicomp_grounding.annotation.config import ANNOTATION_MODEL_NAME  # noqa: E402
 from aicomp_grounding.io import atomic_write_json, load_json  # noqa: E402
 from aicomp_grounding.annotation.review.store import AnnotationStore, JOURNAL_NAME, QUERY_SNAPSHOT_NAME  # noqa: E402
-from aicomp_grounding.annotation.text_qc import apply_text_qc  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -166,7 +165,7 @@ def apply(generation_path: Path, queries_path: list[Path] | Path | None,
     # --- Merge ---
     stats: dict[str, int] = Counter(
         total=len(records), human=0, original=0, collision=0,
-        qc_edited=0, box_seen=0, box_changed=0, absent_removed=0, todo_excluded=0,
+        box_seen=0, box_changed=0, absent_removed=0, todo_excluded=0,
     )
     flagged: list[dict] = []
 
@@ -218,25 +217,7 @@ def apply(generation_path: Path, queries_path: list[Path] | Path | None,
         kept.append(rec)
     records = kept
 
-    # --- Text QC pass ---
-    # Build minimal GenerationRecord-like objects for apply_text_qc
-    class _QCRecord:
-        __slots__ = ("sample_id", "object_index", "query", "edited")
-        def __init__(self, sample_id, object_index, query, edited=False):
-            self.sample_id = sample_id
-            self.object_index = object_index
-            self.query = query
-            self.edited = edited
-
-    qc_records = [_QCRecord(r["sample_id"], r["object_index"], r["query"], r.get("edited", False))
-                  for r in records]
-    edits = apply_text_qc(qc_records)
-    for i, rec in enumerate(records):
-        rec["query"] = qc_records[i].query
-        rec["edited"] = qc_records[i].edited
-    stats["qc_edited"] = len(edits)
-
-    # --- Detect collisions after final text QC ---
+    # --- Detect collisions ---
     collisions = _detect_collisions(records)
     for rec in records:
         item_id = f"{rec['sample_id']}#{rec['object_index']:02d}"
@@ -273,8 +254,6 @@ def apply(generation_path: Path, queries_path: list[Path] | Path | None,
         "flagged": flagged,
     }
     atomic_write_json(out_dir / "generation.json", output)
-    if edits:
-        atomic_write_json(out_dir / "text_edits.json", edits)
 
     return {
         "tag": tag,
@@ -282,7 +261,6 @@ def apply(generation_path: Path, queries_path: list[Path] | Path | None,
         "stats": dict(stats),
         "records": records,
         "flagged": flagged,
-        "edits": edits,
     }
 
 

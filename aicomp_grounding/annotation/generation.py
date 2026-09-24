@@ -45,7 +45,6 @@ class GenerationRecord:
     object_index: int
     query: str
     words: int
-    edited: bool = False  # text QC modified the query (foundry.text_qc)
 
 
 @dataclass

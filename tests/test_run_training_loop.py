@@ -38,7 +38,7 @@ from aicomp_grounding.training_core import (
 from aicomp_grounding.training_state import validate_approved_artifact  # noqa: F401
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
 from aicomp_grounding.models.base import DEFAULT_LORA_PROJECTIONS, language_model_lora_targets
-from aicomp_grounding.prompts import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
+from aicomp_grounding.messages import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
 
 
 def _data(scene: str) -> dict:

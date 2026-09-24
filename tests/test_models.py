@@ -42,7 +42,7 @@ from aicomp_grounding.models.qwen3vl import (
     MODEL_NAME,
     MODEL_REVISION,
 )
-from aicomp_grounding.prompts import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
+from aicomp_grounding.messages import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
 from aicomp_grounding.submission import build_submission
 
 
