@@ -115,6 +115,15 @@ python tools/train.py --config configs/train_example.yaml --learning-rate 5e-5
 | `--epochs` | 3 | |
 | `--eval-batch-size` | 1 | 与 `--batch-size` 保持一致：训练与验证共用一种张量形状 |
 | `--best-metric` | `acc_at_0_5` | `acc_at_0_5` / `mean_iou` 越大越好，`val_loss` 越小越好 |
+| `--lora-rank` | 16 | LoRA 秩 |
+| `--lora-alpha` | 32 | LoRA 缩放 |
+| `--lora-dropout` | 0.05 | LoRA dropout（0–1） |
+| `--warmup-ratio` | 0.05 | 线性 warmup 占总步数比例（0–1） |
+| `--lr-scheduler-type` | `cosine` | `cosine` / `linear` / `constant`；warmup 后衰减至峰值学习率的 10% |
+| `--max-grad-norm` | 1.0 | 梯度裁剪范数 |
+| `--weight-decay` | 0.01 | AdamW 权重衰减 |
+| `--max-pixels` | 3072×28×28 | 单帧视觉 token 预算；显存不足时下调（须大于 min_pixels），会改变运行身份 |
+| `--gradient-checkpointing` | 开 | 梯度检查点：省激活显存、慢约 20–30%；显存充足时用 `--no-gradient-checkpointing` 关闭 |
 
 ## 推理与评测
 

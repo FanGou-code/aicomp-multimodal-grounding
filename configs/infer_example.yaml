@@ -7,7 +7,7 @@
 run:
   model: qwen3vl
   model_path: models/Qwen3-VL-8B-Instruct
-  lora_path: outputs/training/<train_run_id>/best/epoch_03
+  lora_path: outputs/training/<train_run_id>/best/epoch_xx
   test_json: data/Test/queries/queries.json
   data_dir: data
   batch_size: 2

@@ -171,6 +171,7 @@ class Qwen3_5Adapter:
             "lora_dropout": 0.05,
             "compute_dtype": "bfloat16",
             "autocast": True,
+            "gradient_checkpointing": True,
             "eval_batch_size": 1,
             "best_epoch_primary_metric": "acc_at_0_5",
             "python_version": RUNTIME_PYTHON_VERSION,

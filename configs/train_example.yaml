@@ -30,3 +30,6 @@ hyperparameters:
   lr_scheduler_type: cosine
   max_grad_norm: 1.0
   weight_decay: 0.01
+  # Resource knobs: lower the pixel budget or keep checkpointing on when VRAM-bound.
+  max_pixels: 2408448
+  gradient_checkpointing: true
