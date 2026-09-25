@@ -25,14 +25,14 @@ INFERENCE_DEFAULT_MAX_PIXELS = 3072 * 28 * 28
 # current_runtime_packages() overwrites each entry with the actually-installed
 # version, so the pinned values below matter only when a package is absent.
 RUNTIME_PACKAGES = (
-    "transformers==5.15.1",
-    "accelerate==1.14.0",
-    "peft==0.20.0",
+    "transformers==5.17.0",
+    "accelerate==1.15.0",
+    "peft==0.21.0",
     "qwen-vl-utils==0.0.14",
     "pillow==12.1.0",
     "pyyaml==6.0.2",
-    "torch==2.13.0",
-    "torchvision==0.28.0",
+    "torch==2.14.0",
+    "torchvision==0.29.0",
 )
 
 

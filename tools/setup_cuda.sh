@@ -11,7 +11,7 @@
 # Both variants install the same torch version declared in pyproject.toml.
 #
 # A managed image that already ships a matching torch (for example a
-# CUDA 13.0 / Python 3.12 / torch 2.13.0 base image) short-circuits: pip
+# CUDA 13.x / Python 3.12 / torch 2.14 base image) short-circuits: pip
 # reports the requirement as already satisfied and downloads nothing for it.
 
 set -euo pipefail
@@ -38,7 +38,7 @@ else
     echo "[setup] Driver supports CUDA ${CUDA_MAJOR}.x; installing cu128 wheels."
 fi
 
-pip install --quiet torch==2.13.0 torchvision==0.28.0 --index-url "$WHEEL_INDEX"
+pip install --quiet torch==2.14.0 torchvision==0.29.0 --index-url "$WHEEL_INDEX"
 pip install --quiet -e .
 
 python - <<'PY'
@@ -48,9 +48,9 @@ import torch
 import transformers
 import yaml  # noqa: F401
 
-assert torch.__version__.split("+")[0] == "2.13.0", torch.__version__
+assert torch.__version__.split("+")[0] == "2.14.0", torch.__version__
 assert torch.cuda.is_available(), "CUDA is not available"
-assert transformers.__version__ == "5.15.1", transformers.__version__
+assert transformers.__version__ == "5.17.0", transformers.__version__
 
 name = torch.cuda.get_device_name(0)
 total_gib = torch.cuda.get_device_properties(0).total_memory / 1024**3
