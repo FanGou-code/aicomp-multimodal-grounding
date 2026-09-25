@@ -8,7 +8,7 @@ prediction payloads of parallel shards.
 
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from aicomp_grounding.bbox import compute_iou, validate_bbox
 from aicomp_grounding.io import load_json
@@ -23,9 +23,8 @@ def load_inference_items(
 
     Accepts an approved annotation artifact (``{metadata, data}``), a flat
     ``{query_id: item}`` index, or the official Test template directly.
-    Official template paths are mapped in memory to the processed worker layout
-    (``Test/Images/...`` and ``Processed/Test/depth_jet/...``), so a separate
-    ``data/test.json`` file is not required.
+    Official template paths are mapped in memory to the dataset layout
+    (``Test/Images/...``), so a separate ``data/test.json`` file is not required.
     Every item gains a ``"key"`` entry. Returns ``(items, approved_metadata_or_None)``.
     """
     raw = load_json(path)
@@ -54,10 +53,7 @@ def load_inference_items(
                     **item,
                     "visible": f"Test/{item['visible']}",
                     "infrared": f"Test/{item['infrared']}",
-                    "depth": (
-                        "Processed/Test/depth_jet/"
-                        f"{PurePosixPath(item['depth']).name}"
-                    ),
+                    "depth": f"Test/{item['depth']}",
                 }
                 for key, item in raw.items()
             }

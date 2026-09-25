@@ -2,7 +2,7 @@
 
 本文件定义 `data/` 布局、标注产物与提交格式的字段级约定。可执行版本在
 `aicomp_grounding/contract.py`（产物准入）、`aicomp_grounding/testset.py`（官方模板与
-Test 准备）、`tools/prepare_rgbdt.py`（预处理）。
+索引映射校验）、`tools/prepare_split.py`（划分与索引落盘）。
 
 ## 目录布局
 
@@ -10,7 +10,6 @@ Test 准备）、`tools/prepare_rgbdt.py`（预处理）。
 data/                         运行输入，不入库
   Train/<sequence>/           color/  infrared/  depth/  groundtruth.txt
   Test/                       Images/{visible,infrared,depth}/  queries/queries.json
-  Processed/                  Train/<seq>/depth_jet/  Test/depth_jet/（JET 伪彩深度）
 outputs/                      运行产物，不入库
   annotations/<run_id>/       train/approved.json  val/approved.json
   training/<run_id>/          plan.json  checkpoints/  best/  last/  completed.json
@@ -21,29 +20,26 @@ outputs/                      运行产物，不入库
   submission/<tag>/           submission.zip
 ```
 
-`Train/` 与 `Test/` 是原始数据，`Processed/` 由 `tools/prepare_rgbdt.py` 生成。
-划分索引在 `data/indexes/`（本地，不入库，见「产物与责任边界」）。
+`Train/` 与 `Test/` 是原始数据。划分索引在 `data/indexes/`（本地，不入库，
+见「产物与责任边界」）。
 
-## 三模态输入格式
+## 模态输入格式
 
 | 模态 | 原始格式 | 读取方式 | 约束 |
 | --- | --- | --- | --- |
-| `visible` | 三通道 8 位无符号 | 按 RGB 读入 | 已时间同步、空间对齐，三路尺寸一致 |
-| `infrared` | 三通道 8 位无符号（单通道热辐射灰度堆叠，无彩色语义） | 按 RGB 读入 | 同上 |
-| `depth` | 单通道 16 位无符号，单位毫米，`0` 为无效读数 | 经 `Processed/*/depth_jet/` 的 JET 伪彩图读入 | 固定标定 `depth_scaling=fixed`、`min_depth_mm=300`、`max_depth_mm=20000` |
+| `visible` | 三通道 8 位无符号 | 按 RGB 读入；模型唯一输入模态 | 已时间同步、空间对齐，三路尺寸一致 |
+| `infrared` | 三通道 8 位无符号（单通道热辐射灰度堆叠，无彩色语义） | 序数后处理按框内强度切片读入 | 同上 |
+| `depth` | 单通道 16 位无符号，单位毫米，`0` 为无效读数 | 序数后处理按框内原始毫米值切片读入 | 固定标定 `depth_scaling=fixed`、`min_depth_mm=300`、`max_depth_mm=20000` |
 
-序数后处理的深度轴读**原始 16 位毫米图**（`Test/Images/depth/`、`Train/<seq>/depth/`），
-不走 `Processed/` 的 JET 伪彩。
-
-同一场景的三张图按 `visible → infrared → depth` 固定顺序送入模型。`Processed/` 缺失
-或损坏时由 `tools/prepare_rgbdt.py` 重新生成；深度源已是 8 位三通道伪彩图时按原样
-复制，不做二次着色。
+可见光图像是视觉大模型唯一输入；红外与深度不进模型，只作为序数后处理的物理量
+（`ordinal_kernel.axis_value`）。三者仍须空间对齐：序数后处理用归一化 bbox 比例在
+深度/红外数组上切片，尺寸不一致会使对应轴不可用（该轴不支持，框保持不变）。
 
 ## 产物与责任边界
 
 | 产物 | 生产者 | 消费者 | 交接方式 |
 | --- | --- | --- | --- |
-| `data/Train`、`data/Test`、`data/Processed` | 数据交付方 + `tools/prepare_rgbdt.py` | 本仓训练、推理与标注流水线 | 本地目录 |
+| `data/Train`、`data/Test` | 数据交付方 | 本仓训练、推理、标注流水线与序数后处理 | 本地目录 |
 | `data/indexes/{train,val}.json`、`split_manifest.json` | `tools/prepare_split.py` | 标注侧取帧与真值框；训练不读 | 本地，不入库 |
 | `outputs/annotations/<run_id>/{train,val}/approved.json` | `tools/package_approved.py` | 本仓训练与验证集推理 | 4 重 SHA-256 指纹（协议 12，见下） |
 | `outputs/inference/<run_id>/predictions.json` | 本仓 `tools/infer.py` | 融合 `serving.fusion` | `{query_id: bbox 或 null}` |
@@ -112,7 +108,6 @@ train 与 val 必须来自同一 `run_id`，且两侧 `prompt_hash` 与 `provena
 | train/val 配对 | `serving.engine.training_state.validate_training_artifacts` | 两侧 `prompt_hash` 与 `provenance` 一致；样本 ID 与序列 ID 不重叠 | 抛 `ValueError` |
 | 图像引用 | `serving.engine.training_core.prepare_training_plan` | 记录值为 `manifest_` 前缀时，复算路径与记录尺寸并与产物比对（不解码图像） | 抛 `ValueError` |
 | 官方模板 | `testset.validate_official_test_template`（由 `serving.submission.build_submission` 调用） | 条数 9555、查询 ID 形态、字段集、路径形态、内容哈希 | 抛 `ValueError`，不出包 |
-| Test 深度引用 | `tools/prepare_rgbdt.validate_test_depth_references` | 官方模板 → `Processed/Test/depth_jet` 逐条映射、深度文件集合指纹、三模态尺寸一致性 | 返回错误列表，脚本中止 |
 | 推理续跑 | `serving.engine.inference_state.validate_checkpoint_payload`、`load_resume_predictions` | 分片分配与键集合、框合法性、跨来源冲突结果 | 抛 `ValueError`，拒绝合并 |
 | 标注侧 | `tools/prepare_split.py`、`tools/package_approved.py` | 测试集同帧哈希去重；同帧描述唯一性、QC、双 split 联合校验 | 见 `architecture.md` |
 

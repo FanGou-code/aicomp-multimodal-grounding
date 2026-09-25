@@ -1,50 +1,44 @@
-# RGBDT-Grounding
+# RGB-Grounding
 
-RGB-D-T（可见光、热红外、深度）三模态目标视觉定位的完整代码：**数据生产（标注流水线）
-与模型微调评测**两条产线，合于一个仓库。
+可见光（RGB）目标视觉定位的完整代码：**数据生产（标注流水线）与模型微调评测**
+两条产线，合于一个仓库。视觉大模型只消费可见光图像；深度与红外不进模型输入，
+只作为序数后处理的物理量（原始 16 位毫米深度切片、红外强度切片）。
 
-- **标注侧**（`aicomp_grounding/annotation/` + `tools/`）：把预处理产出的三模态图像
-  加工成自包含的 `approved.json`——划分、跨集去重、三模态事实普查、教师组句、人审、
-  封包与 4 重指纹自校验。
+- **标注侧**（`aicomp_grounding/annotation/` + `tools/`）：把原始图像加工成自包含的
+  `approved.json`——划分、跨集去重、事实普查、教师组句、人审、封包与 4 重指纹自校验。
 - **服务侧**（`aicomp_grounding/serving/` + `tools/`）：三款视觉大模型的 LoRA 微调、
   推理评测、序数后处理、融合与提交。
 
-输入同一场景已对齐的三张图像与一句英文目标描述（query），输出目标在可见光图像中的
+输入一张可见光图像与一句英文目标描述（query），输出目标在图像中的
 归一化边界框 `[x1, y1, x2, y2]`。指标为 `ACC@0.5`：与真值框 IoU ≥ 0.5 记为命中。
 
 仓库只提供代码，不含数据集、模型权重与标注产物。
 
 ## 模型支持
 
-| `--model` | 底座 | 模态 | 训练 |
+| `--model` | 底座 | 输入 | 训练 |
 | --- | --- | --- | --- |
-| `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | RGB + 红外 + 深度 | LoRA |
-| `qwen3_5` | `Qwen/Qwen3.5-9B` | RGB + 红外 + 深度 | LoRA |
-| `glm46v` | `zai-org/GLM-4.6V-Flash` | RGB + 红外 + 深度 | LoRA |
+| `qwen3vl` | `Qwen/Qwen3-VL-8B-Instruct` | 可见光 RGB | LoRA |
+| `qwen3_5` | `Qwen/Qwen3.5-9B` | 可见光 RGB | LoRA |
+| `glm46v` | `zai-org/GLM-4.6V-Flash` | 可见光 RGB | LoRA |
 | `mock` | — | 接口占位 | 仅测试 |
 
 ## 安装
 
-Python 3.12；依赖在根 `pyproject.toml` 声明。
+Python 3.12；依赖在根 `pyproject.toml` 声明，torch/torchvision 精确 pin。
+
+Colab（CUDA）一键安装——按驱动报告的 CUDA 版本选择 cu130 / cu128 轮子，装完做健康自检：
 
 ```bash
-pip install -e .             # 运行依赖（torch 声明为范围，平台已装版本自动跳过）
+bash tools/setup_colab.sh
+```
+
+其它环境先按平台 CUDA 版本装好 torch/torchvision 轮子，再装本仓库：
+
+```bash
+pip install -e .             # 其余运行依赖
 pip install -e ".[kernels]"  # 仅 qwen3_5 需要：GDN 线性注意力加速内核
-pip install -e ".[dev]"      # 开发用：ruff + 数据集发布工具依赖
-```
-
-AMD ROCm 环境在训练/推理前 source 一次：
-
-```bash
-source tools/rocm_env.sh   # BLAS 后端、硬件队列上限、Triton/pip 缓存目录
-```
-
-ROCm 上 `causal-conv1d` 没有预编译轮，需先源码编译再装 `[kernels]`：
-
-```bash
-export PYTORCH_ROCM_ARCH=gfx942 MAX_JOBS=8 CAUSAL_CONV1D_FORCE_BUILD=TRUE
-pip install causal-conv1d --no-build-isolation
-pip install -e ".[kernels]"
+pip install -e ".[dev]"      # 开发用：ruff
 ```
 
 ## 数据生产（标注侧）
@@ -61,8 +55,7 @@ package_approved.py 封包 + 4 重指纹自校验 → outputs/annotations/<run_i
 ```
 
 每轮手动注入一把 key（`--api-key` 或环境变量 `ANNOTATION_API_KEY`），不轮换、不落盘。
-三个 API 阶段默认断点续跑与错误有限退避重试。完整命令、人审快捷键与产物说明见
-`docs/sop.md` 的「数据生产流水线」一节。
+三个 API 阶段默认断点续跑与错误有限退避重试。
 
 ## 准备权重
 
@@ -84,21 +77,23 @@ huggingface-cli download Qwen/Qwen3-VL-8B-Instruct \
 
 ## 准备数据
 
-两件事：**三模态图像**与**标注产物**。
+图像按 `docs/data-contract.md` 的布局放入 `data/`（`Train/<seq>/{color,infrared,depth}`、
+`Test/Images/{visible,infrared,depth}`）。视觉大模型只读可见光（`color` / `visible`）；
+原始 16 位深度图与红外图由序数后处理消费，不进模型输入。
 
-1. 图像按 `docs/data-contract.md` 的布局放入 `data/`；`tools/prepare_rgbdt.py` 完成
-   原始数据到可用输入的整理——逐帧校验三路模态存在且尺寸对齐、解析 `groundtruth.txt`
-   并归一化真值框、把 16 位毫米深度按固定标定渲染为 JET 伪彩。
-2. 训练只消费 `outputs/annotations/<run_id>/{train,val}/approved.json`（协议 12）。
+`tools/prepare_split.py` 解析 `groundtruth.txt`、归一化真值框、按序列划分 train/val、
+跨集去重并落盘索引；训练只消费 `outputs/annotations/<run_id>/{train,val}/approved.json`
+（协议 12）。
 
 ```bash
-python tools/prepare_rgbdt.py --dataset-root data           # 校验 + 深度伪彩
-python tools/prepare_rgbdt.py --dataset-root data --dry-run # 只校验，不写盘
+python tools/prepare_split.py --raw-root data --out-dir data/indexes \
+  --test-images-dir data/Test/Images/visible
 ```
 
 ## 训练
 
-三个可训练模型的超参默认值相同，均可用 CLI 覆盖；覆盖值计入运行身份。
+三个可训练模型的超参默认值相同。参数优先级：CLI > YAML（`--config`）> 适配器默认值；
+覆盖值计入运行身份。完整配置示例见 `configs/train_example.yaml`。
 
 ```bash
 # 冒烟：单步前向 + 反向，只跑 1 个 micro-batch
@@ -106,11 +101,8 @@ python tools/train.py --annotation-run-id <run_id> --model qwen3vl \
   --model-path models/Qwen3-VL-8B-Instruct --data-dir data \
   --batch-size 1 --eval-batch-size 1 --checkpoint-interval 20 --smoke-test
 
-# 完整训练
-python tools/train.py --annotation-run-id <run_id> --model qwen3vl \
-  --model-path models/Qwen3-VL-8B-Instruct --data-dir data \
-  --batch-size 1 --gradient-accumulation-steps 16 --learning-rate 1e-4 --epochs 3 \
-  --eval-batch-size 1 --num-workers 4 --checkpoint-interval 20 --run-tag qwen3vl-r1
+# 完整训练：YAML 配置，CLI 覆盖单项（这里把学习率改为 5e-5）
+python tools/train.py --config configs/train_example.yaml --learning-rate 5e-5
 ```
 
 训练其它模型时替换 `--model`（`qwen3vl` / `qwen3_5` / `glm46v`）与 `--model-path`。
@@ -126,6 +118,8 @@ python tools/train.py --annotation-run-id <run_id> --model qwen3vl \
 
 ## 推理与评测
 
+参数优先级：CLI > YAML（`--config`）> 默认值。完整配置示例见 `configs/infer_example.yaml`。
+
 ```bash
 # 验证集评测：带真值，直接打印 ACC@0.5 / 平均 IoU / 解析失败数
 python tools/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
@@ -140,6 +134,9 @@ python tools/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
   --test-json data/Test/queries/queries.json \
   --data-dir data --num-shards 1 --num-workers 2 --batch-size 2 --batch-save 100 \
   --run-tag test-full
+
+# 或用 YAML 配置整体运行
+python tools/infer.py --config configs/infer_example.yaml
 ```
 
 `--limit 100` 用于小样本试跑。中断后用 `--resume`（默认开启）续跑。
@@ -235,7 +232,7 @@ aicomp_grounding/            核心库
   serving/                  服务侧：models / engine / fusion / ordinal / submission / messages
 tools/                      全部 CLI 入口
 tests/                      CPU 单元测试
-docs/                      架构、数据合同、序数契约、赛题说明、操作 SOP
+docs/                      架构、数据合同、序数契约、赛题说明
 ```
 
 ## 文档
@@ -243,18 +240,17 @@ docs/                      架构、数据合同、序数契约、赛题说明�
 | 文档 | 内容 |
 | --- | --- |
 | `docs/architecture.md` | 分层、模块地图、结构不变量、契约边界 |
-| `docs/data-contract.md` | `data/` 布局、三模态格式、`approved.json` 字段表、校验点、提交格式 |
+| `docs/data-contract.md` | `data/` 布局、模态格式、`approved.json` 字段表、校验点、提交格式 |
 | `docs/ordinal-contract.md` | 序数后处理的中间表示、解码参数表、门、run-id 语义 |
 | `docs/research.md` | 赛题背景与官方评测口径 |
-| `docs/sop.md` | 数据生产流水线、环境、训练与推理实操 |
 
 ## 限制
 
 - 不含数据、权重、标注产物与结果；无标注产物时训练无法启动。
-- 训练与推理需自备 GPU（CUDA 或 ROCm）；CPU 只能跑契约测试与 `mock` 链路。
+- 训练与推理需自备 CUDA GPU；CPU 只能跑契约测试与 `mock` 链路。
 - `qwen3_5` 依赖 GDN 加速内核（`pip install -e ".[kernels]"`），未安装时静默回退到
   较慢的 torch 实现。
-- 三模态输入须已时间同步与空间对齐；本仓库不做配准与同步。
+- 序数后处理依赖深度/红外与可见光的空间对齐；本仓库不做配准与同步。
 - 本仓库不校验 `--model-path` 目录与声明 revision 的对应关系，也不校验图像字节版本。
 
 ## 数据来源与许可

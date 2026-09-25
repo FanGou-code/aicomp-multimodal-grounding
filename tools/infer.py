@@ -20,7 +20,7 @@ from pathlib import Path
 import sys
 import time
 
-# This entrypoint lives in offline/; make the repository root importable.
+# Make the repository root importable when executed as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.bbox import validate_bbox
@@ -38,10 +38,14 @@ from aicomp_grounding.serving.engine.inference_state import (
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.serving.models import available_models, get_adapter
 from aicomp_grounding.serving.models.base import ModelInput, require_local_model_path
-from aicomp_grounding.config import INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS
+from aicomp_grounding.config import (
+    INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS,
+    load_run_config,
+    merge_run_config,
+)
 from aicomp_grounding.paths import ProjectPaths, output_dir, resolve_from_root
 
-#: Adapters whose constructor takes the tri-modal pixel budget (``max_pixels``).
+#: Adapters whose constructor takes the per-frame pixel budget (``max_pixels``).
 #: ``mock`` is not in this set: it has no such parameter, and passing it would
 #: raise TypeError.  This is a capability set, not the training roster — a future
 #: inference-only VLM belongs here without being trainable.
@@ -64,16 +68,65 @@ def _format_eta(seconds: int) -> str:
     return f"{seconds}s"
 
 
-def parse_args():
+#: Keys accepted in the ``run:`` section of a --config YAML.
+CONFIG_RUN_KEYS = (
+    "model",
+    "model_path",
+    "test_json",
+    "max_pixels",
+    "data_dir",
+    "lora_path",
+    "batch_size",
+    "num_shards",
+    "output_dir",
+    "annotation_run_id",
+    "run_tag",
+    "limit",
+    "resume",
+    "batch_save",
+    "num_workers",
+    "project_root",
+)
+
+#: Inference has no training hyperparameters; a ``hyperparameters`` section is
+#: rejected so a training config is never silently accepted here.
+CONFIG_HYPERPARAMETER_KEYS: tuple[str, ...] = ()
+
+#: Applied after CLI and YAML; ``None`` means "not specified yet".
+_RUN_DEFAULTS = {
+    "model": "qwen3vl",
+    "test_json": Path("data/Test/queries/queries.json"),
+    "max_pixels": MAX_PIXELS,
+    "data_dir": Path("data"),
+    "batch_size": 1,
+    "num_shards": 1,
+    "output_dir": output_dir("inference"),
+    "annotation_run_id": "",
+    "run_tag": "",
+    "limit": 0,
+    "resume": True,
+    "batch_save": 50,
+    "num_workers": 4,
+    "project_root": Path("."),
+}
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run offline grounding inference or evaluation on a single GPU."
     )
     parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="YAML run configuration; CLI flags override it.",
+    )
+    parser.add_argument(
         "--model",
         type=str,
-        default="qwen3vl",
+        default=None,
         choices=available_models(),
-        help="Grounding model adapter to run.",
+        help="Grounding model adapter to run (default: qwen3vl).",
     )
     parser.add_argument(
         "--model-path",
@@ -84,26 +137,27 @@ def parse_args():
     parser.add_argument(
         "--test-json",
         type=Path,
-        default=Path("data/Test/queries/queries.json"),
+        default=None,
         help=(
             "Path to input dataset JSON index; accepts approved artifacts "
-            "or the official Test template directly."
+            "or the official Test template directly "
+            "(default: data/Test/queries/queries.json)."
         ),
     )
     parser.add_argument(
         "--max-pixels",
         type=int,
-        default=MAX_PIXELS,
-        help="Tri-modal processor max_pixels override; this is also the value "
-        "recorded in the inference run identity. Training uses 3072 tokens "
-        "(2408448); lower it (e.g. 1920*28*28=1505280) if the inference GPU "
-        "is short on VRAM. Lowering hurts grounding accuracy.",
+        default=None,
+        help="Single-frame processor max_pixels override (default: 3072*28*28); "
+        "this is also the value recorded in the inference run identity. "
+        "Lower it (e.g. 1920*28*28=1505280) if the inference GPU is short on "
+        "VRAM. Lowering hurts grounding accuracy.",
     )
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=Path("data"),
-        help="Path to root data directory containing Test/ and Processed/.",
+        default=None,
+        help="Path to root data directory containing Test/ (default: data).",
     )
     parser.add_argument(
         "--lora-path",
@@ -114,67 +168,85 @@ def parse_args():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=1,
-        help="Number of queries predicted per adapter call.",
+        default=None,
+        help="Number of queries predicted per adapter call (default: 1).",
     )
     parser.add_argument(
         "--num-shards",
         type=int,
-        default=1,
-        help="Number of local processes to split inference across.",
+        default=None,
+        help="Number of local processes to split inference across (default: 1).",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=output_dir("inference"),
-        help="Root directory for inference outputs; results go to <output-dir>/<run_id>/.",
+        default=None,
+        help="Root directory for inference outputs; results go to <output-dir>/<run_id>/ "
+        "(default: outputs/inference).",
     )
     parser.add_argument(
         "--annotation-run-id",
         type=str,
-        default="",
+        default=None,
         help="Annotation run id when --test-json is an approved artifact (train/val).",
     )
     parser.add_argument(
         "--run-tag",
         type=str,
-        default="",
+        default=None,
         help="Arbitrary experiment tag folded into the run id.",
     )
     parser.add_argument(
         "--limit",
         type=int,
-        default=0,
-        help="If > 0, limit execution to the first N queries.",
+        default=None,
+        help="If > 0, limit execution to the first N queries (default: 0).",
     )
     parser.add_argument(
         "--resume",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=None,
         help="Resume from existing predictions.json or checkpoint.json in output-dir if present (default: on).",
     )
     parser.add_argument(
         "--batch-save",
         type=int,
-        default=50,
-        help="Save predictions.json checkpoint every N queries.",
+        default=None,
+        help="Save predictions.json checkpoint every N queries (default: 50).",
     )
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
-        help="DataLoader workers for CPU/GPU overlap. 0 = sequential (legacy).",
+        default=None,
+        help="DataLoader workers for CPU/GPU overlap (default: 4). 0 = sequential.",
     )
     parser.add_argument(
         "--project-root",
         type=Path,
-        default=Path("."),
+        default=None,
         help="Repository root; relative input and output paths resolve from here.",
     )
     parser.add_argument("--shard-id", type=int, default=-1, help=argparse.SUPPRESS)
     parser.add_argument("--shard-count", type=int, default=-1, help=argparse.SUPPRESS)
     parser.add_argument("--shard-root", type=Path, default=None, help=argparse.SUPPRESS)
-    return parser.parse_args()
+    return parser
+
+
+def parse_args(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.config is not None:
+        merge_run_config(
+            args,
+            load_run_config(args.config),
+            parser=parser,
+            run_keys=CONFIG_RUN_KEYS,
+            hyperparameter_keys=CONFIG_HYPERPARAMETER_KEYS,
+        )
+    for key, value in _RUN_DEFAULTS.items():
+        if getattr(args, key) is None:
+            setattr(args, key, value)
+    return args
 
 
 def resolve_image_path(raw_path: str, data_dir: Path) -> Path:
@@ -185,37 +257,26 @@ def resolve_image_path(raw_path: str, data_dir: Path) -> Path:
 
 
 @functools.lru_cache(maxsize=32)
-def _cached_read_images(v_path: str, i_path: str, d_path: str):
+def _cached_read_image(v_path: str):
     from PIL import Image
 
-    visible_img = Image.open(v_path).convert("RGB")
-    infrared_img = Image.open(i_path).convert("RGB")
-    depth_img = Image.open(d_path).convert("RGB")
-    return visible_img, infrared_img, depth_img
+    return Image.open(v_path).convert("RGB")
 
 
-def load_scene_images(item: dict, data_dir: Path):
+def load_query_image(item: dict, data_dir: Path):
+    """Decode the visible RGB image referenced by an inference item."""
     images_dict = item.get("images") if isinstance(item.get("images"), dict) else item
     v_raw = images_dict.get("visible")
-    i_raw = images_dict.get("infrared")
-    d_raw = images_dict.get("depth")
 
-    if not v_raw or not i_raw or not d_raw:
-        raise ValueError(f"Sample item missing modality image paths: {item}")
+    if not v_raw:
+        raise ValueError(f"Sample item missing visible image path: {item}")
 
     v_path = resolve_image_path(v_raw, data_dir)
-    i_path = resolve_image_path(i_raw, data_dir)
-    d_path = resolve_image_path(d_raw, data_dir)
 
     if not v_path.is_file():
         raise FileNotFoundError(f"Visible image not found: {v_path}")
-    if not i_path.is_file():
-        raise FileNotFoundError(f"Infrared image not found: {i_path}")
-    if not d_path.is_file():
-        raise FileNotFoundError(f"Depth image not found: {d_path}")
 
-    v_img, i_img, d_img = _cached_read_images(str(v_path), str(i_path), str(d_path))
-    return v_img.copy(), i_img.copy(), d_img.copy()
+    return _cached_read_image(str(v_path)).copy()
 
 
 def _run_inference_loop(
@@ -255,13 +316,9 @@ def _run_inference_loop(
         initial_count = len(predictions)
         processed_count = initial_count
         for item in pending_items:
-            images = load_scene_images(item, data_dir)
-
             batch.append(
                 ModelInput(
-                    visible=images[0],
-                    infrared=images[1],
-                    depth=images[2],
+                    visible=load_query_image(item, data_dir),
                     query=item["query"],
                     key=item["key"],
                 )
@@ -338,12 +395,9 @@ def _run_dataloader_inference_loop(
             return len(self.items)
         def __getitem__(self, idx):
             item = self.items[idx]
-            visible_img, infrared_img, depth_img = load_scene_images(item, data_dir)
             return {
                 "key": item["key"],
-                "visible": visible_img,
-                "infrared": infrared_img,
-                "depth": depth_img,
+                "visible": load_query_image(item, data_dir),
                 "query": item["query"],
             }
 
@@ -351,8 +405,6 @@ def _run_dataloader_inference_loop(
         samples = [
             ModelInput(
                 visible=item["visible"],
-                infrared=item["infrared"],
-                depth=item["depth"],
                 query=item["query"],
                 key=item["key"],
             )

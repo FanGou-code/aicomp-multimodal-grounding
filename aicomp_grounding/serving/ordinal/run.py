@@ -156,26 +156,12 @@ def load_thinking(run_dir: Path) -> dict[str, str]:
     }
 
 
-def raw_depth_relpath(depth_rel: str) -> str:
-    """Map a processed JET depth path back to the original 16-bit millimetre file.
-
-    ``Processed/Test/depth_jet/x.png``          -> ``Test/Images/depth/x.png``
-    ``Processed/Train/004/depth_jet/x.png``     -> ``Train/004/depth/x.png``
-    """
-    parts = Path(depth_rel).as_posix().split("/")
-    if len(parts) < 4 or parts[0] != "Processed" or parts[-2] != "depth_jet":
-        raise ValueError(f"Unrecognised processed depth path: {depth_rel!r}")
-    middle = parts[1:-2]
-    if middle == ["Test"]:
-        return "/".join(["Test", "Images", "depth", parts[-1]])
-    return "/".join([*middle, "depth", parts[-1]])
-
-
 def load_axis_arrays(item: dict, data_dir: Path):
     """Return ``(depth_mm, infrared, image_size)`` for the pixel axes.
 
-    Any missing file yields ``None`` for that array, which makes the matching
-    axis unsupported and therefore leaves the box untouched.
+    The depth reference points at the original 16-bit millimetre PNG; any
+    missing file yields ``None`` for that array, which makes the matching axis
+    unsupported and therefore leaves the box untouched.
     """
     import numpy
     from PIL import Image
@@ -186,11 +172,8 @@ def load_axis_arrays(item: dict, data_dir: Path):
     depth = None
     depth_rel = item.get("depth")
     if isinstance(depth_rel, str):
-        try:
-            path = data_dir / raw_depth_relpath(depth_rel)
-        except ValueError:
-            path = None
-        if path is not None and path.is_file():
+        path = data_dir / depth_rel
+        if path.is_file():
             with Image.open(path) as image:
                 depth = numpy.asarray(image)
 

@@ -2,8 +2,9 @@
 
 These tests pin the invariant that the model-library versions recorded in
 ``config.RUNTIME_PACKAGES`` match ``pyproject.toml`` exactly, and that torch
-is declared as a range (not an exact pin) so platform-provided builds
-(DSW A 卡 2.11 / N 卡 2.10) are reused instead of reinstalled.
+and torchvision are declared as exact pins so CUDA wheel variants
+(cu130/cu128) are selected by ``tools/setup_colab.sh`` rather than by the
+range resolver.
 """
 
 from __future__ import annotations
@@ -31,11 +32,11 @@ class EnvContractTests(unittest.TestCase):
         config_pins = {p for p in RUNTIME_PACKAGES if p.split("==")[0] in _MODEL_LIBS}
         self.assertEqual(pyproject_pins, config_pins)
 
-    def test_torch_is_range_not_exact_pin(self):
-        torch_deps = [d for d in _load_dependencies() if d.startswith("torch")]
+    def test_torch_and_torchvision_are_exact_pins(self):
+        deps = _load_dependencies()
+        torch_deps = [d for d in deps if d.startswith("torch")]
         self.assertTrue(torch_deps)
-        self.assertFalse(any("==" in d for d in torch_deps))
-        self.assertTrue(any("<" in d for d in torch_deps))
+        self.assertTrue(all("==" in d for d in torch_deps), torch_deps)
 
     def test_legacy_requirement_files_removed(self):
         self.assertFalse((ROOT / "envs" / "gpu.txt").exists())

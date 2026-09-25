@@ -86,24 +86,6 @@ class ThinkingSidecarTests(unittest.TestCase):
             self.assertEqual(run.load_thinking(Path(tmp)), {})
 
 
-class RawDepthPathTests(unittest.TestCase):
-    def test_both_worker_layouts_map_back_to_the_original_file(self):
-        self.assertEqual(
-            run.raw_depth_relpath("Processed/Test/depth_jet/000002.png"),
-            "Test/Images/depth/000002.png",
-        )
-        self.assertEqual(
-            run.raw_depth_relpath("Processed/Train/004/depth_jet/00000001.png"),
-            "Train/004/depth/00000001.png",
-        )
-
-    def test_unrecognised_paths_raise(self):
-        for bad in ("Test/Images/depth/x.png", "Processed/Test/colour/x.png", ""):
-            with self.subTest(bad=bad):
-                with self.assertRaises(ValueError):
-                    run.raw_depth_relpath(bad)
-
-
 class AxisArrayTests(unittest.TestCase):
     def test_arrays_are_loaded_and_missing_files_stay_none(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,7 +98,7 @@ class AxisArrayTests(unittest.TestCase):
                 root / "Test/Images/infrared/x.png"
             )
             item = {
-                "depth": "Processed/Test/depth_jet/x.png",
+                "depth": "Test/Images/depth/x.png",
                 "infrared": "Test/Images/infrared/x.png",
                 "width": 4,
                 "height": 4,
@@ -124,26 +106,23 @@ class AxisArrayTests(unittest.TestCase):
             loaded_depth, loaded_ir, size = run.load_axis_arrays(item, root)
             self.assertEqual(size, (4, 4))
             self.assertEqual(loaded_depth.shape, (4, 4))
+            self.assertEqual(int(loaded_depth[0, 1]), 10)
             self.assertEqual(loaded_ir.shape, (4, 4, 3))
 
             missing, missing_ir, _size = run.load_axis_arrays(
-                {"depth": "Processed/Test/depth_jet/gone.png", "infrared": "Test/Images/infrared/gone.png"},
+                {"depth": "Test/Images/depth/gone.png", "infrared": "Test/Images/infrared/gone.png"},
                 root,
             )
             self.assertIsNone(missing)
             self.assertIsNone(missing_ir)
 
-    def test_a_raw_depth_path_is_skipped_not_fatal(self):
-        # A dataset that already points at Test/Images/depth cannot be mapped
-        # back from Processed/: that axis is unsupported, not a crash.
+    def test_a_missing_depth_file_is_unsupported_not_fatal(self):
+        # A sample whose depth reference does not resolve leaves the depth
+        # axis unsupported instead of crashing the resolve run.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "Test/Images/depth").mkdir(parents=True)
-            Image.fromarray(np.full((4, 6), 500, dtype=np.uint16)).save(
-                root / "Test/Images/depth/x.png"
-            )
             depth, infrared, size = run.load_axis_arrays(
-                {"depth": "Test/Images/depth/x.png"}, root
+                {"depth": "Test/Images/depth/gone.png"}, root
             )
             self.assertIsNone(depth)
             self.assertIsNone(infrared)

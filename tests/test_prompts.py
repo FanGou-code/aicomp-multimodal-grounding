@@ -6,15 +6,25 @@ from aicomp_grounding.serving.messages import build_grounding_messages, build_tr
 
 class PromptTests(unittest.TestCase):
     def test_inference_messages_have_no_bbox_channel(self):
-        messages = build_grounding_messages("rgb", "ir", "depth", "the red chair")
+        messages = build_grounding_messages("rgb", "the red chair")
         serialized = json.dumps(messages)
         self.assertIn("the red chair", serialized)
         self.assertNotIn('"bbox"', serialized)
         self.assertNotIn("groundtruth", serialized.lower())
 
+    def test_inference_messages_carry_exactly_one_image(self):
+        messages = build_grounding_messages("rgb", "the red chair")
+        images = [
+            part
+            for message in messages
+            for part in message["content"]
+            if part.get("type") == "image"
+        ]
+        self.assertEqual(len(images), 1)
+
     def test_training_messages_reuse_the_inference_prompt_prefix(self):
-        prompt = build_grounding_messages("rgb", "ir", "depth", "the red chair")
-        training = build_training_messages("rgb", "ir", "depth", "the red chair", "(1,2),(3,4)")
+        prompt = build_grounding_messages("rgb", "the red chair")
+        training = build_training_messages("rgb", "the red chair", "(1,2),(3,4)")
         self.assertEqual(training[:-1], prompt)
         self.assertEqual(training[-1]["role"], "assistant")
 

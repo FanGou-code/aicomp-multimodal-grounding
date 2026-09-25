@@ -67,7 +67,7 @@ def _data(scene: str) -> dict:
         f"{scene}_00000001": {
             "visible": f"Train/{scene}/color/1.png",
             "infrared": f"Train/{scene}/infrared/1.png",
-            "depth": f"Processed/Train/{scene}/depth/1.png",
+            "depth": f"Train/{scene}/depth/1.png",
             "query": "The person wearing a bright yellow waterproof jacket",
             "bbox": [0.1, 0.1, 0.4, 0.5],
             "width": 1920,

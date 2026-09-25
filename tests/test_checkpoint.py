@@ -11,7 +11,7 @@ def _make_sample(query="A red car on the left.", bbox=None):
     return {
         "visible": "Train/001/color/00000001.png",
         "infrared": "Train/001/infrared/00000001.png",
-        "depth": "Processed/Train/001/depth_jet/00000001.png",
+        "depth": "Train/001/depth/00000001.png",
         "query": query,
         "bbox": bbox or [0.1, 0.2, 0.3, 0.4],
         "width": 1920,

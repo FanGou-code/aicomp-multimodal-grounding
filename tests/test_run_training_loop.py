@@ -37,7 +37,12 @@ from aicomp_grounding.serving.engine.training_core import (
 )
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
 from aicomp_grounding.serving.models.base import DEFAULT_LORA_PROJECTIONS, language_model_lora_targets
-from aicomp_grounding.serving.messages import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
+from aicomp_grounding.serving.messages import (
+    GROUNDING_PROMPT_PROTOCOL,
+    GROUNDING_SYSTEM_PROMPT,
+    GROUNDING_USER_TEMPLATE,
+    grounding_prompt_hash,
+)
 
 
 def _data(scene: str) -> dict:
@@ -45,7 +50,7 @@ def _data(scene: str) -> dict:
         f"{scene}_0000000{i}": {
             "visible": f"Train/{scene}/color/{i}.png",
             "infrared": f"Train/{scene}/infrared/{i}.png",
-            "depth": f"Processed/Train/{scene}/depth/{i}.png",
+            "depth": f"Train/{scene}/depth/{i}.png",
             "query": f"the {scene} object number {i}",
             "bbox": [0.1 * i, 0.1, 0.1 * i + 0.2, 0.4],
             "width": 1920,
@@ -145,7 +150,7 @@ def _write_fixture_images(root: Path) -> None:
             for relative in (
                 f"Train/{scene}/color/{i}.png",
                 f"Train/{scene}/infrared/{i}.png",
-                f"Processed/Train/{scene}/depth/{i}.png",
+                f"Train/{scene}/depth/{i}.png",
             ):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,7 +222,9 @@ def _fake_adapter(calls: dict):
             self.generation_config = {"max_new_tokens": 8, "do_sample": False}
 
         def prompt_hash(self):
-            return grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
+            return grounding_prompt_hash(
+                GROUNDING_PROMPT_PROTOCOL, GROUNDING_SYSTEM_PROMPT, GROUNDING_USER_TEMPLATE
+            )
 
         def identity(self):
             return {"model_name": self.model_name, "prompt_hash": self.prompt_hash()}
@@ -330,7 +337,7 @@ class RunTrainingLoopTests(unittest.TestCase):
                 result = run_training(plan, data_root=root, allow_cpu=True)
                 # Without the explicit opt-in a CPU-only torch must still be
                 # refused, so production callers cannot silently train on CPU.
-                with self.assertRaisesRegex(RuntimeError, "CUDA/HIP GPU"):
+                with self.assertRaisesRegex(RuntimeError, "CUDA GPU"):
                     run_training(plan, data_root=root)
             self.assertEqual(result["status"], "smoke_passed")
             self.assertTrue(calls.get("load_for_training"))
@@ -468,6 +475,13 @@ class HyperparameterOverrideTests(unittest.TestCase):
                     "epochs": 5,
                     "eval_batch_size": 2,
                     "best_epoch_primary_metric": "mean_iou",
+                    "lora_rank": 8,
+                    "lora_alpha": 16,
+                    "lora_dropout": 0.1,
+                    "warmup_ratio": 0.1,
+                    "lr_scheduler_type": "linear",
+                    "max_grad_norm": 0.5,
+                    "weight_decay": 0.05,
                 },
             )
             hp = overridden_plan["metadata"]["hyperparameters"]
@@ -477,6 +491,13 @@ class HyperparameterOverrideTests(unittest.TestCase):
             self.assertEqual(hp["epochs"], 5)
             self.assertEqual(hp["eval_batch_size"], 2)
             self.assertEqual(hp["best_epoch_primary_metric"], "mean_iou")
+            self.assertEqual(hp["lora_rank"], 8)
+            self.assertEqual(hp["lora_alpha"], 16)
+            self.assertEqual(hp["lora_dropout"], 0.1)
+            self.assertEqual(hp["warmup_ratio"], 0.1)
+            self.assertEqual(hp["lr_scheduler_type"], "linear")
+            self.assertEqual(hp["max_grad_norm"], 0.5)
+            self.assertEqual(hp["weight_decay"], 0.05)
             self.assertNotEqual(
                 base_plan["metadata"]["training_run_id"],
                 overridden_plan["metadata"]["training_run_id"],
@@ -500,6 +521,13 @@ class HyperparameterOverrideTests(unittest.TestCase):
                 ("epochs", 0),
                 ("eval_batch_size", 0),
                 ("best_epoch_primary_metric", "invalid_metric"),
+                ("lora_rank", 0),
+                ("lora_alpha", -1),
+                ("lora_dropout", 1.5),
+                ("warmup_ratio", -0.1),
+                ("lr_scheduler_type", "exponential"),
+                ("max_grad_norm", 0),
+                ("weight_decay", -0.01),
                 ("unsupported_key", 123),
             ]:
                 with self.subTest(key=key, val=val):

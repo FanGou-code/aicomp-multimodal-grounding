@@ -51,13 +51,19 @@ from aicomp_grounding.serving.engine.training_state import (
 SEED = 42
 
 #: Adapters that drive the generic LoRA training loop.  Every one of them takes
-#: the tri-modal pixel budget; ``mock`` is inference-only.
+#: the per-frame pixel budget; ``mock`` is inference-only.
 TRAINABLE_MODELS = ("qwen3vl", "qwen3_5", "glm46v")
 
 #: Supported best-epoch metrics that are minimized; every other supported
 #: metric is maximized.  ``best_epoch_primary_metric`` is validated against
 #: this split in ``prepare_training_plan``.
 MINIMIZED_METRICS = frozenset({"val_loss"})
+
+#: Supported step-level learning-rate schedules.  Every schedule warms up
+#: linearly and then decays toward ``min_lr = learning_rate * 0.1``;
+#: ``constant`` holds the peak rate after warmup.  ``lr_scheduler_type`` is
+#: validated against this set in ``prepare_training_plan``.
+LR_SCHEDULER_TYPES = ("cosine", "linear", "constant")
 
 
 def _log_now() -> str:
@@ -119,13 +125,13 @@ def _evaluate_grounding_metrics(
 ) -> dict:
     """Run full validation-set grounding inference and compute ACC/mIoU.
 
-    ``image_cache`` (optional) memoizes decoded modality images across epochs
-    so the val set is read from disk once per run instead of once per epoch.
+    ``image_cache`` (optional) memoizes decoded images across epochs so the val
+    set is read from disk once per run instead of once per epoch.
     """
     import torch
     from PIL import Image
 
-    def _load_modality(relative: str):
+    def _load_image(relative: str):
         path = str(data_root / relative)
         if image_cache is None:
             return Image.open(path).convert("RGB")
@@ -145,9 +151,7 @@ def _evaluate_grounding_metrics(
             item = val_data[key]
             samples.append(
                 ModelInput(
-                    visible=_load_modality(item["visible"]),
-                    infrared=_load_modality(item["infrared"]),
-                    depth=_load_modality(item["depth"]),
+                    visible=_load_image(item["visible"]),
                     query=item["query"],
                     key=key,
                 )
@@ -282,21 +286,61 @@ def prepare_training_plan(
             "gradient_accumulation_steps",
             "epochs",
             "eval_batch_size",
+            "lora_rank",
+            "lora_alpha",
+        }
+        allowed_positive_floats = {
+            "learning_rate",
+            "max_grad_norm",
+        }
+        allowed_unit_floats = {
+            "lora_dropout",
+            "warmup_ratio",
+        }
+        allowed_non_negative_floats = {
+            "weight_decay",
+        }
+        allowed_choices = {
+            "best_epoch_primary_metric": {"acc_at_0_5", "mean_iou"} | MINIMIZED_METRICS,
+            "lr_scheduler_type": set(LR_SCHEDULER_TYPES),
         }
         for key, value in hyperparameter_overrides.items():
             if value is None:
                 continue
             if key in allowed_positive_ints:
-                if not isinstance(value, int) or value <= 0:
-                    raise ValueError(f"Hyperparameter override {key!r} must be positive int, got {value!r}")
+                if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                    raise ValueError(
+                        f"Hyperparameter override {key!r} must be a positive int, got {value!r}"
+                    )
                 hyperparameters[key] = value
-            elif key == "learning_rate":
-                if not isinstance(value, (int, float)) or value <= 0:
-                    raise ValueError(f"Hyperparameter override 'learning_rate' must be positive float, got {value!r}")
+            elif key in allowed_positive_floats:
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+                    raise ValueError(
+                        f"Hyperparameter override {key!r} must be a positive float, got {value!r}"
+                    )
                 hyperparameters[key] = float(value)
-            elif key == "best_epoch_primary_metric":
-                if value not in {"acc_at_0_5", "mean_iou"} | MINIMIZED_METRICS:
-                    raise ValueError(f"Invalid best_epoch_primary_metric override {value!r}")
+            elif key in allowed_unit_floats:
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not 0.0 <= value <= 1.0
+                ):
+                    raise ValueError(
+                        f"Hyperparameter override {key!r} must be a float in [0, 1], got {value!r}"
+                    )
+                hyperparameters[key] = float(value)
+            elif key in allowed_non_negative_floats:
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                    raise ValueError(
+                        f"Hyperparameter override {key!r} must be a non-negative float, got {value!r}"
+                    )
+                hyperparameters[key] = float(value)
+            elif key in allowed_choices:
+                if value not in allowed_choices[key]:
+                    raise ValueError(
+                        f"Invalid {key} override {value!r}; "
+                        f"expected one of {sorted(allowed_choices[key])}"
+                    )
                 hyperparameters[key] = value
             else:
                 raise ValueError(f"Unsupported hyperparameter override: {key!r}")
@@ -462,7 +506,7 @@ def run_training(
     ``data_root`` locates the dataset (images and annotation artifacts);
     ``commit_hook`` is invoked after every checkpoint persistence so remote
     storage can snapshot; local runs simply omit it. ``allow_cpu`` permits a
-    CPU run when no CUDA/HIP device is visible; production callers leave it
+    CPU run when no CUDA device is visible; production callers leave it
     False so a missing GPU still fails loudly.
     """
     import torch
@@ -491,6 +535,7 @@ def run_training(
     max_grad_norm = hyperparameters["max_grad_norm"]
     weight_decay = hyperparameters["weight_decay"]
     eval_batch_size = hyperparameters["eval_batch_size"]
+    lr_scheduler_type = hyperparameters["lr_scheduler_type"]
 
     if model_name not in TRAINABLE_MODELS:
         raise ValueError(f"Unsupported training model: {model_name!r}")
@@ -544,7 +589,7 @@ def run_training(
     if use_cuda:
         torch.cuda.manual_seed_all(random_seed)
     elif not allow_cpu:
-        raise RuntimeError("LoRA training requires the requested CUDA/HIP GPU")
+        raise RuntimeError("LoRA training requires the requested CUDA GPU")
     if use_cuda and not torch.cuda.is_bf16_supported():
         raise RuntimeError("This training configuration requires CUDA bfloat16 support")
     device = torch.device("cuda:0" if use_cuda else "cpu")
@@ -660,10 +705,11 @@ def run_training(
     warmup_steps = int(total_steps * warmup_ratio)
 
     # Decode-once cache for the epoch-end grounding eval: hold decoded val
-    # modality images in RAM across epochs when they comfortably fit in the
-    # machine's available memory, otherwise fall back to per-epoch reads.
+    # images in RAM across epochs when they comfortably fit in the machine's
+    # available memory, otherwise fall back to per-epoch reads.
     val_image_cache: dict | None = None
-    estimated_val_bytes = 9 * sum(
+    # 3 bytes per pixel: one RGB image per sample.
+    estimated_val_bytes = 3 * sum(
         int(item.get("width", 0)) * int(item.get("height", 0))
         for item in val_artifact["data"].values()
     )
@@ -686,14 +732,20 @@ def run_training(
         weight_decay=weight_decay,
     )
 
-    # Cosine annealing scheduler with min_lr = 1e-5
-    min_lr = learning_rate * 0.1
+    # Linear warmup followed by the configured decay toward min_lr.
+    min_lr_ratio = 0.1
+
     def lr_lambda(step: int) -> float:
         if step < warmup_steps:
             return step / max(warmup_steps, 1)
-        progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
-        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * min(progress, 1.0)))
-        return min_lr / learning_rate + (1.0 - min_lr / learning_rate) * cosine_decay
+        progress = min((step - warmup_steps) / max(total_steps - warmup_steps, 1), 1.0)
+        if lr_scheduler_type == "cosine":
+            decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+        elif lr_scheduler_type == "linear":
+            decay = 1.0 - progress
+        else:  # constant
+            decay = 1.0
+        return min_lr_ratio + (1.0 - min_lr_ratio) * decay
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     start_epoch = 0

@@ -59,7 +59,7 @@ class PackageApprovedTests(unittest.TestCase):
             "001_00000001": {
                 "visible": "Train/001/color/00000001.png",
                 "infrared": "Train/001/infrared/00000001.png",
-                "depth": "Processed/Train/001/depth_jet/00000001.png",
+                "depth": "Train/001/depth/00000001.png",
                 "bbox": [0.1, 0.2, 0.3, 0.4],
                 "width": 1920,
                 "height": 1080,
@@ -67,7 +67,7 @@ class PackageApprovedTests(unittest.TestCase):
             "001_00000002": {
                 "visible": "Train/001/color/00000002.png",
                 "infrared": "Train/001/infrared/00000002.png",
-                "depth": "Processed/Train/001/depth_jet/00000002.png",
+                "depth": "Train/001/depth/00000002.png",
                 "bbox": [0.2, 0.3, 0.5, 0.6],
                 "width": 1920,
                 "height": 1080,
@@ -264,7 +264,7 @@ class PackageApprovedTests(unittest.TestCase):
             "002_00000001": {
                 "visible": "Train/002/color/00000001.png",
                 "infrared": "Train/002/infrared/00000001.png",
-                "depth": "Processed/Train/002/depth_jet/00000001.png",
+                "depth": "Train/002/depth/00000001.png",
                 "bbox": [0.1, 0.2, 0.3, 0.4],
                 "width": 1920,
                 "height": 1080,
@@ -328,7 +328,7 @@ class PackageApprovedTests(unittest.TestCase):
             "002_00000001": {
                 "visible": "Train/002/color/00000001.png",
                 "infrared": "Train/002/infrared/00000001.png",
-                "depth": "Processed/Train/002/depth_jet/00000001.png",
+                "depth": "Train/002/depth/00000001.png",
                 "bbox": [0.1, 0.2, 0.3, 0.4],
                 "width": 1920,
                 "height": 1080,
