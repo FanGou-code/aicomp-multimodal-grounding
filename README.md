@@ -99,10 +99,8 @@ python tools/prepare_split.py --raw-root data --out-dir data/indexes \
 `configs/train_{qwen3vl,qwen3_5,glm46v}.yaml`。
 
 ```bash
-# 冒烟：单步前向 + 反向，只跑 1 个 micro-batch
-python tools/train.py --annotation-run-id <run_id> --model qwen3vl \
-  --model-path models/Qwen3-VL-8B-Instruct --data-dir data \
-  --batch-size 1 --eval-batch-size 1 --checkpoint-interval 20 --smoke-test
+# 冒烟：同一份配置，只跑单步前向 + 反向（先填好 yaml 里的 annotation_run_id）
+python tools/train.py --config configs/train_qwen3vl.yaml --smoke-test
 
 # 完整训练：用对应模型的配置，CLI 可覆盖单项（这里换 run-tag）
 python tools/train.py --config configs/train_qwen3vl.yaml --run-tag qwen3vl-r2
@@ -133,17 +131,20 @@ python tools/train.py --config configs/train_qwen3vl.yaml --run-tag qwen3vl-r2
 参数优先级：CLI > YAML（`--config`）> 默认值。每个模型各有一份 A10 24GB 配置
 （`configs/infer_{qwen3vl,qwen3_5,glm46v}.yaml`，`lora_path` 指向对应训练 run 的最佳 epoch）。
 
+`<best_epoch>` 是训练选出的最佳轮次目录（如 `epoch_02`），训练完成后按 `ls` 结果填写；
+也可用 `last/` 指向最后一轮。
+
 ```bash
 # 验证集评测：带真值，直接打印 ACC@0.5 / 平均 IoU / 解析失败数
 python tools/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
-  --lora-path outputs/training/<train_run_id>/best/epoch_03 \
+  --lora-path outputs/training/<train_run_id>/best/<best_epoch> \
   --test-json outputs/annotations/<run_id>/val/approved.json --annotation-run-id <run_id> \
   --data-dir data --num-shards 1 --num-workers 2 --batch-size 2 --batch-save 100 \
   --run-tag val-eval
 
 # 测试集推理：无真值，只写 predictions.json，不打包
 python tools/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
-  --lora-path outputs/training/<train_run_id>/best/epoch_03 \
+  --lora-path outputs/training/<train_run_id>/best/<best_epoch> \
   --test-json data/Test/queries/queries.json \
   --data-dir data --num-shards 1 --num-workers 2 --batch-size 2 --batch-save 100 \
   --run-tag test-full
