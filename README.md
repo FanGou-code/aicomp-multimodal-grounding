@@ -40,7 +40,7 @@ bash tools/setup_cuda.sh
 ```bash
 pip install -e .             # 其余运行依赖
 pip install -e ".[kernels]"  # 仅 qwen3_5 需要：GDN 线性注意力加速内核
-pip install -e ".[dev]"      # 开发用：ruff
+pip install -e ".[dev]"      # 开发/运维：ruff + 魔搭数据集管理（modelscope）
 ```
 
 ## 数据生产（标注侧）

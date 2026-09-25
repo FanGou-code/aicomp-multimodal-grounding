@@ -24,20 +24,20 @@ dependencies = [
     "pyyaml>=6.0",
     # 框架层：精确 pin。CUDA 轮子（cu130/cu128）由 tools/setup_cuda.sh
     # 按驱动版本选变体安装，pyproject 只声明版本号。
-    "torch==2.13.0",
-    "torchvision==0.28.0",
+    "torch==2.14.0",
+    "torchvision==0.29.0",
     # 模型框架层：== 紧 pin，跨平台行为一致
-    "transformers==5.15.1",
-    "peft==0.20.0",
-    "accelerate==1.14.0",
+    "transformers==5.17.0",
+    "peft==0.21.0",
+    "accelerate==1.15.0",
     "qwen-vl-utils==0.0.14",
 ]
 
 [project.optional-dependencies]
 # 仅混合线性注意力架构（Qwen3.5-9B 的 GDN）接入时按需装；CUDA 有预编译轮。
 kernels = ["flash-linear-attention", "causal-conv1d"]
-# 本地开发：代码检查
-dev = ["ruff"]
+# 本地开发与运维：代码检查 + 魔搭数据集/模型管理（上传脚本在 local/，不入库）。
+dev = ["ruff", "modelscope>=1.15"]
 
 [project.urls]
 Homepage = "https://github.com/FanGou-code/aicomp-multimodal-grounding"
