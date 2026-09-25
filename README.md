@@ -38,8 +38,7 @@ bash tools/setup_cuda.sh
 其它环境先按平台 CUDA 版本装好 torch/torchvision 轮子，再装本仓库：
 
 ```bash
-pip install -e .             # 其余运行依赖
-pip install -e ".[kernels]"  # 仅 qwen3_5 需要：GDN 线性注意力加速内核
+pip install -e .             # 运行依赖（含 Qwen3.5 的 GDN 线性注意力内核）
 pip install -e ".[dev]"      # 开发/运维：ruff + 魔搭数据集管理（modelscope）
 ```
 
@@ -262,8 +261,8 @@ docs/                      架构、数据合同、序数契约、赛题说明
 
 - 不含数据、权重、标注产物与结果；无标注产物时训练无法启动。
 - 训练与推理需自备 CUDA GPU；CPU 只能跑契约测试与 `mock` 链路。
-- `qwen3_5` 依赖 GDN 加速内核（`pip install -e ".[kernels]"`），未安装时静默回退到
-  较慢的 torch 实现。
+- `qwen3_5` 的 GDN 线性注意力内核（`flash-linear-attention`）已随默认依赖安装；
+  缺失时 transformers 回退到较慢的纯 torch 实现。
 - 序数后处理依赖深度/红外与可见光的空间对齐；本仓库不做配准与同步。
 - 本仓库不校验 `--model-path` 目录与声明 revision 的对应关系，也不校验图像字节版本。
 
