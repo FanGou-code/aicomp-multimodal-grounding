@@ -22,7 +22,7 @@ dependencies = [
     "opencv-python-headless>=4.9",
     # 运行配置（YAML + CLI override）
     "pyyaml>=6.0",
-    # 框架层：精确 pin。CUDA 轮子（cu130/cu128）由 tools/setup_colab.sh
+    # 框架层：精确 pin。CUDA 轮子（cu130/cu128）由 tools/setup_cuda.sh
     # 按驱动版本选变体安装，pyproject 只声明版本号。
     "torch==2.13.0",
     "torchvision==0.28.0",

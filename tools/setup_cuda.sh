@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Colab CUDA environment setup: install the pinned CUDA wheel variants of
+# CUDA environment setup: install the pinned CUDA wheel variants of
 # torch/torchvision for this machine's driver, then install the project.
 #
 # Usage:
-#   bash tools/setup_colab.sh
+#   bash tools/setup_cuda.sh
 #
 # The wheel variant is selected from the driver's reported CUDA support:
 #   driver >= 13.0 -> cu130 wheels
 #   driver <  13.0 -> cu128 wheels
 # Both variants install the same torch version declared in pyproject.toml.
+#
+# A managed image that already ships a matching torch (for example a
+# CUDA 13.0 / Python 3.12 / torch 2.13.0 base image) short-circuits: pip
+# reports the requirement as already satisfied and downloads nothing for it.
 
 set -euo pipefail
 
