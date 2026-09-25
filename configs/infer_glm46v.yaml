@@ -1,0 +1,17 @@
+# A10 24GB inference run: GLM-4.6V-Flash.
+#
+# Usage: python tools/infer.py --config configs/infer_glm46v.yaml
+# Precedence: CLI flags > this YAML > defaults.
+# lora_path: point at the best epoch of the matching training run.
+run:
+  model: glm46v
+  model_path: models/GLM-4.6V-Flash
+  lora_path: outputs/training/<training_run_id>/best/epoch_03
+  test_json: data/Test/queries/queries.json
+  data_dir: data
+  max_pixels: 2408448       # 3072 patches = lossless 1080p
+  batch_size: 2
+  num_shards: 1
+  num_workers: 2
+  batch_save: 100
+  run_tag: glm46v-a10

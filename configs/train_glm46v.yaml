@@ -1,0 +1,29 @@
+# A10 24GB training run: GLM-4.6V-Flash.
+#
+# Usage: python tools/train.py --config configs/train_glm46v.yaml
+# Precedence: CLI flags > this YAML > adapter defaults.
+run:
+  annotation_run_id: <annotation_run_id>   # from package_approved.py output
+  model: glm46v
+  model_path: models/GLM-4.6V-Flash
+  data_dir: data
+  seed: 42
+  num_workers: 0            # no forking after CUDA init; data prep is light
+  checkpoint_interval: 20
+  run_tag: glm46v-a10
+hyperparameters:
+  batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 1.0e-4
+  epochs: 3
+  eval_batch_size: 1        # validation OOM aborts the run; keep it conservative
+  best_metric: acc_at_0_5
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  weight_decay: 0.01
+  max_pixels: 2408448       # 3072 patches = lossless 1080p; raises VRAM
+  gradient_checkpointing: true
