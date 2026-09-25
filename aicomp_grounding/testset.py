@@ -1,4 +1,4 @@
-"""Canonical official-Test and processed-index contract validation."""
+"""Canonical official-Test contract validation."""
 
 from __future__ import annotations
 
@@ -63,53 +63,3 @@ def validate_official_test_template(
             "Official test template content does not match the pinned canonical SHA-256"
         )
 
-
-def validate_processed_test_index(
-    processed: dict,
-    official: dict,
-    *,
-    expected_query_count: int | None = OFFICIAL_QUERY_COUNT,
-    expected_template_sha256: str | None = OFFICIAL_TEMPLATE_CANONICAL_SHA256,
-) -> None:
-    """Require the inference index to be an exact path mapping of the official template."""
-    validate_official_test_template(
-        official,
-        expected_query_count=expected_query_count,
-        expected_template_sha256=expected_template_sha256,
-    )
-    if not isinstance(processed, dict) or not processed:
-        raise ValueError("Processed test index is empty or is not a JSON object")
-    if set(processed) != set(official):
-        missing = sorted(set(official) - set(processed))
-        extra = sorted(set(processed) - set(official))
-        raise ValueError(
-            "Processed test index IDs do not match the official template: "
-            f"missing={len(missing)}, extra={len(extra)}"
-        )
-
-    for query_id, source in official.items():
-        item = processed[query_id]
-        if not isinstance(item, dict) or set(item) != OFFICIAL_TEMPLATE_FIELDS:
-            raise ValueError(
-                f"Processed test item {query_id!r} must contain exactly "
-                f"{sorted(OFFICIAL_TEMPLATE_FIELDS)}"
-            )
-        expected = {
-            "visible": f"Test/{source['visible']}",
-            "infrared": f"Test/{source['infrared']}",
-            "depth": (
-                "Processed/Test/depth_jet/"
-                f"{PurePosixPath(source['depth']).name}"
-            ),
-            "query": source["query"],
-        }
-        mismatches = [field for field in OFFICIAL_TEMPLATE_FIELDS if item[field] != expected[field]]
-        if mismatches:
-            details = ", ".join(
-                f"{field}={item[field]!r} (expected {expected[field]!r})"
-                for field in sorted(mismatches)
-            )
-            raise ValueError(
-                f"Processed test item {query_id!r} does not map to the official template: "
-                f"{details}"
-            )

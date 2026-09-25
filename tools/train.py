@@ -1,6 +1,6 @@
 """Single-machine LoRA training entrypoint around the shared training core.
 
-Runs the training pipeline on a local CUDA/HIP GPU. Practical uses: cheap
+Runs the training pipeline on a local CUDA GPU. Practical uses: cheap
 QLoRA-style experiments on 24GB cards (with a reduced pixel budget), or full
 runs on >=48GB local hardware.
 
@@ -14,10 +14,12 @@ import argparse
 import sys
 from pathlib import Path
 
-# This entrypoint lives in offline/; make the repository root importable.
+# Make the repository root importable when executed as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from aicomp_grounding.config import load_run_config, merge_run_config
 from aicomp_grounding.serving.engine.training_core import (
+    LR_SCHEDULER_TYPES,
     SEED,
     TRAINABLE_MODELS,
     persist_training_plan,
@@ -28,15 +30,69 @@ from aicomp_grounding.paths import ProjectPaths, output_dir, resolve_from_root
 from aicomp_grounding.serving.models.base import require_local_model_path
 
 
-def parse_args():
+#: Keys accepted in the ``run:`` section of a --config YAML.
+CONFIG_RUN_KEYS = (
+    "annotation_run_id",
+    "model",
+    "model_path",
+    "data_dir",
+    "annotation_root",
+    "output_root",
+    "project_root",
+    "run_tag",
+    "seed",
+    "resume",
+    "num_workers",
+    "checkpoint_interval",
+)
+
+#: Keys accepted in the ``hyperparameters:`` section of a --config YAML.
+CONFIG_HYPERPARAMETER_KEYS = (
+    "batch_size",
+    "gradient_accumulation_steps",
+    "learning_rate",
+    "epochs",
+    "eval_batch_size",
+    "best_metric",
+    "lora_rank",
+    "lora_alpha",
+    "lora_dropout",
+    "warmup_ratio",
+    "lr_scheduler_type",
+    "max_grad_norm",
+    "weight_decay",
+)
+
+#: Applied after CLI and YAML; ``None`` means "not specified yet".
+_RUN_DEFAULTS = {
+    "model": "qwen3vl",
+    "data_dir": Path("data"),
+    "annotation_root": output_dir("annotations"),
+    "output_root": Path("outputs"),
+    "project_root": Path("."),
+    "run_tag": "",
+    "seed": SEED,
+    "resume": True,
+    "num_workers": 0,
+    "checkpoint_interval": 20,
+}
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--annotation-run-id", type=str, required=True)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="YAML run configuration; CLI flags override it.",
+    )
+    parser.add_argument("--annotation-run-id", type=str, default=None)
     parser.add_argument(
         "--model",
         type=str,
-        default="qwen3vl",
+        default=None,
         choices=list(TRAINABLE_MODELS),
-        help="Trainable grounding adapter.",
+        help="Trainable grounding adapter (default: qwen3vl).",
     )
     parser.add_argument(
         "--model-path",
@@ -44,31 +100,32 @@ def parse_args():
         default=None,
         help="Pre-downloaded model directory; required for training (not CPU preflight).",
     )
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
+    parser.add_argument("--data-dir", type=Path, default=None, help="Data root (default: data).")
     parser.add_argument(
         "--annotation-root",
         type=Path,
-        default=output_dir("annotations"),
-        help="Repository-level root containing approved annotation artifacts.",
+        default=None,
+        help="Repository-level root containing approved annotation artifacts "
+        "(default: outputs/annotations).",
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("outputs"),
+        default=None,
         help="Repository-level root for training artifacts (default: outputs).",
     )
     parser.add_argument(
         "--project-root",
         type=Path,
-        default=Path("."),
+        default=None,
         help="Repository root; relative data, annotation, and output paths resolve from here.",
     )
-    parser.add_argument("--run-tag", type=str, default="")
-    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--run-tag", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
         "--resume",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=None,
         help="Resume from an existing incomplete checkpoint (default: on).",
     )
     parser.add_argument("--preflight-only", action="store_true")
@@ -76,14 +133,14 @@ def parse_args():
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=0,
+        default=None,
         help="Training DataLoader worker processes. Default 0 avoids forking after "
-        "large model/CUDA-HIP context initialization; enable only after a smoke benchmark.",
+        "large model/CUDA context initialization; enable only after a smoke benchmark.",
     )
     parser.add_argument(
         "--checkpoint-interval",
         type=int,
-        default=20,
+        default=None,
         help="Save/log step checkpoint every N optimizer steps (default 20).",
     )
     parser.add_argument(
@@ -123,7 +180,69 @@ def parse_args():
         choices=["acc_at_0_5", "mean_iou", "val_loss"],
         help="Override adapter default best-epoch primary metric.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--lora-rank",
+        type=int,
+        default=None,
+        help="Override adapter default LoRA rank.",
+    )
+    parser.add_argument(
+        "--lora-alpha",
+        type=int,
+        default=None,
+        help="Override adapter default LoRA alpha.",
+    )
+    parser.add_argument(
+        "--lora-dropout",
+        type=float,
+        default=None,
+        help="Override adapter default LoRA dropout (0-1).",
+    )
+    parser.add_argument(
+        "--warmup-ratio",
+        type=float,
+        default=None,
+        help="Override adapter default warmup ratio (0-1).",
+    )
+    parser.add_argument(
+        "--lr-scheduler-type",
+        type=str,
+        default=None,
+        choices=list(LR_SCHEDULER_TYPES),
+        help="Override adapter default learning-rate schedule.",
+    )
+    parser.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=None,
+        help="Override adapter default gradient clipping norm.",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=None,
+        help="Override adapter default weight decay.",
+    )
+    return parser
+
+
+def parse_args(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.config is not None:
+        merge_run_config(
+            args,
+            load_run_config(args.config),
+            parser=parser,
+            run_keys=CONFIG_RUN_KEYS,
+            hyperparameter_keys=CONFIG_HYPERPARAMETER_KEYS,
+        )
+    for key, value in _RUN_DEFAULTS.items():
+        if getattr(args, key) is None:
+            setattr(args, key, value)
+    if not args.annotation_run_id:
+        parser.error("--annotation-run-id is required (CLI or --config)")
+    return args
 
 
 def run_cli(args, *, commit_hook=None):
@@ -147,6 +266,13 @@ def run_cli(args, *, commit_hook=None):
         "epochs": args.epochs,
         "eval_batch_size": args.eval_batch_size,
         "best_epoch_primary_metric": args.best_metric,
+        "lora_rank": args.lora_rank,
+        "lora_alpha": args.lora_alpha,
+        "lora_dropout": args.lora_dropout,
+        "warmup_ratio": args.warmup_ratio,
+        "lr_scheduler_type": args.lr_scheduler_type,
+        "max_grad_norm": args.max_grad_norm,
+        "weight_decay": args.weight_decay,
     }
     plan = prepare_training_plan(
         data_root=data_root,

@@ -1,14 +1,12 @@
-"""Tests for the official Test template to processed-index contract."""
+"""Tests for the official Test template contract."""
 
 from __future__ import annotations
 
-import copy
 import unittest
 
 from aicomp_grounding.testset import (
     OFFICIAL_TEMPLATE_CANONICAL_SHA256,
     validate_official_test_template,
-    validate_processed_test_index,
 )
 
 
@@ -29,51 +27,39 @@ def _official() -> dict:
     }
 
 
-def _processed() -> dict:
-    return {
-        query_id: {
-            "visible": f"Test/{item['visible']}",
-            "infrared": f"Test/{item['infrared']}",
-            "depth": f"Processed/Test/depth_jet/{item['depth'].rsplit('/', 1)[-1]}",
-            "query": item["query"],
-        }
-        for query_id, item in _official().items()
-    }
+def _validate(template: dict) -> None:
+    validate_official_test_template(
+        template,
+        expected_query_count=2,
+        expected_template_sha256=None,
+    )
 
 
 class TestDataContractTests(unittest.TestCase):
-    def test_exact_mapping_is_accepted(self):
-        validate_processed_test_index(
-            _processed(),
-            _official(),
-            expected_query_count=2,
-            expected_template_sha256=None,
-        )
+    def test_the_untouched_layout_is_accepted(self):
+        _validate(_official())
 
-    def test_ids_query_and_each_path_are_strict(self):
-        mutations = []
-        missing = _processed()
-        del missing["000002_001"]
-        mutations.append(missing)
-        for field, replacement in (
-            ("query", "A different valid query"),
-            ("visible", "Test/Images/visible/other.png"),
-            ("infrared", "Test/Images/infrared/other.png"),
-            ("depth", "Processed/Test/depth_jet/other.png"),
-        ):
-            changed = copy.deepcopy(_processed())
-            changed["000001_001"][field] = replacement
-            mutations.append(changed)
+    def test_query_id_shape_is_strict(self):
+        template = _official()
+        template["000001_01"] = template.pop("000001_001")
+        with self.assertRaisesRegex(ValueError, "Query ID"):
+            _validate(template)
 
-        for changed in mutations:
-            with self.subTest(changed=changed):
-                with self.assertRaises(ValueError):
-                    validate_processed_test_index(
-                        changed,
-                        _official(),
-                        expected_query_count=2,
-                        expected_template_sha256=None,
-                    )
+    def test_each_modality_path_is_strict(self):
+        for field in ("visible", "infrared", "depth"):
+            with self.subTest(field=field):
+                template = _official()
+                template["000001_001"][field] = "Images/colour/000001.png"
+                with self.assertRaisesRegex(ValueError, f"invalid {field}"):
+                    _validate(template)
+
+    def test_modalities_must_refer_to_the_same_scene(self):
+        for field in ("visible", "infrared", "depth"):
+            with self.subTest(field=field):
+                template = _official()
+                template["000001_001"][field] = f"Images/{field}/999999.png"
+                with self.assertRaisesRegex(ValueError, "different scenes"):
+                    _validate(template)
 
     def test_production_defaults_pin_count_and_hash(self):
         self.assertEqual(

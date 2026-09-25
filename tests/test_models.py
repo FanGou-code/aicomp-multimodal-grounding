@@ -25,7 +25,6 @@ from aicomp_grounding.serving.models.glm46v import (
     MIN_PIXELS as GLM46V_MIN_PIXELS,
     MODEL_NAME as GLM46V_MODEL_NAME,
     MODEL_REVISION as GLM46V_MODEL_REVISION,
-    MODELSCOPE_NAME as GLM46V_MODELSCOPE_NAME,
     format_glm_bbox,
     parse_glm_box,
     processor_pixel_kwargs,
@@ -42,7 +41,15 @@ from aicomp_grounding.serving.models.qwen3vl import (
     MODEL_NAME,
     MODEL_REVISION,
 )
-from aicomp_grounding.serving.messages import GROUNDING_SYSTEM_PROMPT, grounding_prompt_hash
+from aicomp_grounding.serving.messages import (
+    GLM_GROUNDING_PROMPT_PROTOCOL,
+    GLM46V_SYSTEM_PROMPT,
+    GLM46V_USER_TEMPLATE,
+    GROUNDING_PROMPT_PROTOCOL,
+    GROUNDING_SYSTEM_PROMPT,
+    GROUNDING_USER_TEMPLATE,
+    grounding_prompt_hash,
+)
 from aicomp_grounding.serving.submission import build_submission
 
 
@@ -105,7 +112,10 @@ class QwenIdentityContinuityTests(unittest.TestCase):
     def test_prompt_hash_matches_prompts_module(self):
         adapter = get_adapter("qwen3vl")
         self.assertEqual(
-            adapter.prompt_hash(), grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
+            adapter.prompt_hash(),
+            grounding_prompt_hash(
+                GROUNDING_PROMPT_PROTOCOL, GROUNDING_SYSTEM_PROMPT, GROUNDING_USER_TEMPLATE
+            ),
         )
 
     def test_default_generation_config_is_backward_compatible(self):
@@ -130,7 +140,10 @@ class Qwen3_5IdentityContinuityTests(unittest.TestCase):
     def test_prompt_hash_matches_prompts_module(self):
         adapter = get_adapter("qwen3_5")
         self.assertEqual(
-            adapter.prompt_hash(), grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
+            adapter.prompt_hash(),
+            grounding_prompt_hash(
+                GROUNDING_PROMPT_PROTOCOL, GROUNDING_SYSTEM_PROMPT, GROUNDING_USER_TEMPLATE
+            ),
         )
 
     def test_default_generation_config_is_backward_compatible(self):
@@ -179,13 +192,23 @@ class Glm46VContractTests(unittest.TestCase):
         self.assertEqual(
             GLM46V_MODEL_REVISION, "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
         )
-        # ModelScope hosts GLM under ZhipuAI (not zai-org); the auto-load
-        # fallback must use the ModelScope org, not MODEL_NAME.
-        self.assertEqual(GLM46V_MODELSCOPE_NAME, "ZhipuAI/GLM-4.6V-Flash")
 
     def test_box_tokens_are_the_glm_added_vocab_delimiters(self):
         self.assertEqual(GLM46V_BOX_OPEN, chr(0x3C) + "|begin_of_box|" + chr(0x3E))
         self.assertEqual(GLM46V_BOX_CLOSE, chr(0x3C) + "|end_of_box|" + chr(0x3E))
+
+    def test_prompt_hash_matches_the_editable_prompt_file(self):
+        adapter = get_adapter("glm46v")
+        self.assertEqual(
+            adapter.prompt_hash(),
+            grounding_prompt_hash(
+                GLM_GROUNDING_PROMPT_PROTOCOL, GLM46V_SYSTEM_PROMPT, GLM46V_USER_TEMPLATE
+            ),
+        )
+        # The editable file must carry the same delimiters the parser accepts.
+        self.assertIn(GLM46V_BOX_OPEN, GLM46V_SYSTEM_PROMPT)
+        self.assertIn(GLM46V_BOX_CLOSE, GLM46V_SYSTEM_PROMPT)
+        self.assertIn("{query}", GLM46V_USER_TEMPLATE)
 
     def test_default_generation_config_is_backward_compatible(self):
         # GLM-4.6V's identity moved once, deliberately: the adapter now pins the
@@ -291,7 +314,7 @@ FROZEN_VISION_MODULES = (
 )
 
 #: Where each projection lives in a language-model block, for the positive half
-#: of the anchor assertion below.  Every tri-modal language model in the roster
+#: of the anchor assertion below.  Every language model in the roster
 #: nests attention under `self_attn` and the MLP under `mlp`.
 PROJECTION_PARENT = {
     "q_proj": "self_attn",
@@ -445,8 +468,6 @@ class MockPipelineEndToEndTests(unittest.TestCase):
                 samples.append(
                     ModelInput(
                         visible=None,
-                        infrared=None,
-                        depth=None,
                         query=item["query"],
                         key=item["key"],
                     )

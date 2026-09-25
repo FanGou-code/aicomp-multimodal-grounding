@@ -17,8 +17,7 @@
 ## 数据流
 
 ```text
-原始图像 → tools/prepare_rgbdt.py（三模态校验 + 深度伪彩）
-        → tools/prepare_split.py（按序列划分 + 跨集去重）→ data/indexes/
+原始图像 → tools/prepare_split.py（按序列划分 + 跨集去重）→ data/indexes/
         → tools/run_census.py（每帧一次枚举）
         → tools/run_generation.py（教师为每个目标生成一句）
         → tools/review_server.py 人审 → tools/package_approved.py
@@ -55,11 +54,12 @@
 
 | 模块 | 职责 |
 | --- | --- |
-| `messages.py` + `prompts/grounding.md` | 三模态消息构造；system prompt 文本以文件形式随包，进入运行身份 |
+| `messages.py` + `prompts/{grounding,glm46v}.md` | 可见光单图消息构造；提示词文本以 `[system]`/`[user]` 两段的文件随包，两者一起进入运行身份 |
+| `prompt_files.py` | `[system]` / `[user]` 提示词文件的共享读取与拆分（缺失、空或畸形即报错） |
 | `engine/training_state.py` `engine/training_core.py` | 训练身份与计划、LoRA 注入与视觉塔中和、训练/验证循环、检查点持久化 |
 | `engine/inference_core.py` `engine/inference_state.py` | 推理条目加载、ACC@0.5 / mIoU 计算、分片分配与检查点校验恢复 |
 | `models/base.py` | 适配器协议、输入/输出类型、LoRA 目标层构造、本地模型路径策略 |
-| `models/qwen3vl.py` `models/qwen3_5.py` `models/glm46v.py` | 三个可训练 VLM 适配器（各自的提示词、坐标协议与超参默认值） |
+| `models/qwen3vl.py` `models/qwen3_5.py` `models/glm46v.py` | 三个可训练 VLM 适配器（各自的坐标协议与超参默认值；提示词文本在 `prompts/`） |
 | `models/mock.py` | CPU 契约测试用的最小适配器（无权重、确定性输出） |
 | `fusion.py` | 多模型预测的加权框融合与融合身份 |
 | `submission.py` | 由官方模板生成提交包（只补 `bbox`，ZIP 回读校验） |
@@ -91,7 +91,6 @@
 | 模块 | 职责 |
 | --- | --- |
 | `train.py` / `infer.py` | 训练与推理评测 CLI |
-| `prepare_rgbdt.py` | 三模态校验 + 深度伪彩渲染 |
 | `prepare_split.py` | 按序列划分 train/val、跨集去重与索引落盘 |
 | `run_census.py` / `run_generation.py` / `run_reverse.py` | 标注三阶段入口 |
 | `review_server.py` / `review_report.py` / `apply_review.py` | 人审服务、审查报告、裁决落盘 |
@@ -99,7 +98,6 @@
 | `package_approved.py` | 组装产物封包为 `approved.json` 并做合同自校验 |
 | `fusion.py` / `submission.py` / `ordinal_enumerate.py` / `ordinal_resolve.py` | 融合、提交包、序数枚举与修正（服务侧后处理） |
 | `check_key.py` | 注入 key 的测活（管理员执行真实调用） |
-| `upload_dataset.py` | 数据集发布工具（维护者用，需 `modelscope`） |
 
 ## 不变量
 
@@ -109,7 +107,7 @@
 2. **LoRA 范围**：目标层一律经 `serving/models/base.py:language_model_lora_targets()` 构造
    （锚定 `model.language_model` 的正则）；锚定共享，投影名单由各适配器自己声明。
    视觉塔恒为冻结、只做前向。裸后缀名单会被 PEFT 按后缀匹配而命中视觉塔。
-3. **像素预算**：三个三模态适配器的 `min_pixels` / `max_pixels` 一律按单帧计并进入
+3. **像素预算**：三个可训练适配器的 `min_pixels` / `max_pixels` 一律按单帧计并进入
    运行身份；处理器单位与单帧单位不一致的适配器在处理器边界换算。
 4. **运行身份**：训练与推理 id 由模型 revision、提示词哈希、数据与图像指纹、超参、
    种子与 run-tag 哈希得出。任何参数变更必须换新 tag，不覆盖既有产物。
@@ -125,9 +123,8 @@
 
 ## 不提供
 
-数据集、模型权重、标注产物与运行结果不在本仓库。平台相关差异集中在
-`tools/rocm_env.sh`；`cloud/`、`internvl35`、`qwen36_27b`、`mimo_vl`、`groundingdino`
-不在本仓库（git 历史可溯）。
+数据集、模型权重、标注产物与运行结果不在本仓库；`cloud/`、`internvl35`、
+`qwen36_27b`、`mimo_vl`、`groundingdino` 不在本仓库（git 历史可溯）。
 
 ## 契约边界
 

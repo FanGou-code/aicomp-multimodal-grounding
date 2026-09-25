@@ -125,7 +125,7 @@ class BuildSubmissionTests(unittest.TestCase):
         processed = self._template_data()
         processed["000002_001"] = dict(processed["000002_001"])
         processed["000002_001"]["visible"] = "Test/Images/visible/000002.png"
-        processed["000002_001"]["depth"] = "Processed/Test/depth_jet/000002.png"
+        processed["000002_001"]["depth"] = "Test/Images/depth/000002.png"
         with self.assertRaises(ValueError):
             validate_official_test_template(
                 processed,

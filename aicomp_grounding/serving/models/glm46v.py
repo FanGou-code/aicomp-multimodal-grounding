@@ -9,7 +9,7 @@ normalized by image width and height. The processor output schema
 (mm_token_type_ids, image_grid_thw, pixel_values) mirrors
 :mod:`aicomp_grounding.serving.models.qwen3vl`, so the training collate is reused.
 
-Local processor dry-run verified (no weights): the three-image chat template
+Local processor dry-run verified (no weights): the single-image chat template
 renders with ``enable_thinking=False`` and the supervised target is an exact
 prefix of the generation prompt. The GPU val slice should still be
 smoke-tested before a recorded run.
@@ -23,6 +23,12 @@ from typing import Any
 
 from aicomp_grounding.bbox import quantize_bbox_1000, validate_bbox
 from aicomp_grounding.config import RUNTIME_PYTHON_VERSION
+from aicomp_grounding.serving.messages import (
+    GLM_GROUNDING_PROMPT_PROTOCOL,
+    GLM46V_SYSTEM_PROMPT,
+    GLM46V_USER_TEMPLATE,
+    grounding_prompt_hash,
+)
 from aicomp_grounding.serving.models.base import (
     ModelInput,
     Prediction,
@@ -34,17 +40,16 @@ from aicomp_grounding.serving.models.base import (
 from aicomp_grounding.serving.engine.training_state import validated_prompt_length
 
 MODEL_NAME = "zai-org/GLM-4.6V-Flash"
-# ModelScope hosts the GLM family under the ZhipuAI org (not zai-org); the
-# version below identifies the pre-download source. Execution only reads
-# the explicit local --model-path; it does not contact either hub.
+# Weight snapshot recorded at adoption; fetch this revision before execution
+# (repo and revision are listed in the README weight table). Execution only
+# reads the explicit local --model-path and never contacts a hub.
 MODEL_REVISION = "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
-MODELSCOPE_NAME = "ZhipuAI/GLM-4.6V-Flash"
 
 MAX_NEW_TOKENS = 32
 
 # Pixel budgets, in units of 28x28 pixels per vision token (patch 14 x merge 2),
 # stated per frame so that the value recorded in the run identity means the same
-# thing here as it does for the other three tri-modal adapters.
+# thing here as it does for the other adapters.
 #
 # Glm46VImageProcessor takes its budget as a `size` dict -- `min_pixels` /
 # `max_pixels` passed to `AutoProcessor.from_pretrained` are dropped without
@@ -71,19 +76,6 @@ GLM_PIXEL_UNIT_FACTOR = 2
 # pipe-delimited special tokens that could confuse editors or diffs.
 GLM_BOX_OPEN = chr(0x3C) + "|begin_of_box|" + chr(0x3E)
 GLM_BOX_CLOSE = chr(0x3C) + "|end_of_box|" + chr(0x3E)
-
-GLM_GROUNDING_SYSTEM_PROMPT = (
-    "You are a visual grounding assistant. The images are ordered as visible "
-    "RGB, infrared, and depth of the same scene. Output only "
-    + GLM_BOX_OPEN
-    + "x1,y1,x2,y2"
-    + GLM_BOX_CLOSE
-    + ", using integer coordinates from 0 to 1000 normalized by image width "
-    "and height."
-)
-GLM_GROUNDING_USER_PROMPT = (
-    "Help me to locate {query} in the image and give me its bounding boxes."
-)
 
 CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
 
@@ -165,19 +157,17 @@ def _resolve_model_source(model_path: str | None) -> str:
     return require_local_model_path(model_path)
 
 
-def _build_messages(visible, infrared, depth, query, *, assistant_text=None):
+def _build_messages(visible, query, *, assistant_text=None):
     messages = [
         {
             "role": "system",
-            "content": [{"type": "text", "text": GLM_GROUNDING_SYSTEM_PROMPT}],
+            "content": [{"type": "text", "text": GLM46V_SYSTEM_PROMPT}],
         },
         {
             "role": "user",
             "content": [
                 {"type": "image", "image": visible},
-                {"type": "image", "image": infrared},
-                {"type": "image", "image": depth},
-                {"type": "text", "text": GLM_GROUNDING_USER_PROMPT.format(query=query)},
+                {"type": "text", "text": GLM46V_USER_TEMPLATE.format(query=query)},
             ],
         },
     ]
@@ -208,19 +198,9 @@ class Glm46VAdapter:
         self._model = None
 
     def prompt_hash(self) -> str:
-        import hashlib
-        import json
-
-        payload = {
-            "system_prompt": GLM_GROUNDING_SYSTEM_PROMPT,
-            "grounding_prompt": GLM_GROUNDING_USER_PROMPT,
-            "box_open": GLM_BOX_OPEN,
-            "box_close": GLM_BOX_CLOSE,
-            "image_count": 3,
-            "enable_thinking": False,
-        }
-        encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True)
-        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        return grounding_prompt_hash(
+            GLM_GROUNDING_PROMPT_PROTOCOL, GLM46V_SYSTEM_PROMPT, GLM46V_USER_TEMPLATE
+        )
 
     def identity(self) -> dict[str, Any]:
         return {
@@ -339,15 +319,13 @@ class Glm46VAdapter:
     ) -> dict:
         from PIL import Image
 
-        images = []
-        for field in ("visible", "infrared", "depth"):
-            with Image.open(data_root / item[field]) as opened:
-                images.append(opened.convert("RGB"))
-        visible, infrared, depth = images
+        with Image.open(data_root / item["visible"]) as opened:
+            visible = opened.convert("RGB")
+        images = [visible]
         assistant_text = format_glm_bbox(item["bbox"])
-        prompt_messages = _build_messages(visible, infrared, depth, item["query"])
+        prompt_messages = _build_messages(visible, item["query"])
         training_messages = _build_messages(
-            visible, infrared, depth, item["query"], assistant_text=assistant_text
+            visible, item["query"], assistant_text=assistant_text
         )
         training_text = _apply_chat_template(
             processor, training_messages, add_generation_prompt=False
@@ -435,18 +413,14 @@ class Glm46VAdapter:
 
     def build_grounding_batch(self, samples: list[ModelInput], *, processor) -> dict:
         messages_list = [
-            _build_messages(sample.visible, sample.infrared, sample.depth, sample.query)
+            _build_messages(sample.visible, sample.query)
             for sample in samples
         ]
         texts = [
             _apply_chat_template(processor, m, add_generation_prompt=True)
             for m in messages_list
         ]
-        images = [
-            image
-            for sample in samples
-            for image in (sample.visible, sample.infrared, sample.depth)
-        ]
+        images = [sample.visible for sample in samples]
         return processor(text=texts, images=images, padding=True, return_tensors="pt")
 
     def decode_grounding_outputs(self, processor, generated_ids, prompt_len: int) -> list[str]:
@@ -464,18 +438,14 @@ class Glm46VAdapter:
 
         processor = self._processor
         messages_list = [
-            _build_messages(sample.visible, sample.infrared, sample.depth, sample.query)
+            _build_messages(sample.visible, sample.query)
             for sample in samples
         ]
         texts = [
             _apply_chat_template(processor, m, add_generation_prompt=True)
             for m in messages_list
         ]
-        images = [
-            image
-            for sample in samples
-            for image in (sample.visible, sample.infrared, sample.depth)
-        ]
+        images = [sample.visible for sample in samples]
         return dict(
             processor(text=texts, images=images, padding=True, return_tensors="pt")
         )

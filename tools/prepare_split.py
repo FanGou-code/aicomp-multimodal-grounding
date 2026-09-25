@@ -208,7 +208,7 @@ def build_indexes(
             target[sample_id] = {
                 "visible": f"Train/{seq}/color/{filename}",
                 "infrared": f"Train/{seq}/infrared/{filename}",
-                "depth": f"Processed/Train/{seq}/depth_jet/{filename}",
+                "depth": f"Train/{seq}/depth/{filename}",
                 "bbox": bbox,
                 "width": img_w,
                 "height": img_h,

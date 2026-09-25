@@ -21,7 +21,9 @@ from aicomp_grounding.serving.models.base import (
     run_generation,
 )
 from aicomp_grounding.serving.messages import (
+    GROUNDING_PROMPT_PROTOCOL,
     GROUNDING_SYSTEM_PROMPT,
+    GROUNDING_USER_TEMPLATE,
     build_training_messages,
     build_grounding_messages,
     grounding_prompt_hash,
@@ -59,7 +61,9 @@ class Qwen3VLAdapter:
         self._model = None
 
     def prompt_hash(self) -> str:
-        return grounding_prompt_hash(GROUNDING_SYSTEM_PROMPT)
+        return grounding_prompt_hash(
+            GROUNDING_PROMPT_PROTOCOL, GROUNDING_SYSTEM_PROMPT, GROUNDING_USER_TEMPLATE
+        )
 
     def identity(self) -> dict[str, Any]:
         return {
@@ -175,18 +179,11 @@ class Qwen3VLAdapter:
         from PIL import Image
         from qwen_vl_utils import process_vision_info
 
-        images = []
-        for field in ("visible", "infrared", "depth"):
-            with Image.open(data_root / item[field]) as opened:
-                images.append(opened.convert("RGB"))
-        visible, infrared, depth = images
+        with Image.open(data_root / item["visible"]) as opened:
+            visible = opened.convert("RGB")
         bbox_text = format_qwen_bbox(item["bbox"])
-        prompt_messages = build_grounding_messages(
-            visible, infrared, depth, item["query"]
-        )
-        messages = build_training_messages(
-            visible, infrared, depth, item["query"], bbox_text
-        )
+        prompt_messages = build_grounding_messages(visible, item["query"])
+        messages = build_training_messages(visible, item["query"], bbox_text)
         text = processor.apply_chat_template(
             messages,
             tokenize=False,
@@ -277,12 +274,7 @@ class Qwen3VLAdapter:
         from qwen_vl_utils import process_vision_info
 
         messages = [
-            build_grounding_messages(
-                sample.visible,
-                sample.infrared,
-                sample.depth,
-                sample.query,
-            )
+            build_grounding_messages(sample.visible, sample.query)
             for sample in samples
         ]
         texts = [
@@ -320,9 +312,7 @@ class Qwen3VLAdapter:
 
         processor = self._processor
         messages_list = [
-            build_grounding_messages(
-                sample.visible, sample.infrared, sample.depth, sample.query
-            )
+            build_grounding_messages(sample.visible, sample.query)
             for sample in samples
         ]
         texts = [

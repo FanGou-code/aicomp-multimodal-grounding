@@ -5,7 +5,7 @@ An adapter owns everything model-specific on the inference path:
 - ``identity()``        fields consumed by the fingerprint system
 - ``generation_config`` decoding parameters recorded in run metadata
 - ``load()``            weights + processor (lazy heavy imports inside)
-- ``predict()``         (three images, query) -> Prediction, in batches
+- ``predict()``         (visible image, query) -> Prediction, in batches
 - ``generate_messages()`` caller-built chat messages -> raw text, for callers
                         that own their prompt and their output shape
 
@@ -126,11 +126,9 @@ class Prediction:
 
 @dataclass
 class ModelInput:
-    """One query with its three aligned modality images (PIL, RGB)."""
+    """One query with its visible RGB image (PIL)."""
 
     visible: Image
-    infrared: Image
-    depth: Image
     query: str
     key: str = field(default="")
 
@@ -170,7 +168,7 @@ class GroundingAdapter(Protocol):
         ...
 
     def predict(self, samples: list[ModelInput]) -> list[Prediction]:
-        """Predict a batch of tri-modal inputs; order is preserved."""
+        """Predict a batch of (visible image, query) inputs; order is preserved."""
         ...
 
     #: Adapters that split preprocessing from generation set this True so the

@@ -19,7 +19,7 @@ def _item(scene: str, frame: int, area: float = 0.04, query: str = "placeholder"
     return {
         "visible": f"Train/{scene}/color/{frame:08d}.png",
         "infrared": f"Train/{scene}/infrared/{frame:08d}.png",
-        "depth": f"Processed/Train/{scene}/depth_jet/{frame:08d}.png",
+        "depth": f"Train/{scene}/depth/{frame:08d}.png",
         "bbox": [0.1, 0.1, 0.1 + side, 0.1 + side],
         "query": query,
         "width": 1920,
