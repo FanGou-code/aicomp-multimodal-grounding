@@ -288,6 +288,7 @@ def prepare_training_plan(
             "eval_batch_size",
             "lora_rank",
             "lora_alpha",
+            "max_pixels",
         }
         allowed_positive_floats = {
             "learning_rate",
@@ -299,6 +300,9 @@ def prepare_training_plan(
         }
         allowed_non_negative_floats = {
             "weight_decay",
+        }
+        allowed_bools = {
+            "gradient_checkpointing",
         }
         allowed_choices = {
             "best_epoch_primary_metric": {"acc_at_0_5", "mean_iou"} | MINIMIZED_METRICS,
@@ -335,6 +339,12 @@ def prepare_training_plan(
                         f"Hyperparameter override {key!r} must be a non-negative float, got {value!r}"
                     )
                 hyperparameters[key] = float(value)
+            elif key in allowed_bools:
+                if not isinstance(value, bool):
+                    raise ValueError(
+                        f"Hyperparameter override {key!r} must be a bool, got {value!r}"
+                    )
+                hyperparameters[key] = value
             elif key in allowed_choices:
                 if value not in allowed_choices[key]:
                     raise ValueError(
@@ -344,6 +354,11 @@ def prepare_training_plan(
                 hyperparameters[key] = value
             else:
                 raise ValueError(f"Unsupported hyperparameter override: {key!r}")
+        if hyperparameters["max_pixels"] <= hyperparameters["min_pixels"]:
+            raise ValueError(
+                f"max_pixels ({hyperparameters['max_pixels']}) must exceed "
+                f"min_pixels ({hyperparameters['min_pixels']})"
+            )
     hyperparameters["runtime_packages"] = current_runtime_packages()
     root = Path(data_root).resolve()
     # Default to the dataset-root layout.  The CLI passes the repository-level
@@ -648,11 +663,12 @@ def run_training(
                 except (AttributeError, RuntimeError):
                     pass
 
-    if hasattr(base_model, "enable_input_require_grads"):
-        base_model.enable_input_require_grads()
-    base_model.gradient_checkpointing_enable(
-        gradient_checkpointing_kwargs={"use_reentrant": False}
-    )
+    if hyperparameters["gradient_checkpointing"]:
+        if hasattr(base_model, "enable_input_require_grads"):
+            base_model.enable_input_require_grads()
+        base_model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
 
     if resume_checkpoint:
         model = PeftModel.from_pretrained(

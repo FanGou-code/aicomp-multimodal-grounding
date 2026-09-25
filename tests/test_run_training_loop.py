@@ -247,6 +247,9 @@ def _fake_adapter(calls: dict):
                 "eval_batch_size": 1,
                 "best_epoch_primary_metric": "acc_at_0_5",
                 "lora_targets": language_model_lora_targets(*DEFAULT_LORA_PROJECTIONS),
+                "min_pixels": 256 * 28 * 28,
+                "max_pixels": 3072 * 28 * 28,
+                "gradient_checkpointing": True,
             }
 
         def lora_target_modules(self):
@@ -482,6 +485,8 @@ class HyperparameterOverrideTests(unittest.TestCase):
                     "lr_scheduler_type": "linear",
                     "max_grad_norm": 0.5,
                     "weight_decay": 0.05,
+                    "max_pixels": 1505280,
+                    "gradient_checkpointing": False,
                 },
             )
             hp = overridden_plan["metadata"]["hyperparameters"]
@@ -498,6 +503,8 @@ class HyperparameterOverrideTests(unittest.TestCase):
             self.assertEqual(hp["lr_scheduler_type"], "linear")
             self.assertEqual(hp["max_grad_norm"], 0.5)
             self.assertEqual(hp["weight_decay"], 0.05)
+            self.assertEqual(hp["max_pixels"], 1505280)
+            self.assertFalse(hp["gradient_checkpointing"])
             self.assertNotEqual(
                 base_plan["metadata"]["training_run_id"],
                 overridden_plan["metadata"]["training_run_id"],
@@ -528,6 +535,8 @@ class HyperparameterOverrideTests(unittest.TestCase):
                 ("lr_scheduler_type", "exponential"),
                 ("max_grad_norm", 0),
                 ("weight_decay", -0.01),
+                ("max_pixels", 1000),
+                ("gradient_checkpointing", "yes"),
                 ("unsupported_key", 123),
             ]:
                 with self.subTest(key=key, val=val):

@@ -61,6 +61,8 @@ CONFIG_HYPERPARAMETER_KEYS = (
     "lr_scheduler_type",
     "max_grad_norm",
     "weight_decay",
+    "max_pixels",
+    "gradient_checkpointing",
 )
 
 #: Applied after CLI and YAML; ``None`` means "not specified yet".
@@ -223,6 +225,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override adapter default weight decay.",
     )
+    parser.add_argument(
+        "--max-pixels",
+        type=int,
+        default=None,
+        help="Override adapter default per-frame pixel budget; must exceed min_pixels "
+        "(256*28*28). Lower it if the training GPU is short on VRAM.",
+    )
+    parser.add_argument(
+        "--gradient-checkpointing",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override adapter default gradient checkpointing (default: on). "
+        "Disable it on GPUs with spare memory to trade memory for speed.",
+    )
     return parser
 
 
@@ -273,6 +289,8 @@ def run_cli(args, *, commit_hook=None):
         "lr_scheduler_type": args.lr_scheduler_type,
         "max_grad_norm": args.max_grad_norm,
         "weight_decay": args.weight_decay,
+        "max_pixels": args.max_pixels,
+        "gradient_checkpointing": args.gradient_checkpointing,
     }
     plan = prepare_training_plan(
         data_root=data_root,
