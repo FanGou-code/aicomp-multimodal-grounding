@@ -98,6 +98,7 @@
 | `package_approved.py` | 组装产物封包为 `approved.json` 并做合同自校验 |
 | `fusion.py` / `submission.py` / `ordinal_enumerate.py` / `ordinal_resolve.py` | 融合、提交包、序数枚举与修正（服务侧后处理） |
 | `check_key.py` | 注入 key 的测活（管理员执行真实调用） |
+| `setup_cuda.sh` | CUDA 环境安装：按驱动选 cu130/cu128 轮子装 torch/torchvision 并做健康自检 |
 
 ## 不变量
 
@@ -124,7 +125,8 @@
 ## 不提供
 
 数据集、模型权重、标注产物与运行结果不在本仓库；`cloud/`、`internvl35`、
-`qwen36_27b`、`mimo_vl`、`groundingdino` 不在本仓库（git 历史可溯）。
+`qwen36_27b`、`mimo_vl`、`groundingdino` 不在本仓库（git 历史可溯）。平台专属工具
+（如数据集上传）放在被 `.gitignore` 排除的 `local/`，仓库本体不含平台专属文件。
 
 ## 契约边界
 

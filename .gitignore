@@ -67,3 +67,7 @@ outputs/
 *handoff*.md
 docs/sop*.md
 AGENTS.md
+
+# Platform-specific tooling kept in the local checkout, never published:
+# the repository itself stays platform-neutral.
+local/

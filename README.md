@@ -27,10 +27,12 @@
 
 Python 3.12；依赖在根 `pyproject.toml` 声明，torch/torchvision 精确 pin。
 
-Colab（CUDA）一键安装——按驱动报告的 CUDA 版本选择 cu130 / cu128 轮子，装完做健康自检：
+CUDA 环境一键安装——按驱动报告的 CUDA 版本选择 cu130 / cu128 轮子，装完做健康自检。
+托管镜像已预装匹配的 torch 时（如 CUDA 13.0.3 / Python 3.12 / torch 2.13.0 基础镜像），
+该步由 pip 判定已满足并跳过：
 
 ```bash
-bash tools/setup_colab.sh
+bash tools/setup_cuda.sh
 ```
 
 其它环境先按平台 CUDA 版本装好 torch/torchvision 轮子，再装本仓库：

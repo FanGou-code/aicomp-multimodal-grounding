@@ -3,7 +3,7 @@
 These tests pin the invariant that the model-library versions recorded in
 ``config.RUNTIME_PACKAGES`` match ``pyproject.toml`` exactly, and that torch
 and torchvision are declared as exact pins so CUDA wheel variants
-(cu130/cu128) are selected by ``tools/setup_colab.sh`` rather than by the
+(cu130/cu128) are selected by ``tools/setup_cuda.sh`` rather than by the
 range resolver.
 """
 
