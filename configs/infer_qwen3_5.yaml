@@ -1,0 +1,17 @@
+# A10 24GB inference run: Qwen3.5-9B.
+#
+# Usage: python tools/infer.py --config configs/infer_qwen3_5.yaml
+# Precedence: CLI flags > this YAML > defaults.
+# lora_path: point at the best epoch of the matching training run.
+run:
+  model: qwen3_5
+  model_path: models/Qwen3.5-9B
+  lora_path: outputs/training/<training_run_id>/best/epoch_03
+  test_json: data/Test/queries/queries.json
+  data_dir: data
+  max_pixels: 2408448       # 3072 patches = lossless 1080p
+  batch_size: 2
+  num_shards: 1
+  num_workers: 2
+  batch_save: 100
+  run_tag: qwen3_5-a10

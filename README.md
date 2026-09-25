@@ -95,7 +95,8 @@ python tools/prepare_split.py --raw-root data --out-dir data/indexes \
 ## 训练
 
 三个可训练模型的超参默认值相同。参数优先级：CLI > YAML（`--config`）> 适配器默认值；
-覆盖值计入运行身份。完整配置示例见 `configs/train_example.yaml`。
+覆盖值计入运行身份。每个模型各有一份 A10 24GB 配置：
+`configs/train_{qwen3vl,qwen3_5,glm46v}.yaml`。
 
 ```bash
 # 冒烟：单步前向 + 反向，只跑 1 个 micro-batch
@@ -103,8 +104,8 @@ python tools/train.py --annotation-run-id <run_id> --model qwen3vl \
   --model-path models/Qwen3-VL-8B-Instruct --data-dir data \
   --batch-size 1 --eval-batch-size 1 --checkpoint-interval 20 --smoke-test
 
-# 完整训练：YAML 配置，CLI 覆盖单项（这里把学习率改为 5e-5）
-python tools/train.py --config configs/train_example.yaml --learning-rate 5e-5
+# 完整训练：用对应模型的配置，CLI 可覆盖单项（这里换 run-tag）
+python tools/train.py --config configs/train_qwen3vl.yaml --run-tag qwen3vl-r2
 ```
 
 训练其它模型时替换 `--model`（`qwen3vl` / `qwen3_5` / `glm46v`）与 `--model-path`。
@@ -129,7 +130,8 @@ python tools/train.py --config configs/train_example.yaml --learning-rate 5e-5
 
 ## 推理与评测
 
-参数优先级：CLI > YAML（`--config`）> 默认值。完整配置示例见 `configs/infer_example.yaml`。
+参数优先级：CLI > YAML（`--config`）> 默认值。每个模型各有一份 A10 24GB 配置
+（`configs/infer_{qwen3vl,qwen3_5,glm46v}.yaml`，`lora_path` 指向对应训练 run 的最佳 epoch）。
 
 ```bash
 # 验证集评测：带真值，直接打印 ACC@0.5 / 平均 IoU / 解析失败数
@@ -147,7 +149,7 @@ python tools/infer.py --model qwen3vl --model-path models/Qwen3-VL-8B-Instruct \
   --run-tag test-full
 
 # 或用 YAML 配置整体运行
-python tools/infer.py --config configs/infer_example.yaml
+python tools/infer.py --config configs/infer_qwen3vl.yaml
 ```
 
 `--limit 100` 用于小样本试跑。中断后用 `--resume`（默认开启）续跑。
