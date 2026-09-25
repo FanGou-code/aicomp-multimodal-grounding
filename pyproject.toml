@@ -31,11 +31,13 @@ dependencies = [
     "peft==0.21.0",
     "accelerate==1.15.0",
     "qwen-vl-utils==0.0.14",
+    # Qwen3.5 的 GDN 线性注意力 kernel（GDN 占其 3/4 层、约 90% 的 GDN 计算量）。
+    # 纯 Python + Triton（运行时 JIT 编译），约 2MB、无预编译步骤；只在 qwen3_5
+    # 路径被 transformers 动态导入，qwen3vl / glm46v 不受影响。
+    "flash-linear-attention==0.5.2",
 ]
 
 [project.optional-dependencies]
-# 仅混合线性注意力架构（Qwen3.5-9B 的 GDN）接入时按需装；CUDA 有预编译轮。
-kernels = ["flash-linear-attention", "causal-conv1d"]
 # 本地开发与运维：代码检查 + 魔搭数据集/模型管理（上传脚本在 local/，不入库）。
 dev = ["ruff", "modelscope>=1.15"]
 

@@ -29,6 +29,7 @@ RUNTIME_PACKAGES = (
     "accelerate==1.15.0",
     "peft==0.21.0",
     "qwen-vl-utils==0.0.14",
+    "flash-linear-attention==0.5.2",
     "pillow==12.1.0",
     "pyyaml==6.0.2",
     "torch==2.14.0",
