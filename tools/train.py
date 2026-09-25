@@ -100,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-path",
         type=str,
         default=None,
-        help="Pre-downloaded model directory; required for training (not CPU preflight).",
+        help="Pre-downloaded model directory; required for training and smoke tests.",
     )
     parser.add_argument("--data-dir", type=Path, default=None, help="Data root (default: data).")
     parser.add_argument(
@@ -130,7 +130,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Resume from an existing incomplete checkpoint (default: on).",
     )
-    parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument(
         "--num-workers",
@@ -305,17 +304,10 @@ def run_cli(args, *, commit_hook=None):
         smoke_test=args.smoke_test,
         hyperparameter_overrides=hyperparameter_overrides,
     )
-    if not args.preflight_only and (args.smoke_test or not plan["skip_training"]):
+    if args.smoke_test or not plan["skip_training"]:
         plan["model_path"] = require_local_model_path(plan["model_path"])
-    if not args.smoke_test and not args.preflight_only:
+    if not args.smoke_test:
         persist_training_plan(plan, commit_hook=commit_hook)
-
-    if args.preflight_only:
-        print(
-            "Training preflight passed. Preflight does not persist a run plan; "
-            "the authoritative run id is generated and persisted by the GPU/full training run."
-        )
-        return plan
 
     if plan["skip_training"] and not args.smoke_test:
         print(f"Training run already completed: {plan['metadata']['training_run_id']}")
