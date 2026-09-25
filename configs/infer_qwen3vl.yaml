@@ -2,11 +2,13 @@
 #
 # Usage: python tools/infer.py --config configs/infer_qwen3vl.yaml
 # Precedence: CLI flags > this YAML > defaults.
-# lora_path: point at the best epoch of the matching training run.
+# lora_path: the best-epoch adapter directory, e.g. .../best/epoch_02.
+# The epoch number is the best_metric winner; check `ls` after training
+# (or use last/ for the final-epoch adapter instead).
 run:
   model: qwen3vl
   model_path: models/Qwen3-VL-8B-Instruct
-  lora_path: outputs/training/<training_run_id>/best/epoch_03
+  lora_path: outputs/training/<training_run_id>/best/<best_epoch>
   test_json: data/Test/queries/queries.json
   data_dir: data
   max_pixels: 2408448       # 3072 patches = lossless 1080p
