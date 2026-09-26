@@ -57,17 +57,17 @@ class PackageApprovedTests(unittest.TestCase):
 
         self.index_data = {
             "001_00000001": {
-                "visible": "Train/001/color/00000001.png",
-                "infrared": "Train/001/infrared/00000001.png",
-                "depth": "Train/001/depth/00000001.png",
+                "visible": "Raw/001/color/00000001.png",
+                "infrared": "Raw/001/infrared/00000001.png",
+                "depth": "Raw/001/depth/00000001.png",
                 "bbox": [0.1, 0.2, 0.3, 0.4],
                 "width": 1920,
                 "height": 1080,
             },
             "001_00000002": {
-                "visible": "Train/001/color/00000002.png",
-                "infrared": "Train/001/infrared/00000002.png",
-                "depth": "Train/001/depth/00000002.png",
+                "visible": "Raw/001/color/00000002.png",
+                "infrared": "Raw/001/infrared/00000002.png",
+                "depth": "Raw/001/depth/00000002.png",
                 "bbox": [0.2, 0.3, 0.5, 0.6],
                 "width": 1920,
                 "height": 1080,
@@ -258,9 +258,9 @@ class PackageApprovedTests(unittest.TestCase):
     def test_package_approved_dual_split(self):
         val_index_data = {
             "002_00000001": {
-                "visible": "Train/002/color/00000001.png",
-                "infrared": "Train/002/infrared/00000001.png",
-                "depth": "Train/002/depth/00000001.png",
+                "visible": "Raw/002/color/00000001.png",
+                "infrared": "Raw/002/infrared/00000001.png",
+                "depth": "Raw/002/depth/00000001.png",
                 "bbox": [0.1, 0.2, 0.3, 0.4],
                 "width": 1920,
                 "height": 1080,
@@ -320,9 +320,9 @@ class PackageApprovedTests(unittest.TestCase):
     def test_package_approved_dual_split_auto_run_id(self):
         val_index_data = {
             "002_00000001": {
-                "visible": "Train/002/color/00000001.png",
-                "infrared": "Train/002/infrared/00000001.png",
-                "depth": "Train/002/depth/00000001.png",
+                "visible": "Raw/002/color/00000001.png",
+                "infrared": "Raw/002/infrared/00000001.png",
+                "depth": "Raw/002/depth/00000001.png",
                 "bbox": [0.1, 0.2, 0.3, 0.4],
                 "width": 1920,
                 "height": 1080,

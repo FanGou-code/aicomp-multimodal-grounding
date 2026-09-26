@@ -373,10 +373,16 @@ def prepare_training_plan(
     train_path = annotation_run_root / "train" / "approved.json"
     val_path = annotation_run_root / "val" / "approved.json"
     if not train_path.is_file() or not val_path.is_file():
-        raise FileNotFoundError(
-            "Training requires approved train and val artifacts from the same annotation run: "
-            f"{train_path}, {val_path}"
-        )
+        direct_train = annotation_base / "train.json"
+        direct_val = annotation_base / "val.json"
+        if direct_train.is_file() and direct_val.is_file():
+            train_path = direct_train
+            val_path = direct_val
+        else:
+            raise FileNotFoundError(
+                "Training requires approved train and val artifacts from the same annotation run: "
+                f"{train_path}, {val_path}"
+            )
     train_artifact = load_json(train_path)
     val_artifact = load_json(val_path)
 
@@ -391,8 +397,8 @@ def prepare_training_plan(
     ]
     _validate_training_bboxes(datasets)
     for split, artifact in (("train", train_artifact), ("val", val_artifact)):
-        recorded = artifact["metadata"]["image_fingerprint"]
-        if is_trusted_image_fingerprint(recorded):
+        recorded = artifact["metadata"].get("image_fingerprint")
+        if recorded and is_trusted_image_fingerprint(recorded):
             current = trusted_dataset_image_fingerprint(
                 artifact["data"],
                 artifact["data"],
@@ -402,6 +408,7 @@ def prepare_training_plan(
                 raise ValueError(
                     f"{split} image references do not match the approved annotation artifact"
                 )
+
     metadata = build_training_metadata(
         annotation_run_id=annotation_run_id,
         train_artifact=train_artifact,
@@ -597,6 +604,17 @@ def run_training(
             num_epochs=num_epochs,
         )
 
+    log_file = run_dir / "train.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    def train_log(msg: str) -> None:
+        print(msg, flush=True)
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        except Exception:
+            pass
+
     seed = metadata["seed"]
     random_seed = int(seed)
     torch.manual_seed(random_seed)
@@ -614,16 +632,41 @@ def run_training(
         device=device, model_path=training_plan.get("model_path")
     )
 
+    from aicomp_grounding.query import flip_spatial_query
+
     class RGBDTGroundingDataset(Dataset):
-        def __init__(self, data: dict):
+        def __init__(self, data: dict, *, is_train: bool = False, augment_flip: bool = True):
             self.data = data
-            self.keys = sorted(data)
+            self.is_train = is_train
+            self.samples = []
+            for key in sorted(data):
+                item = data[key]
+                if not item.get("query") or not item.get("bbox"):
+                    continue
+                self.samples.append((key, False, item["query"], item["bbox"]))
+                if is_train and augment_flip:
+                    flipped_query, has_spatial = flip_spatial_query(item["query"])
+                    if has_spatial:
+                        raw_bbox = item["bbox"]
+                        flipped_bbox = [
+                            round(1.0 - raw_bbox[2], 6),
+                            raw_bbox[1],
+                            round(1.0 - raw_bbox[0], 6),
+                            raw_bbox[3],
+                        ]
+                        self.samples.append((key, True, flipped_query, flipped_bbox))
 
         def __len__(self):
-            return len(self.keys)
+            return len(self.samples)
 
         def __getitem__(self, index):
-            item = self.data[self.keys[index]]
+            key, is_flipped, query, bbox = self.samples[index]
+            base_item = self.data[key]
+            item = dict(base_item)
+            item["key"] = key
+            item["query"] = query
+            item["bbox"] = bbox
+            item["flip_horizontal"] = is_flipped
             return adapter.build_training_batch(
                 item,
                 data_root=data_root_path,
@@ -633,8 +676,9 @@ def run_training(
     def collate_cpu(batch: list[dict]) -> dict:
         return adapter.collate_training_batch(batch, processor=processor)
 
-    train_dataset = RGBDTGroundingDataset(train_artifact["data"])
-    val_dataset = RGBDTGroundingDataset(val_artifact["data"])
+    train_dataset = RGBDTGroundingDataset(train_artifact["data"], is_train=True, augment_flip=True)
+    val_dataset = RGBDTGroundingDataset(val_artifact["data"], is_train=False, augment_flip=False)
+
 
     assert_single_cuda_device_map(getattr(base_model, "hf_device_map", None))
 
@@ -719,6 +763,11 @@ def run_training(
     steps_per_epoch = optimizer_steps_per_epoch(batches_per_epoch, grad_accum_steps)
     total_steps = int(steps_per_epoch * num_epochs)
     warmup_steps = int(total_steps * warmup_ratio)
+
+    if resume_checkpoint:
+        train_log(f"[{_log_now()}] [EVENT: RUN_RESUME] Resuming from checkpoint: {resume_checkpoint}")
+    else:
+        train_log(f"[{_log_now()}] [EVENT: RUN_START] Starting fresh training run | ID: {metadata['training_run_id']} | Total Steps: {total_steps}")
 
     # Decode-once cache for the epoch-end grounding eval: hold decoded val
     # images in RAM across epochs when they comfortably fit in the machine's
@@ -909,11 +958,13 @@ def run_training(
                     eta_sec = int(remaining_steps * sec_per_step)
                     eta_min, eta_s = divmod(eta_sec, 60)
                     eta_hr, eta_min = divmod(eta_min, 60)
-                    eta_str = f"{eta_hr}h{eta_min:02d}m" if eta_hr > 0 else f"{eta_min}m{eta_s:02d}s"
-                    print(
-                        f"[{now_str}] Epoch {epoch + 1}/{num_epochs} | step {global_step}/{total_steps} | "
-                        f"loss {epoch_loss / (batch_index + 1):.4f} | {sec_per_step:.2f}s/step | ETA: {eta_str}",
-                        flush=True,
+                    pct = (global_step / max(1, total_steps)) * 100.0
+                    current_lr = scheduler.get_last_lr()[0] if hasattr(scheduler, "get_last_lr") else learning_rate
+                    vram_str = f" | {torch.cuda.memory_reserved() / 1024**3:.1f}G" if use_cuda else ""
+                    train_log(
+                        f"[{now_str}] Ep {epoch + 1}/{num_epochs} | Step {global_step}/{total_steps} ({pct:.1f}%) | "
+                        f"Loss {epoch_loss / (batch_index + 1):.4f} | lr {current_lr:.2e}{vram_str} | "
+                        f"{sec_per_step:.2f}s/step | ETA: {eta_str}"
                     )
                     last_log_time = now_mono
                     last_log_step = global_step
@@ -970,7 +1021,7 @@ def run_training(
                 validation_batches += 1
         average_val_loss = validation_loss / validation_batches
         average_train_loss = epoch_loss / len(train_loader)
-        print(
+        train_log(
             f"[{_log_now()}] Epoch {epoch + 1}: train_loss={average_train_loss:.4f}, "
             f"val_loss={average_val_loss:.4f}"
         )
@@ -990,7 +1041,7 @@ def run_training(
             epoch_metrics=epoch_metrics,
             val_loss=average_val_loss,
         )
-        print(
+        train_log(
             f"[{_log_now()}] Epoch {epoch + 1}: ACC@0.5={epoch_metrics['acc_at_0_5']:.4f}, "
             f"mIoU={epoch_metrics['mean_iou']:.4f}, failures={epoch_metrics['failures']}"
         )
@@ -1087,4 +1138,8 @@ def run_training(
     # checkpoints are pure disk weight; keep only best/ and last/.
     shutil.rmtree(run_dir / "checkpoints", ignore_errors=True)
     _commit()
+    train_log(
+        f"[{_log_now()}] [EVENT: RUN_COMPLETED] Training completed successfully | "
+        f"best_path={best_path} | {best_metric_name}={best_metric_value:.4f}"
+    )
     return completed

@@ -145,9 +145,9 @@ def build_indexes(
     if not raw_root.is_dir():
         raise FileNotFoundError(f"Raw data root not found: {raw_root}")
 
-    raw_train = raw_root / "Train"
+    raw_train = raw_root / "Raw" if (raw_root / "Raw").is_dir() else raw_root / "Train"
     if not raw_train.is_dir():
-        raise FileNotFoundError(f"Train directory not found under {raw_root}")
+        raise FileNotFoundError(f"Raw directory not found under {raw_root}")
 
     # --- Stage 1: hash dedup against test images ---
     test_hashes = _collect_test_hashes(
@@ -206,9 +206,9 @@ def build_indexes(
                     continue
 
             target[sample_id] = {
-                "visible": f"Train/{seq}/color/{filename}",
-                "infrared": f"Train/{seq}/infrared/{filename}",
-                "depth": f"Train/{seq}/depth/{filename}",
+                "visible": f"Raw/{seq}/color/{filename}",
+                "infrared": f"Raw/{seq}/infrared/{filename}",
+                "depth": f"Raw/{seq}/depth/{filename}",
                 "bbox": bbox,
                 "width": img_w,
                 "height": img_h,
@@ -252,7 +252,7 @@ def build_indexes(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-root", type=Path, required=True,
-                        help="path to dataset root (contains Train/ and optionally Test/)")
+                        help="path to dataset root (contains Raw/ and optionally Test/)")
     parser.add_argument("--seed", type=int, default=42,
                         help="random seed for train/val split (default: 42)")
     parser.add_argument("--train-ratio", type=float, default=0.8,

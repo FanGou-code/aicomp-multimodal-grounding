@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>query-foundry — census 人审</title>
+  <title>多模态 Grounding 标注系统</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
     <!-- Top Header -->
     <header class="app-header">
       <div class="header-left">
-        <span class="logo">query-foundry · census 人审</span>
+        <span class="logo">多模态 Grounding 标注系统</span>
         <span id="manifest-badge" class="badge badge-subtle">加载中...</span>
 
         <div class="header-stat">
@@ -69,7 +69,7 @@
       </div>
 
       <div class="nav-actions">
-        <button id="next-todo-btn" class="btn btn-ai" title="跳到下一条待处理：优先 AI 待审，其次未标注 (J)">
+        <button id="next-todo-btn" class="btn btn-ai" title="跳到下一条待处理条目 (J)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
           下一条待办
         </button>
@@ -137,7 +137,7 @@
       <div class="footer-right">
         <span class="shortcut-tip"><kbd>Enter</kbd>/<kbd>Space</kbd> 提交</span>
         <span class="shortcut-tip"><kbd>P</kbd> 待办</span>
-        <span class="shortcut-tip"><kbd>H</kbd>/<kbd>L</kbd> 前后</span>
+        <span class="shortcut-tip"><kbd>A</kbd>/<kbd>D</kbd> 前后</span>
 
         <span class="shortcut-tip"><kbd>N</kbd> 未标</span>
         <span class="shortcut-tip"><kbd>/</kbd> 跳转</span>
@@ -165,7 +165,8 @@
             <tr><td><kbd>拖拽空白 / 鼠标中键 / 鼠标右键</kbd></td><td>平移画布视口</td></tr>
             <tr><td><kbd>Enter</kbd> 或 <kbd>Space</kbd></td><td>提交/核验当前标注并自动跳至下一条待处理</td></tr>
             <tr><td><kbd>P</kbd></td><td>这条有问题：加入待办（需消歧），后续补描述或废弃</td></tr>
-            <tr><td><kbd>H</kbd> / <kbd>L</kbd>（或 <kbd>←</kbd> / <kbd>→</kbd>）</td><td>切换到上一条 / 下一条</td></tr>
+            <tr><td><kbd>A</kbd> / <kbd>D</kbd>（或 <kbd>H</kbd> / <kbd>L</kbd> / <kbd>←</kbd> / <kbd>→</kbd>）</td><td>切换到上一条 / 下一条</td></tr>
+
 
             <tr><td><kbd>N</kbd> / <kbd>Shift + N</kbd>（或 <kbd>Shift + ←</kbd> / <kbd>Shift + →</kbd>）</td><td>快速跳至下一条 / 上一条未处理条目</td></tr>
             <tr><td><kbd>G</kbd> / <kbd>Shift + G</kbd></td><td>跳至第一条 / 最后一条</td></tr>

@@ -17,9 +17,9 @@ from aicomp_grounding.sharding import (
 def _item(scene: str, frame: int, area: float = 0.04, query: str = "placeholder") -> dict:
     side = area ** 0.5
     return {
-        "visible": f"Train/{scene}/color/{frame:08d}.png",
-        "infrared": f"Train/{scene}/infrared/{frame:08d}.png",
-        "depth": f"Train/{scene}/depth/{frame:08d}.png",
+        "visible": f"Raw/{scene}/color/{frame:08d}.png",
+        "infrared": f"Raw/{scene}/infrared/{frame:08d}.png",
+        "depth": f"Raw/{scene}/depth/{frame:08d}.png",
         "bbox": [0.1, 0.1, 0.1 + side, 0.1 + side],
         "query": query,
         "width": 1920,
