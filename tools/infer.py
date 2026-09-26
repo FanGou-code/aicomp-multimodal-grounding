@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.bbox import validate_bbox
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
-from aicomp_grounding.serving.engine.inference_core import evaluate_predictions, load_inference_items
-from aicomp_grounding.serving.engine.inference_state import (
+from aicomp_grounding.grounding.engine.inference_core import evaluate_predictions, load_inference_items
+from aicomp_grounding.grounding.engine.inference_state import (
     assign_pending_shards,
     build_shard_metadata,
     build_run_metadata,
@@ -36,8 +36,8 @@ from aicomp_grounding.serving.engine.inference_state import (
     validate_checkpoint_payload,
 )
 from aicomp_grounding.io import atomic_write_json
-from aicomp_grounding.serving.models import available_models, get_adapter
-from aicomp_grounding.serving.models.base import ModelInput, require_local_model_path
+from aicomp_grounding.grounding.models import available_models, get_adapter
+from aicomp_grounding.grounding.models.base import ModelInput, require_local_model_path
 from aicomp_grounding.config import (
     INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS,
     load_run_config,

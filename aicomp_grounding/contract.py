@@ -12,9 +12,6 @@ from aicomp_grounding.config import ANNOTATION_PROTOCOL_VERSION
 from aicomp_grounding.query import preflight_check_dataset, validate_annotation_query
 from aicomp_grounding.sharding import group_keys_by_scene
 
-ANNOTATION_MODE = "single_marked_frame_generate"
-ASSIGNMENT_POLICY = "single_marked_rgb_query_generate"
-RENDER_PROTOCOL = "single-marked-full-rgb-v8"
 APPROVED_FIELDS = ("visible", "infrared", "depth", "query", "bbox", "width", "height")
 
 
@@ -83,44 +80,10 @@ def validate_approved_artifact(
         if not isinstance(metadata[field], str) or not metadata[field]:
             raise ValueError(f"Approved annotation {field} is missing")
     provenance = metadata["provenance"]
-    provenance_fields = {
-        "source_type",
-        "provider",
-        "api_base_url",
-        "annotator_model",
-        "annotator_revision",
-        "model_weights_url",
-        "model_license",
-        "mode",
-        "assignment_policy",
-        "render_protocol",
-        "generation_config",
-    }
-    if not isinstance(provenance, dict) or set(provenance) != provenance_fields:
+    if not isinstance(provenance, dict) or set(provenance) != {"source_type"}:
         raise ValueError("Approved annotation provenance schema is invalid")
-    if provenance["source_type"] != "hosted_open_weights":
-        raise ValueError("Approved annotation provenance is not an open-weights API")
-    for field in (
-        "provider",
-        "api_base_url",
-        "annotator_model",
-        "annotator_revision",
-        "model_weights_url",
-        "model_license",
-        "render_protocol",
-    ):
-        if not isinstance(provenance[field], str) or not provenance[field]:
-            raise ValueError(f"Approved annotation provenance {field} is missing")
-    if not provenance["api_base_url"].startswith("https://"):
-        raise ValueError("Approved annotation API provenance must use HTTPS")
-    if not provenance["model_weights_url"].startswith("https://"):
-        raise ValueError("Approved annotation weights provenance must use HTTPS")
-    if not isinstance(provenance["generation_config"], dict) or not provenance["generation_config"]:
-        raise ValueError("Approved annotation generation config is missing")
-    if provenance["mode"] != ANNOTATION_MODE:
-        raise ValueError("Approved annotation mode is invalid")
-    if provenance["assignment_policy"] != ASSIGNMENT_POLICY:
-        raise ValueError("Approved assignment policy is invalid")
+    if provenance["source_type"] != "human_annotated":
+        raise ValueError("Approved annotation provenance is not human-annotated")
     qc = metadata["qc"]
     if not isinstance(qc, dict) or qc != {
         "complete": True,

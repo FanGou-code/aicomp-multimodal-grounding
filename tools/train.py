@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aicomp_grounding.config import load_run_config, merge_run_config
-from aicomp_grounding.serving.engine.training_core import (
+from aicomp_grounding.grounding.engine.training_core import (
     LR_SCHEDULER_TYPES,
     SEED,
     TRAINABLE_MODELS,
@@ -27,7 +27,7 @@ from aicomp_grounding.serving.engine.training_core import (
     run_training,
 )
 from aicomp_grounding.paths import ProjectPaths, output_dir, resolve_from_root
-from aicomp_grounding.serving.models.base import require_local_model_path
+from aicomp_grounding.grounding.models.base import require_local_model_path
 
 
 #: Keys accepted in the ``run:`` section of a --config YAML.

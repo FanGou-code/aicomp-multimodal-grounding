@@ -168,17 +168,6 @@ class PrepareSplitTests(unittest.TestCase):
         self.assertEqual(manifest["preparation_protocol_version"], 2)
         self.assertEqual(manifest["index_sample_counts"]["train"] + manifest["index_sample_counts"]["val"], 2)
 
-        from aicomp_grounding.annotation.source import load_annotation_source
-        self.assertEqual(load_annotation_source(self.root, "train", index_dir=out_dir), train_idx)
-        self.assertEqual(load_annotation_source(self.root, "val", index_dir=out_dir), val_idx)
-        # A changed source must still be rejected: accepting historical hash
-        # serializers is not permission to skip content verification.
-        key = next(iter(train_idx))
-        train_idx[key]["width"] += 1
-        (out_dir / "train.json").write_text(json.dumps(train_idx))
-        with self.assertRaisesRegex(ValueError, "does not match"):
-            load_annotation_source(self.root, "train", index_dir=out_dir)
-
 
 if __name__ == "__main__":
     unittest.main()

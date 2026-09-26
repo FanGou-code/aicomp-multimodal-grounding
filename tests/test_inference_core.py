@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aicomp_grounding.serving.engine.inference_core import (
+from aicomp_grounding.grounding.engine.inference_core import (
     evaluate_predictions,
     load_inference_items,
 )

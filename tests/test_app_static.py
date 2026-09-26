@@ -1,4 +1,4 @@
-"""Static checks for the review frontend (no DOM)."""
+"""Static checks for the annotator frontend (no DOM)."""
 
 import re
 import shutil
@@ -6,7 +6,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-WEB_DIR = Path(__file__).resolve().parents[1] / "aicomp_grounding" / "annotation" / "review" / "static"
+WEB_DIR = Path(__file__).resolve().parents[1] / "aicomp_grounding" / "annotator" / "static"
 APP_JS = WEB_DIR / "app.js"
 INDEX_HTML = WEB_DIR / "index.html"
 
@@ -15,7 +15,7 @@ class FrontendStaticTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "frontend state tests require Node.js")
     def test_real_frontend_save_state_transitions(self):
         result = subprocess.run(
-            [shutil.which("node"), str(Path(__file__).with_name("review_frontend.cjs"))],
+            [shutil.which("node"), str(Path(__file__).with_name("annotator_frontend.cjs"))],
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Mapping
-from pathlib import Path
 
 
 def stable_json_hash(value: object, *, length: int | None = None) -> str:
@@ -29,35 +28,14 @@ def key_hash(keys: Iterable[str]) -> str:
     return stable_json_hash(sorted(values))
 
 
-def file_set_fingerprint(data_root: str | Path, paths: Iterable[str | Path]) -> str:
-    """Hash the relative names and complete bytes of a set of files under one root."""
-    root = Path(data_root).resolve()
-    resolved: dict[str, Path] = {}
-    for raw_path in paths:
-        candidate = Path(raw_path)
-        if not candidate.is_absolute():
-            candidate = root / candidate
-        candidate = candidate.resolve()
-        try:
-            relative = candidate.relative_to(root).as_posix()
-        except ValueError as exc:
-            raise ValueError(f"Artifact file escapes data root {root}: {candidate}") from exc
-        if not candidate.is_file():
-            raise FileNotFoundError(f"Artifact file not found: {candidate}")
-        resolved[relative] = candidate
+def split_index_fingerprint(data: dict) -> str:
+    """Hash a split index with the serialization used by the committed protocol-2 indexes.
 
-    digest = hashlib.sha256()
-    for relative, path in sorted(resolved.items()):
-        encoded = relative.encode("utf-8")
-        digest.update(len(encoded).to_bytes(4, "big"))
-        digest.update(encoded)
-        with path.open("rb") as handle:
-            while True:
-                chunk = handle.read(1024 * 1024)
-                if not chunk:
-                    break
-                digest.update(chunk)
-    return digest.hexdigest()
+    Distinct from ``stable_json_hash`` (compact separators, ``ensure_ascii=True``):
+    this preserves the exact serialization written by the original index builder.
+    """
+    encoded = json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def require_metadata_match(

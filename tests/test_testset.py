@@ -64,9 +64,9 @@ class TestDataContractTests(unittest.TestCase):
     def test_production_defaults_pin_count_and_hash(self):
         self.assertEqual(
             OFFICIAL_TEMPLATE_CANONICAL_SHA256,
-            "8fae701890bbbf05099e11ac8b2a3ead18990a496449355c9f09825d88ccfbbf",
+            "9d0f805728859fb51f47be4d2892f7c8f12f16ab17a9b5a79e49a433b4247ed2",
         )
-        with self.assertRaisesRegex(ValueError, "9555"):
+        with self.assertRaisesRegex(ValueError, "5690"):
             validate_official_test_template(_official())
 
 

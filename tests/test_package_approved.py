@@ -90,8 +90,6 @@ class PackageApprovedTests(unittest.TestCase):
             "metadata": {
                 "generator_version": 1,
                 "run_tag": "asm-train-test",
-                "census_run_id": "census_test123",
-                "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
                 "split": "train",
             },
             "records": [
@@ -165,8 +163,6 @@ class PackageApprovedTests(unittest.TestCase):
             "metadata": {
                 "generator_version": 1,
                 "run_tag": "asm-bad",
-                "census_run_id": "c1",
-                "census_preparation_fingerprint": "p1",
                 "split": "train",
             },
             "records": [
@@ -277,8 +273,6 @@ class PackageApprovedTests(unittest.TestCase):
             "metadata": {
                 "generator_version": 1,
                 "run_tag": "asm-val-test",
-                "census_run_id": "census_test123",
-                "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
                 "split": "val",
             },
             "records": [
@@ -338,8 +332,6 @@ class PackageApprovedTests(unittest.TestCase):
             "metadata": {
                 "generator_version": 1,
                 "run_tag": "asm-val-r5",
-                "census_run_id": "census_test123",
-                "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
                 "split": "val",
             },
             "records": [
@@ -359,8 +351,6 @@ class PackageApprovedTests(unittest.TestCase):
             "metadata": {
                 "generator_version": 1,
                 "run_tag": "asm-train-r5",
-                "census_run_id": "census_test123",
-                "census_preparation_fingerprint": stable_json_hash(self.manifest_data),
                 "split": "train",
             },
             "records": self.valid_generation["records"],
