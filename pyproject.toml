@@ -50,10 +50,8 @@ Issues = "https://github.com/FanGou-code/aicomp-multimodal-grounding/issues"
 include = ["aicomp_grounding*"]
 
 [tool.setuptools.package-data]
-"aicomp_grounding.serving" = ["prompts/*.md"]
-"aicomp_grounding.serving.ordinal" = ["prompts/*.md"]
-"aicomp_grounding.annotation" = ["prompts/*.md"]
-"aicomp_grounding.annotation.review" = ["static/*"]
+"aicomp_grounding.grounding" = ["prompts/*.md"]
+"aicomp_grounding.annotator" = ["static/*"]
 
 [tool.ruff]
 line-length = 100

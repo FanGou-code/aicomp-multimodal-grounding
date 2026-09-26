@@ -1,7 +1,7 @@
 """Shared configuration for local runs and run-metadata recording.
 
 Model-specific identity (model ids, revisions, pixel budgets) lives in
-``aicomp_grounding.serving.models`` adapters; this module keeps only cross-model
+``aicomp_grounding.grounding.models`` adapters; this module keeps only cross-model
 constants and the YAML run-configuration loader.
 """
 
@@ -64,8 +64,7 @@ def current_runtime_packages() -> list[str]:
     return packages
 
 CHECKPOINT_VERSION = 5
-ANNOTATION_PROTOCOL_VERSION = 12
-PREPARATION_PROTOCOL_VERSION = 2
+ANNOTATION_PROTOCOL_VERSION = 13
 TRAINING_PROTOCOL_VERSION = 2
 
 INFERENCE_SPLITS = frozenset({"train", "val", "test"})

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Package reviewed generation records and split indexes into approved.json.
 
-Converts query-foundry generation products (generation.json) and source split indexes
+Converts annotation generation records (generation.json) and source split indexes
 into the final, directly consumable approved.json artifact required by downstream
 training. Automatically computes and seals all four SHA-256 fingerprints:
   1. source_fingerprint      (content hash of immutable inputs)
@@ -27,10 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from aicomp_grounding.contract import (
-    ANNOTATION_MODE,
     ANNOTATION_PROTOCOL_VERSION,
-    ASSIGNMENT_POLICY,
-    RENDER_PROTOCOL,
     approved_dataset_fingerprint,
     source_fingerprint,
     validate_approved_artifact,
@@ -39,7 +36,6 @@ from aicomp_grounding.contract import (
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
 from aicomp_grounding.query import clean_query_text, validate_annotation_query
 from aicomp_grounding.sharding import group_keys_by_scene
-from aicomp_grounding.annotation.config import ANNOTATION_API_BASE_URL, ANNOTATION_MODEL_LICENSE, ANNOTATION_MODEL_NAME, ANNOTATION_MODEL_REVISION, ANNOTATION_MODEL_WEIGHTS_URL, ANNOTATION_PROVIDER
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.io import atomic_write_json, load_json
 
@@ -105,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--prompt-hash",
         default=None,
-        help="override prompt hash (auto-detected from census plan if omitted)",
+        help="override prompt hash (default: hashed annotation protocol version)",
     )
     parser.add_argument(
         "--key-format",
@@ -131,26 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _find_prompt_hash(generation_meta: dict) -> str:
-    """Derive or locate the prompt hash from census or default."""
-    census_run_id = generation_meta.get("census_run_id")
-    if census_run_id:
-        plan_path = PROJECT_ROOT / "outputs" / "census" / census_run_id / "plan.json"
-        if plan_path.is_file():
-            try:
-                plan = load_json(plan_path)
-                meta = plan.get("metadata", {})
-                for h_key in ("attr_prompt_hash", "findall_prompt_hash", "prompt_hash"):
-                    if meta.get(h_key):
-                        return str(meta[h_key])
-            except Exception:
-                pass
-    fallback_seed = {
-        "census_run_id": census_run_id or "default",
-        "protocol_version": ANNOTATION_PROTOCOL_VERSION,
-        "mode": ANNOTATION_MODE,
-    }
-    return stable_json_hash(fallback_seed)
+def _find_prompt_hash() -> str:
+    """Hash the annotation protocol as the train/val prompt-consistency key."""
+    return stable_json_hash({"protocol_version": ANNOTATION_PROTOCOL_VERSION})
 
 
 def package_single(
@@ -200,10 +179,7 @@ def package_single(
         manifest_data = load_json(split_manifest_path)
 
     # Determine preparation fingerprint
-    prep_fp = (
-        generation_meta.get("census_preparation_fingerprint")
-        or (stable_json_hash(manifest_data) if manifest_data else None)
-    )
+    prep_fp = stable_json_hash(manifest_data) if manifest_data else None
     if not prep_fp:
         raise ValueError("Cannot determine preparation_fingerprint: split_manifest.json missing and not in generation metadata")
 
@@ -212,7 +188,7 @@ def package_single(
     resolved_run_id = run_id or f"annot_{generation_tag}"
 
     # Determine prompt hash
-    resolved_prompt_hash = prompt_hash or _find_prompt_hash(generation_meta)
+    resolved_prompt_hash = prompt_hash or _find_prompt_hash()
 
     # Determine key format
     sample_ids = [r["sample_id"] for r in records]
@@ -286,23 +262,7 @@ def package_single(
     sample_count = len(data)
 
     provenance = {
-        "source_type": "hosted_open_weights",
-        "provider": ANNOTATION_PROVIDER,
-        "api_base_url": ANNOTATION_API_BASE_URL,
-        "annotator_model": ANNOTATION_MODEL_NAME,
-        "annotator_revision": ANNOTATION_MODEL_REVISION,
-        "model_weights_url": ANNOTATION_MODEL_WEIGHTS_URL,
-        "model_license": ANNOTATION_MODEL_LICENSE,
-        "mode": ANNOTATION_MODE,
-        "assignment_policy": ASSIGNMENT_POLICY,
-        "render_protocol": RENDER_PROTOCOL,
-        "generation_config": {
-            "query_max_tokens": 4096,
-            "enable_thinking": None,
-            "thinking_mode": "disabled",
-            "response_format": None,
-            "image_detail": "high",
-        },
+        "source_type": "human_annotated",
     }
 
     qc_status = {

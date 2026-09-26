@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from aicomp_grounding.serving.submission import build_submission
+from aicomp_grounding.grounding.submission import build_submission
 from aicomp_grounding.testset import validate_official_test_template
 
 
@@ -163,7 +163,7 @@ class BuildSubmissionTests(unittest.TestCase):
             output.mkdir()
             old_zip = output / "submission.zip"
             old_zip.write_bytes(b"previous-valid-package")
-            with patch("aicomp_grounding.serving.submission.zipfile.ZipFile", side_effect=RuntimeError("boom")):
+            with patch("aicomp_grounding.grounding.submission.zipfile.ZipFile", side_effect=RuntimeError("boom")):
                 with self.assertRaises(RuntimeError):
                     build_submission(
                         self._write_template(root),
@@ -175,7 +175,7 @@ class BuildSubmissionTests(unittest.TestCase):
             self.assertEqual(old_zip.read_bytes(), b"previous-valid-package")
 
     def test_template_count_and_path_separators_are_strict(self):
-        with self.assertRaisesRegex(ValueError, "9555"):
+        with self.assertRaisesRegex(ValueError, "5690"):
             validate_official_test_template(self._template_data())
         modified = self._template_data()
         modified["000002_001"] = dict(modified["000002_001"])

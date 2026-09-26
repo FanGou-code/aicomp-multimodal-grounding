@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
-"""Build a review manifest from an generation.json or any query JSON.
+"""Build a review manifest from any query JSON.
 
-Two input modes:
-  --generation  : from generation.json (internal pipeline)
-  --source    : from any {id, image, query} JSON (generic)
+Input shape (mapping or list)::
 
+    mapping: {"<id>": {"image"|"visible": path, "query": text, "bbox"?: [x1,y1,x2,y2]}, ...}
+    list:    [{"id": "...", "image": path, "query": text, "bbox"?: [...]}, ...]
+
+``bbox`` is optional — omitting it means manual annotation from scratch.
 Supports splitting into parts for multi-user annotation.
 
 Usage::
 
-    # From generation
-    python tools/make_manifest.py --generation outputs/generation/asm-train-r5/generation.json \
-        --data-root /path/to/dataset
-
-    # From any query JSON (generic — zero pipeline dependency)
     python tools/make_manifest.py --source my_queries.json --images-root /path/to/images
 
     # Split into parts
@@ -31,62 +28,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-from aicomp_grounding.annotation.config import resolve_index_dir
-
-
-def build_manifest_from_generation(
-    generation_path: Path,
-    data_root: Path,
-    *,
-    index_dir: Path | None = None,
-    split: int = 0,
-    part: int = 0,
-    out: Path | None = None,
-) -> dict:
-    """Build a review manifest from generation records."""
-    manifest = json.loads(generation_path.read_text(encoding="utf-8"))
-    metadata = manifest.get("metadata", {})
-    split_name = metadata.get("split", "train")
-    run_tag = metadata.get("run_tag", generation_path.parent.name)
-
-    data_root = Path(data_root)
-    index = json.loads((resolve_index_dir(data_root, index_dir) / f"{split_name}.json").read_text(encoding="utf-8"))
-
-    items: list[dict] = []
-    for record in manifest.get("records", []):
-        sample_id = record["sample_id"]
-        entry = index.get(sample_id)
-        if entry is None:
-            continue
-        item_id = f"{sample_id}#{record['object_index']:02d}"
-        items.append({
-            "id": item_id,
-            "image": entry["visible"],
-            "query": record["query"],
-            "bbox": record["bbox"],
-            "category": record["category"],
-            "frame_id": sample_id,
-            "corpus": split_name,
-            "source": record.get("source", "teacher"),
-            "object_index": record["object_index"],
-        })
-
-    if split > 0 and 1 <= part <= split:
-        chunk_size = (len(items) + split - 1) // split
-        start = (part - 1) * chunk_size
-        end = min(start + chunk_size, len(items))
-        items = items[start:end]
-        name = f"{run_tag}-part{part}of{split}"
-    else:
-        name = run_tag
-
-    result = {"name": name, "run_tag": run_tag, "split": split_name, "items": items}
-    if out:
-        tmp = out.with_name(out.name + ".tmp")
-        tmp.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(out)
-    return result
 
 
 def build_manifest_from_source(
@@ -152,15 +93,10 @@ def build_manifest_from_source(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--generation", type=Path, default=None,
-                        help="path to generation.json")
-    parser.add_argument("--source", type=Path, default=None,
+    parser.add_argument("--source", type=Path, required=True,
                         help="path to any query JSON (mapping or list shape)")
-    parser.add_argument("--images-root", type=Path, default=None,
-                        help="root directory for image paths (required with --source)")
-    parser.add_argument("--data-root", type=Path, default=None,
-                        help="dataset root holding indexes/ (required with --generation)")
-    parser.add_argument("--index-dir", type=Path, default=None)
+    parser.add_argument("--images-root", type=Path, required=True,
+                        help="root directory for image paths")
     parser.add_argument("--split", type=int, default=0,
                         help="divide into N parts (0 = no split)")
     parser.add_argument("--part", type=int, default=0,
@@ -169,37 +105,16 @@ def main() -> None:
                         help="output path")
     args = parser.parse_args()
 
-    if not args.generation and not args.source:
-        parser.error("either --generation or --source is required")
-
-    if args.source:
-        if not args.images_root:
-            parser.error("--images-root is required with --source")
-        result = build_manifest_from_source(
-            source_path=args.source, images_root=args.images_root,
-            split=args.split, part=args.part, out=args.out,
-        )
-        print(f"manifest: {len(result['items'])} items, name={result['name']}")
-        if args.out:
-            print(f"wrote {args.out}")
-        return
-
-    if not args.data_root:
-        parser.error("--data-root is required with --generation")
     if args.split > 0 and not (1 <= args.part <= args.split):
         parser.error(f"--part must be 1..{args.split} when --split={args.split}")
 
-    out = args.out
-    if out is None:
-        tag = args.generation.parent.name
-        out = Path(f"{tag}-part{args.part}of{args.split}.json") if args.split > 0 else Path(f"{tag}.json")
-
-    result = build_manifest_from_generation(
-        generation_path=args.generation, data_root=args.data_root, index_dir=args.index_dir,
-        split=args.split, part=args.part, out=out,
+    result = build_manifest_from_source(
+        source_path=args.source, images_root=args.images_root,
+        split=args.split, part=args.part, out=args.out,
     )
-    print(f"manifest: {len(result['items'])} items, run_tag={result['run_tag']}")
-    print(f"wrote {out}")
+    print(f"manifest: {len(result['items'])} items, name={result['name']}")
+    if args.out:
+        print(f"wrote {args.out}")
 
 
 if __name__ == "__main__":

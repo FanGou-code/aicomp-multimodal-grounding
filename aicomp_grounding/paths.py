@@ -17,13 +17,8 @@ OUTPUT_FAMILIES = frozenset({
     "annotations",
     "training",
     "inference",
-    "ordinal_enum",
-    "ordinal_resolve",
     "fusion",
     "submission",
-    "census",
-    "generation",
-    "reverse",
 })
 
 

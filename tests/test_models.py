@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 import re
 import tempfile
@@ -10,15 +9,15 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from aicomp_grounding.serving.engine.inference_core import evaluate_predictions, load_inference_items
+from aicomp_grounding.grounding.engine.inference_core import evaluate_predictions, load_inference_items
 from aicomp_grounding.io import atomic_write_json
-from aicomp_grounding.serving.models import ADAPTERS, available_models, get_adapter
-from aicomp_grounding.serving.models.base import (
+from aicomp_grounding.grounding.models import ADAPTERS, available_models, get_adapter
+from aicomp_grounding.grounding.models.base import (
     ModelInput,
     language_model_lora_targets,
 )
-from aicomp_grounding.serving.models.mock import _stable_box
-from aicomp_grounding.serving.models.glm46v import (
+from aicomp_grounding.grounding.models.mock import _stable_box
+from aicomp_grounding.grounding.models.glm46v import (
     GLM_BOX_CLOSE as GLM46V_BOX_CLOSE,
     GLM_BOX_OPEN as GLM46V_BOX_OPEN,
     MAX_PIXELS as GLM46V_MAX_PIXELS,
@@ -29,28 +28,31 @@ from aicomp_grounding.serving.models.glm46v import (
     parse_glm_box,
     processor_pixel_kwargs,
 )
-from aicomp_grounding.serving.models.qwen3_5 import (
+from aicomp_grounding.grounding.models.qwen3_5 import (
     MAX_PIXELS as QWEN3_5_MAX_PIXELS,
     MIN_PIXELS as QWEN3_5_MIN_PIXELS,
     MODEL_NAME as QWEN3_5_MODEL_NAME,
     MODEL_REVISION as QWEN3_5_MODEL_REVISION,
 )
-from aicomp_grounding.serving.models.qwen3vl import (
+from aicomp_grounding.grounding.models.qwen3vl import (
     MAX_PIXELS,
     MIN_PIXELS,
     MODEL_NAME,
     MODEL_REVISION,
 )
-from aicomp_grounding.serving.messages import (
-    GLM_GROUNDING_PROMPT_PROTOCOL,
+from aicomp_grounding.grounding.messages import (
+    GLM46V_PROMPT_PROTOCOL,
     GLM46V_SYSTEM_PROMPT,
     GLM46V_USER_TEMPLATE,
-    GROUNDING_PROMPT_PROTOCOL,
-    GROUNDING_SYSTEM_PROMPT,
-    GROUNDING_USER_TEMPLATE,
+    QWEN3VL_PROMPT_PROTOCOL,
+    QWEN3VL_SYSTEM_PROMPT,
+    QWEN3VL_USER_TEMPLATE,
+    QWEN3_5_PROMPT_PROTOCOL,
+    QWEN3_5_SYSTEM_PROMPT,
+    QWEN3_5_USER_TEMPLATE,
     grounding_prompt_hash,
 )
-from aicomp_grounding.serving.submission import build_submission
+from aicomp_grounding.grounding.submission import build_submission
 
 
 class RegistryTests(unittest.TestCase):
@@ -114,7 +116,7 @@ class QwenIdentityContinuityTests(unittest.TestCase):
         self.assertEqual(
             adapter.prompt_hash(),
             grounding_prompt_hash(
-                GROUNDING_PROMPT_PROTOCOL, GROUNDING_SYSTEM_PROMPT, GROUNDING_USER_TEMPLATE
+                QWEN3VL_PROMPT_PROTOCOL, QWEN3VL_SYSTEM_PROMPT, QWEN3VL_USER_TEMPLATE
             ),
         )
 
@@ -142,7 +144,7 @@ class Qwen3_5IdentityContinuityTests(unittest.TestCase):
         self.assertEqual(
             adapter.prompt_hash(),
             grounding_prompt_hash(
-                GROUNDING_PROMPT_PROTOCOL, GROUNDING_SYSTEM_PROMPT, GROUNDING_USER_TEMPLATE
+                QWEN3_5_PROMPT_PROTOCOL, QWEN3_5_SYSTEM_PROMPT, QWEN3_5_USER_TEMPLATE
             ),
         )
 
@@ -160,7 +162,7 @@ class Qwen3_5IdentityContinuityTests(unittest.TestCase):
     def test_thinking_disabled_in_chat_template_kwargs(self):
         # The grounding protocol must disable Qwen3.5 thinking for both
         # training and inference; the kwarg is applied via _apply_chat_template.
-        from aicomp_grounding.serving.models import qwen3_5
+        from aicomp_grounding.grounding.models import qwen3_5
 
         self.assertEqual(
             qwen3_5.CHAT_TEMPLATE_KWARGS, {"enable_thinking": False}
@@ -202,7 +204,7 @@ class Glm46VContractTests(unittest.TestCase):
         self.assertEqual(
             adapter.prompt_hash(),
             grounding_prompt_hash(
-                GLM_GROUNDING_PROMPT_PROTOCOL, GLM46V_SYSTEM_PROMPT, GLM46V_USER_TEMPLATE
+                GLM46V_PROMPT_PROTOCOL, GLM46V_SYSTEM_PROMPT, GLM46V_USER_TEMPLATE
             ),
         )
         # The editable file must carry the same delimiters the parser accepts.
@@ -223,7 +225,7 @@ class Glm46VContractTests(unittest.TestCase):
         )
 
     def test_thinking_disabled_in_chat_template_kwargs(self):
-        from aicomp_grounding.serving.models import glm46v
+        from aicomp_grounding.grounding.models import glm46v
 
         self.assertEqual(glm46v.CHAT_TEMPLATE_KWARGS, {"enable_thinking": False})
 
@@ -378,29 +380,6 @@ class TrainableAdapterContractTests(unittest.TestCase):
             self.assertIsInstance(pattern, str, f"{name} must return a regex, not a list")
             for key in FROZEN_VISION_MODULES:
                 self.assertIsNone(re.fullmatch(pattern, key), f"{name} would train {key}")
-
-
-class OrdinalGenerationContractTests(unittest.TestCase):
-    """Every adapter must be able to serve the ordinal module's generation call."""
-
-    def test_every_registered_adapter_exposes_generate_messages(self):
-        for name in available_models():
-            with self.subTest(name=name):
-                self.assertTrue(
-                    callable(getattr(get_adapter(name), "generate_messages", None)),
-                    f"{name} cannot serve the ordinal module",
-                )
-
-    def test_generate_messages_takes_keyword_only_generation_controls(self):
-        parameters = inspect.signature(
-            get_adapter("mock").generate_messages
-        ).parameters
-        for name in ("max_new_tokens", "temperature", "skip_special_tokens"):
-            with self.subTest(parameter=name):
-                self.assertEqual(
-                    parameters[name].kind, inspect.Parameter.KEYWORD_ONLY
-                )
-        self.assertIs(parameters["skip_special_tokens"].default, False)
 
 
 class LocalModelPolicyTests(unittest.TestCase):

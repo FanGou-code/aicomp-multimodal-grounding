@@ -7,15 +7,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aicomp_grounding.contract import (
-    ANNOTATION_MODE,
-    ASSIGNMENT_POLICY,
-    approved_dataset_fingerprint,
-)
+from aicomp_grounding.contract import approved_dataset_fingerprint
 from aicomp_grounding.config import ANNOTATION_PROTOCOL_VERSION
 from aicomp_grounding.contract import source_fingerprint
 from aicomp_grounding.sharding import group_keys_by_scene
-from aicomp_grounding.serving.engine.training_state import (
+from aicomp_grounding.grounding.engine.training_state import (
     accumulation_window_size,
     assert_single_cuda_device_map,
     build_epoch_adapter_manifest,
@@ -32,7 +28,7 @@ from aicomp_grounding.serving.engine.training_state import (
 )
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
-from aicomp_grounding.serving.engine.training_core import (
+from aicomp_grounding.grounding.engine.training_core import (
     _load_training_state,
     persist_training_plan,
     prepare_training_plan,
@@ -92,17 +88,7 @@ def _artifact(split: str, scene: str, run_id: str = "annot_round1") -> dict:
             "sequence_count": len(group_keys_by_scene(list(data), data)),
             "prompt_hash": "annotation-prompt",
             "provenance": {
-                "source_type": "hosted_open_weights",
-                "provider": "zhipu",
-                "api_base_url": "https://api.siliconflow.cn/v1",
-                "annotator_model": "open-model",
-                "annotator_revision": "revision",
-                "model_weights_url": "https://example.com/open-model",
-                "model_license": "Apache-2.0",
-                "mode": ANNOTATION_MODE,
-                "assignment_policy": ASSIGNMENT_POLICY,
-                "render_protocol": "clean-views-v1",
-                "generation_config": {"max_tokens": 256, "enable_thinking": False},
+                "source_type": "human_annotated",
             },
             "qc": {
                 "complete": True,
