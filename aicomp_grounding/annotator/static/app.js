@@ -484,9 +484,8 @@
         dom.annotationStatusBadge.textContent = `📋 待办-需消歧 (${item.annotator.replace(':todo', '')})`;
         dom.annotationStatusBadge.className = 'badge badge-absent';
       } else if (isAiPendingItem(item)) {
-        // AI badges removed — manifest mode
-        dom.annotationStatusBadge.textContent = "待审AI预标";
-        dom.annotationStatusBadge.className = 'badge badge-ai';
+        dom.annotationStatusBadge.textContent = "待标注";
+        dom.annotationStatusBadge.className = 'badge badge-unannotated';
       } else {
         dom.annotationStatusBadge.textContent = item.annotator ? `已核验 (${item.annotator})` : '已标注';
         dom.annotationStatusBadge.className = 'badge badge-annotated';
@@ -900,7 +899,7 @@
     }
 
     // Badge with coordinates above box
-    const badgeText = (!verified ? '🤖 [AI预标] ' : '') + (state.reviewMode && curItem && curItem.ordinal != null ? `#${curItem.ordinal} ` : '') + `${Math.round(Math.abs(imgRect.x2 - imgRect.x1))}×${Math.round(Math.abs(imgRect.y2 - imgRect.y1))} px`;
+    const badgeText = (state.reviewMode && curItem && curItem.ordinal != null ? `#${curItem.ordinal} ` : '') + `${Math.round(Math.abs(imgRect.x2 - imgRect.x1))}×${Math.round(Math.abs(imgRect.y2 - imgRect.y1))} px`;
     ctx.font = '11px ui-monospace, monospace';
     const textMetrics = ctx.measureText(badgeText);
     const badgeW = textMetrics.width + 10;
@@ -1278,7 +1277,7 @@
         return;
       }
     }
-    showToast('前面没有待审核的 AI 预标条目', 'info');
+    showToast('前面没有待处理条目', 'info');
   }
 
   function goToNextAi() {
@@ -1288,7 +1287,7 @@
         return;
       }
     }
-    showToast('后面没有待审核的 AI 预标条目', 'info');
+    showToast('后面没有待处理条目', 'info');
   }
 
   function goToNextTodo() {
@@ -1374,14 +1373,14 @@
       return;
     }
 
-    // Vim-style navigation (60% keyboard friendly); arrow keys remain as aliases
-    if (e.key === 'h' || e.key === 'H') {
+    // Navigation: A/D and H/L (arrow keys remain as aliases)
+    if (e.key === 'a' || e.key === 'A' || e.key === 'h' || e.key === 'H') {
       e.preventDefault();
       prevItem();
       return;
     }
 
-    if (e.key === 'l' || e.key === 'L') {
+    if (e.key === 'd' || e.key === 'D' || e.key === 'l' || e.key === 'L') {
       e.preventDefault();
       nextItem();
       return;

@@ -320,6 +320,8 @@ class Glm46VAdapter:
 
         with Image.open(data_root / item["visible"]) as opened:
             visible = opened.convert("RGB")
+        if item.get("flip_horizontal"):
+            visible = visible.transpose(Image.FLIP_LEFT_RIGHT)
         images = [visible]
         assistant_text = format_glm_bbox(item["bbox"])
         prompt_messages = _build_messages(visible, item["query"])

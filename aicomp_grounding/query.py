@@ -152,3 +152,34 @@ def preflight_check_dataset(data: dict, *, split_name: str = "dataset") -> list[
         sample = ", ".join(missing_field_ids[:5])
         errors.append(f"{split_name}: {len(missing_field_ids)} samples missing required fields (e.g. {sample}).")
     return errors
+
+
+def flip_spatial_query(query: str) -> tuple[str, bool]:
+    """Invert horizontal spatial terms in a query (left <-> right, leftmost <-> rightmost)."""
+    def repl(m: re.Match) -> str:
+        word = m.group(0)
+        lower = word.lower()
+        if lower == "left":
+            replacement = "right"
+        elif lower == "right":
+            replacement = "left"
+        elif lower == "leftmost":
+            replacement = "rightmost"
+        elif lower == "rightmost":
+            replacement = "leftmost"
+        elif lower == "left-most":
+            replacement = "right-most"
+        elif lower == "right-most":
+            replacement = "left-most"
+        else:
+            return word
+        if word.isupper():
+            return replacement.upper()
+        if word[0].isupper():
+            return replacement.capitalize()
+        return replacement
+
+    pattern = re.compile(r"\b(left-most|right-most|leftmost|rightmost|left|right)\b", re.IGNORECASE)
+    flipped, count = pattern.subn(repl, query)
+    return flipped, count > 0
+

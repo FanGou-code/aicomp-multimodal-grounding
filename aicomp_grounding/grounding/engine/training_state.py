@@ -29,7 +29,7 @@ import math
 import re
 from pathlib import Path
 
-from aicomp_grounding.contract import validate_training_artifacts
+from aicomp_grounding.contract import approved_dataset_fingerprint, validate_training_artifacts
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.io import load_json
 from aicomp_grounding.config import TRAINING_PROTOCOL_VERSION
@@ -73,13 +73,15 @@ def build_training_metadata(
         val_artifact,
         annotation_run_id=annotation_run_id,
     )
+    train_meta = train["metadata"]
+    val_meta = val["metadata"]
     identity = {
         "annotation_run_id": annotation_run_id,
-        "train_dataset_fingerprint": train["metadata"]["dataset_fingerprint"],
-        "val_dataset_fingerprint": val["metadata"]["dataset_fingerprint"],
-        "train_image_fingerprint": train["metadata"]["image_fingerprint"],
-        "val_image_fingerprint": val["metadata"]["image_fingerprint"],
-        "annotation_prompt_hash": train["metadata"]["prompt_hash"],
+        "train_dataset_fingerprint": train_meta.get("dataset_fingerprint") or approved_dataset_fingerprint(train["data"]),
+        "val_dataset_fingerprint": val_meta.get("dataset_fingerprint") or approved_dataset_fingerprint(val["data"]),
+        "train_image_fingerprint": train_meta.get("image_fingerprint", ""),
+        "val_image_fingerprint": val_meta.get("image_fingerprint", ""),
+        "annotation_prompt_hash": train_meta.get("prompt_hash", ""),
         "model_name": model_name,
         "model_revision": model_revision,
         "grounding_prompt_hash": grounding_prompt_hash,
@@ -87,6 +89,7 @@ def build_training_metadata(
         "seed": seed,
         "run_tag": run_tag,
     }
+
     training_run_id = f"train_{stable_json_hash(identity, length=16)}"
     metadata = {
         "protocol_version": TRAINING_PROTOCOL_VERSION,

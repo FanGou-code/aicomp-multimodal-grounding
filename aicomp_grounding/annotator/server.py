@@ -95,6 +95,69 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
         "split": manifest_split,
     }
 
+
+def build_skeleton_session(
+    skeleton_path: Path,
+    *,
+    split: str = "train",
+    output_path: Path | None = None,
+    journal_path: Path | None = None,
+) -> dict:
+    skeleton = json.loads(skeleton_path.read_text(encoding="utf-8"))
+    skeleton_items = skeleton.get("items", [])
+    if journal_path is None:
+        journal_path = PROJECT_ROOT / "outputs" / "annotations" / "journals" / f"{split}.jsonl"
+    if output_path is None:
+        output_path = PROJECT_ROOT / "outputs" / "annotations" / f"{split}.json"
+
+    store_dir = journal_path.parent
+    store = AnnotationStore(
+        store_dir,
+        journal_path=journal_path,
+        active_dataset_path=output_path,
+        skeleton_path=skeleton_path,
+    )
+
+    items: list[dict] = []
+    for entry in skeleton_items:
+        item_id = entry["id"]
+        if item_id not in store._state and entry.get("bbox") is not None:
+            store._state[item_id] = [float(v) for v in entry["bbox"]]
+            store._meta[item_id] = {
+                "annotator": "human" if entry.get("status") == "annotated" else None,
+                "ts": "",
+            }
+        if item_id not in store._queries and entry.get("query"):
+            store._queries[item_id] = entry["query"]
+
+        items.append(
+            {
+                "id": item_id,
+                "image": entry["image"],
+                "query": entry.get("query", ""),
+                "ordinal": entry.get("frame_idx", 0),
+                "frame_id": f"{entry.get('seq', '')}_{Path(entry['image']).stem}",
+                "gt_bbox": entry.get("bbox"),
+                "category": entry.get("category", ""),
+                "corpus": split,
+                "status": entry.get("status", "pending"),
+            }
+        )
+
+    return {
+        "name": skeleton.get("name", skeleton_path.stem),
+        "items": items,
+        "stats": {
+            "seeded": 0,
+            "frames": len({it["frame_id"] for it in items}),
+            "already_seeded": 0,
+        },
+        "stores": {split: store},
+        "store": store,
+        "split": split,
+    }
+
+
 WEB_ROOT = Path(__file__).resolve().parent / "static"
 MAX_BODY_BYTES = 1_000_000
 STATIC_TYPES = {
@@ -155,19 +218,26 @@ class AnnotatorState:
             store = self.store_for(item["id"])
             meta = store.meta(item["id"]) or {}
             edited_query = store.get_query(item["id"])
+            current_bbox = self.store_for(item["id"]).get(item["id"])
+            if current_bbox is None and item.get("gt_bbox") is not None:
+                current_bbox = list(item["gt_bbox"])
+            annotator = meta.get("annotator")
+            if annotator is None and item.get("status") == "annotated" and current_bbox is not None:
+                annotator = "human"
             payload_items.append(
                 {
                     "id": item["id"],
                     "image_url": "/image?src=" + quote(item["image"]),
                     "query_en": edited_query or item["query"],
                     "query_edited": edited_query is not None,
-                    "bbox": self.store_for(item["id"]).get(item["id"]),
-                    "annotator": meta.get("annotator"),
+                    "bbox": current_bbox,
+                    "annotator": annotator,
                     "ordinal": item["ordinal"],
                     "frame_id": item["frame_id"],
                     "gt_bbox": item["gt_bbox"],
                     "category": item.get("category", ""),
                     "corpus": item.get("corpus", ""),
+                    "status": item.get("status", "pending"),
                     "ai_verdict": item.get("ai_verdict", ""),
                     "ai_reason": item.get("ai_reason", ""),
                     "ai_collision": item.get("ai_collision", False),
@@ -203,16 +273,24 @@ class AnnotatorState:
             return None
         candidate = Path(src)
         path = candidate if candidate.is_absolute() else self.images_root / candidate
+        if not path.is_file() and not candidate.is_absolute():
+            alt = self.images_root / "data" / candidate
+            if alt.is_file():
+                path = alt
         try:
             resolved = path.resolve()
         except OSError:
             return None
         if not resolved.is_file():
             return None
-        # Boundary check: resolved path must stay within images_root
-        if not resolved.is_relative_to(self.images_root):
+        allowed = [self.images_root]
+        data_sub = (self.images_root / "data").resolve()
+        if data_sub.exists():
+            allowed.append(data_sub)
+        if not any(resolved.is_relative_to(base) for base in allowed):
             return None
         return resolved
+
 
 
 class AnnotationHandler(BaseHTTPRequestHandler):
@@ -356,18 +434,57 @@ def create_server(
     *,
     data_root: str | Path = "",
     review_root: str | Path = "",
-    manifest_path: str | Path,
+    manifest_path: str | Path | None = None,
+    skeleton_path: str | Path | None = None,
+    split: str = "train",
+    output_path: str | Path | None = None,
+    journal_path: str | Path | None = None,
     host: str = "127.0.0.1",
     port: int = 0,
     lock_query: bool = False,
 ) -> tuple[ThreadingHTTPServer, AnnotatorState]:
-    """Build the review server from a manifest.
+    """Build the review or annotation server."""
+    if skeleton_path:
+        sessions = [
+            build_skeleton_session(
+                Path(skeleton_path),
+                split=split,
+                output_path=Path(output_path) if output_path else None,
+                journal_path=Path(journal_path) if journal_path else None,
+            )
+        ]
+    elif manifest_path:
+        manifest_p = Path(manifest_path)
+        is_skel = "skeleton" in manifest_p.name
+        if not is_skel and manifest_p.is_file():
+            try:
+                data = json.loads(manifest_p.read_text(encoding="utf-8"))
+                if data.get("name", "").endswith("skeleton") or "skeleton" in data.get("name", ""):
+                    is_skel = True
+            except Exception:
+                pass
+        if is_skel:
+            sessions = [
+                build_skeleton_session(
+                    manifest_p,
+                    split=split,
+                    output_path=Path(output_path) if output_path else None,
+                    journal_path=Path(journal_path) if journal_path else None,
+                )
+            ]
+        else:
+            sessions = [build_manifest_session(manifest_p, Path(review_root))]
+    else:
+        default_skel = PROJECT_ROOT / "outputs" / "annotations" / "skeleton" / f"{split}_skeleton.json"
+        sessions = [
+            build_skeleton_session(
+                default_skel,
+                split=split,
+                output_path=Path(output_path) if output_path else None,
+                journal_path=Path(journal_path) if journal_path else None,
+            )
+        ]
 
-    ``manifest_path`` is the sole session source (a review manifest produced by
-    ``tools/make_manifest.py``). Each item's corpus keeps its own crash-safe
-    store directory, so existing review progress carries over untouched.
-    """
-    sessions = [build_manifest_session(Path(manifest_path), Path(review_root))]
     stores: dict[str, AnnotationStore] = dict(sessions[0].get("stores", {}))
 
     items: list[dict] = []
@@ -403,13 +520,17 @@ def create_server(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="review server (manifest mode)")
-    parser.add_argument("--manifest", required=True, help="path to a review manifest JSON (from make_manifest.py)")
-    parser.add_argument("--data-root", type=Path, required=False)
+    parser = argparse.ArgumentParser(description="annotation server")
+    parser.add_argument("--manifest", default=None, help="path to legacy review manifest JSON")
+    parser.add_argument("--skeleton", default=None, help="path to task skeleton JSON")
+    parser.add_argument("--split", choices=["train", "val"], default="train", help="dataset split to annotate")
+    parser.add_argument("--output", default=None, help="path to active annotations JSON")
+    parser.add_argument("--journal", default=None, help="path to journal JSONL")
+    parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT / "data")
     parser.add_argument("--review-root", default=PROJECT_ROOT / "outputs" / "review")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8788)
-    parser.add_argument("--lock-query", action="store_true", help="disallow query edits (box-only review)")
+    parser.add_argument("--lock-query", action="store_true", help="disallow query edits")
     args = parser.parse_args(argv)
 
     try:
@@ -417,6 +538,10 @@ def main(argv: list[str] | None = None) -> int:
             data_root=args.data_root,
             review_root=args.review_root,
             manifest_path=args.manifest,
+            skeleton_path=args.skeleton,
+            split=args.split,
+            output_path=args.output,
+            journal_path=args.journal,
             host=args.host,
             port=args.port,
             lock_query=args.lock_query,
@@ -428,7 +553,6 @@ def main(argv: list[str] | None = None) -> int:
     host, port = server.server_address[:2]
     display_host = "127.0.0.1" if host in ("0.0.0.0", "::") else str(host)
     print(f"session={state.session['name']} items={len(state.items)}")
-    print(f"seeded={state.session['stats']['seeded']} already_seeded={state.session['stats']['already_seeded']}")
     print(f"serving: http://{display_host}:{port}/")
     try:
         server.serve_forever()
@@ -437,6 +561,7 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         server.server_close()
     return 0
+
 
 
 if __name__ == "__main__":

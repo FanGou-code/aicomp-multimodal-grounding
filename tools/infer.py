@@ -613,6 +613,16 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     print(f"Run id: {run_id}")
     print(f"Output dir: {run_dir}")
 
+    infer_log_file = run_dir / "infer.log"
+
+    def infer_log(msg: str) -> None:
+        print(msg, flush=True)
+        try:
+            with open(infer_log_file, "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        except Exception:
+            pass
+
     predictions = (
         load_resume_predictions(run_dir, metadata, selected_keys)
         if args.resume else {}
@@ -633,7 +643,11 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
             )
             if commit_hook is not None:
                 commit_hook()
-    print(f"Total queries in dataset: {len(items)} | Already finished: {len(predictions)} | Pending: {len(items) - len(predictions)}")
+    if predictions:
+        infer_log(f"[{_now_str()}] [EVENT: RUN_RESUME] Resuming inference run {run_id} | Existing: {len(predictions)}/{len(items)} items")
+    else:
+        infer_log(f"[{_now_str()}] [EVENT: RUN_START] Starting fresh inference run {run_id} | Total items: {len(items)}")
+    infer_log(f"Total queries in dataset: {len(items)} | Already finished: {len(predictions)} | Pending: {len(items) - len(predictions)}")
     if args.num_shards > 1:
         shards = assign_pending_shards(
             items,
@@ -731,7 +745,8 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     if commit_hook is not None:
         commit_hook()
 
-    print(f"\nInference finished for {len(predictions)} queries. Saved to {predictions_path}")
+    infer_log(f"\nInference finished for {len(predictions)} queries. Saved to {predictions_path}")
+    infer_log(f"[{_now_str()}] [EVENT: RUN_COMPLETED] Inference completed successfully | Total queries: {len(predictions)}")
 
     # Metrics only exist when the dataset carries ground-truth bboxes (e.g. val).
     metrics = evaluate_predictions(items, predictions)

@@ -26,7 +26,7 @@ def make_manifest(tmp: Path, split: str = "train") -> Path:
     items = [
         {
             "id": "070_00000001#01",
-            "image": "Train/070/color/00000001.png",
+            "image": "Raw/070/color/00000001.png",
             "query": "the white swan on the left side of the image",
             "bbox": [0.10, 0.40, 0.20, 0.60],
             "corpus": split,
@@ -37,7 +37,7 @@ def make_manifest(tmp: Path, split: str = "train") -> Path:
         },
         {
             "id": "070_00000001#02",
-            "image": "Train/070/color/00000001.png",
+            "image": "Raw/070/color/00000001.png",
             "query": "a duck closest to the camera",
             "bbox": [0.50, 0.40, 0.60, 0.60],
             "corpus": split,
@@ -330,14 +330,14 @@ class ManifestSessionTest(unittest.TestCase):
                 "items": [
                     {
                         "id": "item_train#01",
-                        "image": "Train/070/color/00000001.png",
+                        "image": "Raw/070/color/00000001.png",
                         "query": "train swan",
                         "bbox": [0.1, 0.1, 0.2, 0.2],
                         "corpus": "train",
                     },
                     {
                         "id": "item_val#01",
-                        "image": "Train/004/color/00000001.png",
+                        "image": "Raw/004/color/00000001.png",
                         "query": "val swan",
                         "bbox": [0.3, 0.3, 0.4, 0.4],
                         "corpus": "val",

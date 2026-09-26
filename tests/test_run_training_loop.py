@@ -44,9 +44,9 @@ from aicomp_grounding.grounding.messages import (
 def _data(scene: str) -> dict:
     return {
         f"{scene}_0000000{i}": {
-            "visible": f"Train/{scene}/color/{i}.png",
-            "infrared": f"Train/{scene}/infrared/{i}.png",
-            "depth": f"Train/{scene}/depth/{i}.png",
+            "visible": f"Raw/{scene}/color/{i}.png",
+            "infrared": f"Raw/{scene}/infrared/{i}.png",
+            "depth": f"Raw/{scene}/depth/{i}.png",
             "query": f"the {scene} object number {i}",
             "bbox": [0.1 * i, 0.1, 0.1 * i + 0.2, 0.4],
             "width": 1920,
@@ -134,9 +134,9 @@ def _write_fixture_images(root: Path) -> None:
     for scene in ("001", "002"):
         for i in range(1, 5):
             for relative in (
-                f"Train/{scene}/color/{i}.png",
-                f"Train/{scene}/infrared/{i}.png",
-                f"Train/{scene}/depth/{i}.png",
+                f"Raw/{scene}/color/{i}.png",
+                f"Raw/{scene}/infrared/{i}.png",
+                f"Raw/{scene}/depth/{i}.png",
             ):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)

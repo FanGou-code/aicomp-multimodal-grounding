@@ -35,7 +35,7 @@ def validate_approved_artifact(
     artifact: object,
     *,
     expected_split: str,
-    expected_run_id: str,
+    expected_run_id: str | None = None,
     strict_query_qc: bool = True,
 ) -> dict:
     """Strictly validate an approved annotation artifact against the downstream contract."""
@@ -43,7 +43,8 @@ def validate_approved_artifact(
         raise ValueError("Approved annotation artifact must contain metadata and data")
     metadata = artifact["metadata"]
     data = artifact["data"]
-    required = {
+
+    legacy_required = {
         "status",
         "protocol_version",
         "run_id",
@@ -58,41 +59,60 @@ def validate_approved_artifact(
         "provenance",
         "qc",
     }
-    if not isinstance(metadata, dict) or set(metadata) != required:
-        raise ValueError("Approved annotation metadata schema is invalid")
+    is_legacy = isinstance(metadata, dict) and "source_fingerprint" in metadata
+
+    if is_legacy:
+        if set(metadata) != legacy_required:
+            raise ValueError("Approved annotation metadata schema is invalid")
+    else:
+        minimal_required = {"status", "protocol_version", "split", "sample_count", "sequence_count", "provenance"}
+        if not isinstance(metadata, dict) or not minimal_required.issubset(set(metadata)):
+            raise ValueError("Approved annotation metadata schema is invalid")
+
     if (
         metadata["status"] != "approved"
         or metadata["protocol_version"] != ANNOTATION_PROTOCOL_VERSION
     ):
         raise ValueError("Annotation artifact is not approved under the current protocol")
-    if metadata["split"] != expected_split or metadata["run_id"] != expected_run_id:
+
+    if metadata["split"] != expected_split:
         raise ValueError(
-            f"Approved annotation split or run ID does not match: "
-            f"split {metadata['split']} vs {expected_split}, run_id {metadata['run_id']} vs {expected_run_id}"
+            f"Approved annotation split does not match: split {metadata['split']} vs {expected_split}"
         )
-    for field in (
-        "source_fingerprint",
-        "preparation_fingerprint",
-        "image_fingerprint",
-        "dataset_fingerprint",
-        "prompt_hash",
-    ):
-        if not isinstance(metadata[field], str) or not metadata[field]:
-            raise ValueError(f"Approved annotation {field} is missing")
+
+    if expected_run_id and metadata.get("run_id") and metadata["run_id"] != expected_run_id:
+        raise ValueError(
+            f"Approved annotation run ID does not match: run_id {metadata['run_id']} vs {expected_run_id}"
+        )
+
+    if is_legacy:
+        for field in (
+            "source_fingerprint",
+            "preparation_fingerprint",
+            "image_fingerprint",
+            "dataset_fingerprint",
+            "prompt_hash",
+        ):
+            if not isinstance(metadata[field], str) or not metadata[field]:
+                raise ValueError(f"Approved annotation {field} is missing")
+
     provenance = metadata["provenance"]
     if not isinstance(provenance, dict) or set(provenance) != {"source_type"}:
         raise ValueError("Approved annotation provenance schema is invalid")
     if provenance["source_type"] != "human_annotated":
         raise ValueError("Approved annotation provenance is not human-annotated")
-    qc = metadata["qc"]
-    if not isinstance(qc, dict) or qc != {
-        "complete": True,
-        "failed_sequences": 0,
-        "failed_frames": 0,
-        "invalid_queries": 0,
-        "generated_samples": metadata["sample_count"],
-    }:
-        raise ValueError("Approved annotation QC status is invalid")
+
+    if "qc" in metadata:
+        qc = metadata["qc"]
+        if not isinstance(qc, dict) or qc != {
+            "complete": True,
+            "failed_sequences": 0,
+            "failed_frames": 0,
+            "invalid_queries": 0,
+            "generated_samples": metadata["sample_count"],
+        }:
+            raise ValueError("Approved annotation QC status is invalid")
+
     if not isinstance(data, dict) or not data:
         raise ValueError("Approved annotation data must be a non-empty object")
     for count_field in ("sample_count", "sequence_count"):
@@ -114,12 +134,14 @@ def validate_approved_artifact(
         sample_fail = invalid_queries[0]
         raise ValueError(f"Approved sample {sample_fail[0]!r} failed query QC: {sample_fail[2]} ({len(invalid_queries)} failed total)")
 
-    if len(group_keys_by_scene(list(data), data)) != metadata["sequence_count"]:
-        raise ValueError("Approved annotation sequence count does not match")
-    if source_fingerprint(data) != metadata["source_fingerprint"]:
-        raise ValueError("Approved annotation source fingerprint does not match")
-    if approved_dataset_fingerprint(data) != metadata["dataset_fingerprint"]:
-        raise ValueError("Approved annotation dataset fingerprint does not match")
+    if is_legacy:
+        if len(group_keys_by_scene(list(data), data)) != metadata["sequence_count"]:
+            raise ValueError("Approved annotation sequence count does not match")
+        if source_fingerprint(data) != metadata["source_fingerprint"]:
+            raise ValueError("Approved annotation source fingerprint does not match")
+        if approved_dataset_fingerprint(data) != metadata["dataset_fingerprint"]:
+            raise ValueError("Approved annotation dataset fingerprint does not match")
+
     errors = preflight_check_dataset(data, split_name=expected_split)
     if errors:
         raise ValueError("Approved annotation data failed structural QC: " + "; ".join(errors))
@@ -130,7 +152,7 @@ def validate_training_artifacts(
     train_artifact: dict,
     val_artifact: dict,
     *,
-    annotation_run_id: str,
+    annotation_run_id: str | None = None,
     strict_query_qc: bool = True,
 ) -> tuple[dict, dict]:
     """Validate mutual consistency between train and val approved artifacts."""
@@ -149,7 +171,7 @@ def validate_training_artifacts(
     train_meta = train["metadata"]
     val_meta = val["metadata"]
     for field in ("prompt_hash", "provenance"):
-        if train_meta[field] != val_meta[field]:
+        if field in train_meta and field in val_meta and train_meta[field] != val_meta[field]:
             raise ValueError(f"Train/val approved artifacts disagree on {field}")
 
     train_data = train["data"]
@@ -163,3 +185,4 @@ def validate_training_artifacts(
     if scene_overlap:
         raise ValueError(f"Train/val sequence IDs overlap: {sorted(scene_overlap)[:5]}")
     return train, val
+

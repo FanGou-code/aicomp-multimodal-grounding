@@ -216,6 +216,8 @@ class Qwen3_5Adapter:
 
         with Image.open(data_root / item["visible"]) as opened:
             visible = opened.convert("RGB")
+        if item.get("flip_horizontal"):
+            visible = visible.transpose(Image.FLIP_LEFT_RIGHT)
         bbox_text = format_qwen_bbox(item["bbox"])
         prompt_messages = build_grounding_messages(visible, item["query"], system_prompt=QWEN3_5_SYSTEM_PROMPT, user_template=QWEN3_5_USER_TEMPLATE)
         messages = build_training_messages(visible, item["query"], bbox_text, system_prompt=QWEN3_5_SYSTEM_PROMPT, user_template=QWEN3_5_USER_TEMPLATE)
