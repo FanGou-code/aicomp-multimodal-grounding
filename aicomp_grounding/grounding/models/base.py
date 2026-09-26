@@ -71,6 +71,21 @@ def require_local_model_path(model_path: str | Path | None) -> str:
     return str(path)
 
 
+def validated_prompt_length(full_input_ids, prompt_input_ids, *, sample_id: str) -> int:
+    if len(full_input_ids.shape) != 2 or len(prompt_input_ids.shape) != 2:
+        raise ValueError(f"Training token IDs must be rank 2 for {sample_id}")
+    prompt_length = int(prompt_input_ids.shape[1])
+    if (
+        full_input_ids.shape[0] != prompt_input_ids.shape[0]
+        or prompt_length <= 0
+        or prompt_length >= full_input_ids.shape[1]
+    ):
+        raise ValueError(f"Training label boundary is invalid for {sample_id}")
+    if not bool((full_input_ids[:, :prompt_length] == prompt_input_ids).all().item()):
+        raise ValueError(f"Training prompt tokens are not an exact prefix for {sample_id}")
+    return prompt_length
+
+
 @dataclass(frozen=True)
 class Prediction:
     """Unified grounding output: normalized XYXY box."""
@@ -93,6 +108,7 @@ class GroundingAdapter(Protocol):
     name: str
     model_name: str
     model_revision: str
+    compute_dtype: str
     #: Whether this adapter accepts a LoRA adapter directory on load().
     supports_lora: bool
     #: Decoding parameters recorded into the inference run identity.

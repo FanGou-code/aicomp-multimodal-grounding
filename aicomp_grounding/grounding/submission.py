@@ -108,7 +108,7 @@ def build_submission(
         entry = dict(original)
         entry["bbox"] = bbox if bbox is not None else fallback
         submission[query_id] = entry
-        if {key: entry[key] for key in original} != original:
+        if any(entry[key] != original[key] for key in original if key != "bbox"):
             raise AssertionError(f"Non-bbox field changed for {query_id!r}")
 
     output_dir.mkdir(parents=True, exist_ok=True)

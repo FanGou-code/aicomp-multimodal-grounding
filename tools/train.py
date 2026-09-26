@@ -255,8 +255,10 @@ def parse_args(argv=None):
     for key, value in _RUN_DEFAULTS.items():
         if getattr(args, key) is None:
             setattr(args, key, value)
+    if not args.annotation_run_id and not args.config:
+        parser.error("--annotation-run-id is required when --config is not provided")
     if not args.annotation_run_id:
-        parser.error("--annotation-run-id is required (CLI or --config)")
+        args.annotation_run_id = None
     return args
 
 

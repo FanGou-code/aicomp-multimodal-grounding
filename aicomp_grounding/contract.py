@@ -1,7 +1,7 @@
 """Contract validation and fingerprinting for approved annotation artifacts.
 
 Ensures generated artifacts conform to the downstream multimodal grounding training contract
-(protocol_version=12). All fingerprints are pure, deterministic SHA-256 content hashes.
+(protocol_version=13). All fingerprints are pure, deterministic SHA-256 content hashes.
 Zero pip dependencies required.
 """
 
@@ -31,12 +31,33 @@ def approved_dataset_fingerprint(data: dict) -> str:
     return stable_json_hash(data)
 
 
+REQUIRED_METADATA_FIELDS = {
+    "status",
+    "protocol_version",
+    "split",
+    "sample_count",
+    "sequence_count",
+    "provenance",
+}
+ALLOWED_METADATA_FIELDS = REQUIRED_METADATA_FIELDS | {
+    "run_id",
+    "run_tag",
+    "source_fingerprint",
+    "preparation_fingerprint",
+    "image_fingerprint",
+    "dataset_fingerprint",
+    "prompt_hash",
+    "qc",
+}
+
+
 def validate_approved_artifact(
     artifact: object,
     *,
     expected_split: str,
     expected_run_id: str | None = None,
     strict_query_qc: bool = True,
+    allow_pending: bool = False,
 ) -> dict:
     """Strictly validate an approved annotation artifact against the downstream contract."""
     if not isinstance(artifact, dict) or set(artifact) != {"metadata", "data"}:
@@ -44,30 +65,12 @@ def validate_approved_artifact(
     metadata = artifact["metadata"]
     data = artifact["data"]
 
-    legacy_required = {
-        "status",
-        "protocol_version",
-        "run_id",
-        "split",
-        "source_fingerprint",
-        "preparation_fingerprint",
-        "image_fingerprint",
-        "dataset_fingerprint",
-        "sample_count",
-        "sequence_count",
-        "prompt_hash",
-        "provenance",
-        "qc",
-    }
-    is_legacy = isinstance(metadata, dict) and "source_fingerprint" in metadata
-
-    if is_legacy:
-        if set(metadata) != legacy_required:
-            raise ValueError("Approved annotation metadata schema is invalid")
-    else:
-        minimal_required = {"status", "protocol_version", "split", "sample_count", "sequence_count", "provenance"}
-        if not isinstance(metadata, dict) or not minimal_required.issubset(set(metadata)):
-            raise ValueError("Approved annotation metadata schema is invalid")
+    if not isinstance(metadata, dict):
+        raise ValueError("Approved annotation metadata schema is invalid")
+    if not REQUIRED_METADATA_FIELDS.issubset(set(metadata)) or not set(metadata).issubset(
+        ALLOWED_METADATA_FIELDS
+    ):
+        raise ValueError("Approved annotation metadata schema is invalid")
 
     if (
         metadata["status"] != "approved"
@@ -85,14 +88,14 @@ def validate_approved_artifact(
             f"Approved annotation run ID does not match: run_id {metadata['run_id']} vs {expected_run_id}"
         )
 
-    if is_legacy:
-        for field in (
-            "source_fingerprint",
-            "preparation_fingerprint",
-            "image_fingerprint",
-            "dataset_fingerprint",
-            "prompt_hash",
-        ):
+    for field in (
+        "source_fingerprint",
+        "preparation_fingerprint",
+        "image_fingerprint",
+        "dataset_fingerprint",
+        "prompt_hash",
+    ):
+        if field in metadata:
             if not isinstance(metadata[field], str) or not metadata[field]:
                 raise ValueError(f"Approved annotation {field} is missing")
 
@@ -104,13 +107,7 @@ def validate_approved_artifact(
 
     if "qc" in metadata:
         qc = metadata["qc"]
-        if not isinstance(qc, dict) or qc != {
-            "complete": True,
-            "failed_sequences": 0,
-            "failed_frames": 0,
-            "invalid_queries": 0,
-            "generated_samples": metadata["sample_count"],
-        }:
+        if not isinstance(qc, dict) or qc.get("complete") is not True:
             raise ValueError("Approved annotation QC status is invalid")
 
     if not isinstance(data, dict) or not data:
@@ -120,29 +117,39 @@ def validate_approved_artifact(
         if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
             raise ValueError(f"Approved annotation {count_field} must be a positive integer")
     if len(data) != metadata["sample_count"]:
-        raise ValueError(f"Approved annotation sample count mismatch: {len(data)} != {metadata['sample_count']}")
+        raise ValueError(
+            f"Approved annotation sample count mismatch: {len(data)} != {metadata['sample_count']}"
+        )
+
+    if len(group_keys_by_scene(list(data), data)) != metadata["sequence_count"]:
+        raise ValueError("Approved annotation sequence count does not match")
+
+    if "source_fingerprint" in metadata:
+        if source_fingerprint(data) != metadata["source_fingerprint"]:
+            raise ValueError("Approved annotation source fingerprint does not match")
+    if "dataset_fingerprint" in metadata:
+        if approved_dataset_fingerprint(data) != metadata["dataset_fingerprint"]:
+            raise ValueError("Approved annotation dataset fingerprint does not match")
 
     invalid_queries = []
     for sample_id, item in data.items():
         if not isinstance(item, dict) or set(item) != set(APPROVED_FIELDS):
             raise ValueError(f"Approved sample {sample_id!r} has an invalid field schema")
-        valid, reason = validate_annotation_query(item["query"])
-        if not valid:
-            invalid_queries.append((sample_id, item["query"], reason))
+        query = item.get("query", "")
+        if query:
+            valid, reason = validate_annotation_query(query)
+            if not valid:
+                invalid_queries.append((sample_id, query, reason))
+        elif not allow_pending:
+            invalid_queries.append((sample_id, "", "empty query"))
 
     if invalid_queries and strict_query_qc:
         sample_fail = invalid_queries[0]
-        raise ValueError(f"Approved sample {sample_fail[0]!r} failed query QC: {sample_fail[2]} ({len(invalid_queries)} failed total)")
+        raise ValueError(
+            f"Approved sample {sample_fail[0]!r} failed query QC: {sample_fail[2]} ({len(invalid_queries)} failed total)"
+        )
 
-    if is_legacy:
-        if len(group_keys_by_scene(list(data), data)) != metadata["sequence_count"]:
-            raise ValueError("Approved annotation sequence count does not match")
-        if source_fingerprint(data) != metadata["source_fingerprint"]:
-            raise ValueError("Approved annotation source fingerprint does not match")
-        if approved_dataset_fingerprint(data) != metadata["dataset_fingerprint"]:
-            raise ValueError("Approved annotation dataset fingerprint does not match")
-
-    errors = preflight_check_dataset(data, split_name=expected_split)
+    errors = preflight_check_dataset(data, split_name=expected_split, allow_pending=allow_pending)
     if errors:
         raise ValueError("Approved annotation data failed structural QC: " + "; ".join(errors))
     return artifact
@@ -154,6 +161,7 @@ def validate_training_artifacts(
     *,
     annotation_run_id: str | None = None,
     strict_query_qc: bool = True,
+    allow_pending: bool = False,
 ) -> tuple[dict, dict]:
     """Validate mutual consistency between train and val approved artifacts."""
     train = validate_approved_artifact(
@@ -161,12 +169,14 @@ def validate_training_artifacts(
         expected_split="train",
         expected_run_id=annotation_run_id,
         strict_query_qc=strict_query_qc,
+        allow_pending=allow_pending,
     )
     val = validate_approved_artifact(
         val_artifact,
         expected_split="val",
         expected_run_id=annotation_run_id,
         strict_query_qc=strict_query_qc,
+        allow_pending=allow_pending,
     )
     train_meta = train["metadata"]
     val_meta = val["metadata"]

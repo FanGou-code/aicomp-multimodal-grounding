@@ -40,11 +40,8 @@ _ANNOTATION_SCAFFOLD = (
     "depth image",
     "depth map",
 )
-# NOTE: "image" is deliberately absent here. The official test dialect uses
-# "of the image" as a frame anchor (303 occurrences) and v5 targets that
-# dialect, so a blanket ban would reject legitimate queries. Real scaffolding
-# ("this image", "in the image", "annotated image", ...) is still caught by
-# _ANNOTATION_SCAFFOLD above.
+# "image" alone is not included: phrases such as "of the image" serve as legitimate
+# spatial anchors; scaffolding phrases are matched via _ANNOTATION_SCAFFOLD.
 _ANNOTATION_TERM = re.compile(
     r"\b(?:target|crop|annotation|annotated|bbox|coordinate|"
     r"infrared|thermal|depth|rgb)\b",
@@ -111,7 +108,12 @@ def validate_annotation_query(query: str) -> tuple[bool, str]:
     return True, ""
 
 
-def preflight_check_dataset(data: dict, *, split_name: str = "dataset") -> list[str]:
+def preflight_check_dataset(
+    data: dict,
+    *,
+    split_name: str = "dataset",
+    allow_pending: bool = False,
+) -> list[str]:
     """Validate a dataset dict structurally before training.
 
     Returns a list of error strings; empty list means all checks passed.
@@ -127,20 +129,31 @@ def preflight_check_dataset(data: dict, *, split_name: str = "dataset") -> list[
     empty_ids: list[str] = []
     bad_bbox_ids: list[str] = []
     missing_field_ids: list[str] = []
+    annotated_count = 0
 
     required_fields = ("visible", "infrared", "depth", "query", "bbox", "width", "height")
 
     for key, item in data.items():
+        if not isinstance(item, dict):
+            errors.append(f"{split_name}: sample {key!r} is not a dictionary.")
+            continue
         for field in required_fields:
             if field not in item:
                 missing_field_ids.append(key)
                 break
         else:
             query = item.get("query", "")
+            bbox = item.get("bbox")
             if not isinstance(query, str) or not query.strip():
-                empty_ids.append(key)
-            if validate_bbox(item.get("bbox")) is None:
-                bad_bbox_ids.append(key)
+                if not allow_pending:
+                    empty_ids.append(key)
+            else:
+                annotated_count += 1
+                if validate_bbox(bbox) is None:
+                    bad_bbox_ids.append(key)
+
+    if allow_pending and annotated_count == 0:
+        errors.append(f"{split_name}: no annotated samples with non-empty query found.")
 
     if empty_ids:
         sample = ", ".join(empty_ids[:5])
@@ -182,4 +195,22 @@ def flip_spatial_query(query: str) -> tuple[str, bool]:
     pattern = re.compile(r"\b(left-most|right-most|leftmost|rightmost|left|right)\b", re.IGNORECASE)
     flipped, count = pattern.subn(repl, query)
     return flipped, count > 0
+
+
+def count_effective_training_samples(data: dict, *, augment_flip: bool = True) -> int:
+    """Count effective training samples produced by dataset after filtering and flip augmentation."""
+    count = 0
+    for item in data.values():
+        if not isinstance(item, dict):
+            continue
+        query = item.get("query")
+        bbox = item.get("bbox")
+        if not query or not bbox:
+            continue
+        count += 1
+        if augment_flip:
+            _, has_spatial = flip_spatial_query(query)
+            if has_spatial:
+                count += 1
+    return count
 

@@ -3,13 +3,13 @@
 
 Two-stage pipeline:
   1. Hash dedup — exclude train samples whose visible image matches a Test
-     image (SHA-256). Exclusion evidence is written to the experiment unit.
+     image (SHA-256). Excluded samples are filtered out before split assignment.
   2. Split — assign remaining samples to train/val at the sequence level.
 
 The split assignment is frozen to match the current production indexes
 (seed=42, train_ratio=0.8). Output indexes are clean: sample_id → {visible,
 infrared, depth, bbox, width, height}. No query field — queries are produced
-downstream by the generation pipeline.
+downstream by the annotation workflow.
 """
 
 from __future__ import annotations
@@ -90,7 +90,9 @@ def _collect_test_hashes(
     raw_root: Path | None = None,
 ) -> dict[str, list[str]]:
     """Return {sha256 -> [test_image_stems]} mapping."""
-    if test_hashes_path and test_hashes_path.is_file():
+    if test_hashes_path:
+        if not test_hashes_path.is_file():
+            raise FileNotFoundError(f"Test hashes file not found: {test_hashes_path}")
         raw_data = json.loads(test_hashes_path.read_text(encoding="utf-8"))
         if isinstance(raw_data, dict):
             first_val = next(iter(raw_data.values()), None)
@@ -109,6 +111,8 @@ def _collect_test_hashes(
     # Auto-detect Test images directory
     candidates: list[Path] = []
     if test_images_dir:
+        if not test_images_dir.is_dir():
+            raise FileNotFoundError(f"Test images directory not found: {test_images_dir}")
         candidates.append(test_images_dir)
     if raw_root:
         candidates.extend([
@@ -155,6 +159,11 @@ def build_indexes(
         test_images_dir=test_images_dir,
         raw_root=raw_root,
     )
+    if not test_hashes:
+        raise FileNotFoundError(
+            f"No test images or test hashes found for leakage dedup under {raw_root}. "
+            "Provide --test-hashes or ensure Test/Images/visible exists."
+        )
 
     all_sequences = sorted(
         p.name for p in raw_train.iterdir() if p.is_dir() and p.name.isdigit()

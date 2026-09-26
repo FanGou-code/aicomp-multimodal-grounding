@@ -41,12 +41,8 @@
           <input type="text" id="jump-input" placeholder="输入图号/编号跳转..." autocomplete="off" />
           <button id="jump-btn" class="btn btn-secondary btn-sm">跳转</button>
         </div>
+        <input type="hidden" id="annotator-input" value="human" />
 
-        <!-- Annotator Name -->
-        <div class="annotator-box">
-          <label for="annotator-input">标注者:</label>
-          <input type="text" id="annotator-input" placeholder="匿名" maxlength="64" autocomplete="off" />
-        </div>
 
         <!-- Help / Shortcuts -->
         <button id="help-btn" class="btn btn-icon btn-sm" title="快捷键与帮助 (?)">
@@ -69,9 +65,9 @@
       </div>
 
       <div class="nav-actions">
-        <button id="next-todo-btn" class="btn btn-ai" title="跳到下一条待处理条目 (J)">
+        <button id="next-todo-btn" class="btn btn-ai" title="跳到下一条待核验条目 (J)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-          下一条待办
+          下一条待核验
         </button>
 
         <span class="nav-divider"></span>
@@ -81,9 +77,9 @@
           核验
         </button>
 
-        <button id="todo-btn" class="btn btn-warning" title="这条有问题:加入待办,后续补消歧或废弃 (P)">
+        <button id="todo-btn" class="btn btn-warning" title="题目存疑或无目标: 置为无框 (P / Backspace)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-          加入待办
+          置为无框
         </button>
       </div>
     </section>
@@ -129,17 +125,16 @@
     <footer class="app-footer">
       <div class="footer-left">
         <span id="footer-item-info">Item: -</span>
-        <span class="footer-sep">|</span>
-        <span id="footer-annotator-info">Annotator: -</span>
+        <span id="footer-annotator-info" style="display:none"></span>
         <span class="footer-sep">|</span>
         <span id="footer-bbox-info">BBox: 未绘制</span>
       </div>
       <div class="footer-right">
-        <span class="shortcut-tip"><kbd>Enter</kbd>/<kbd>Space</kbd> 提交</span>
-        <span class="shortcut-tip"><kbd>P</kbd> 待办</span>
+        <span class="shortcut-tip"><kbd>Enter</kbd>/<kbd>Space</kbd> 核验</span>
+        <span class="shortcut-tip"><kbd>P</kbd> 无框</span>
+        <span class="shortcut-tip"><kbd>J</kbd> 待核验</span>
+        <span class="shortcut-tip"><kbd>N</kbd> 无框</span>
         <span class="shortcut-tip"><kbd>A</kbd>/<kbd>D</kbd> 前后</span>
-
-        <span class="shortcut-tip"><kbd>N</kbd> 未标</span>
         <span class="shortcut-tip"><kbd>/</kbd> 跳转</span>
         <span class="shortcut-tip"><kbd>滚轮</kbd> 缩放 · <kbd>拖拽</kbd> 平移</span>
       </div>
@@ -163,12 +158,11 @@
             <tr><td><kbd>鼠标左键拖拽</kbd></td><td>在画布绘制新框 / 拖拽移动现有框 / 按住 8 个控制点缩放</td></tr>
             <tr><td><kbd>滚轮</kbd></td><td>以鼠标所在位置为中心无损平滑缩放</td></tr>
             <tr><td><kbd>拖拽空白 / 鼠标中键 / 鼠标右键</kbd></td><td>平移画布视口</td></tr>
-            <tr><td><kbd>Enter</kbd> 或 <kbd>Space</kbd></td><td>提交/核验当前标注并自动跳至下一条待处理</td></tr>
-            <tr><td><kbd>P</kbd></td><td>这条有问题：加入待办（需消歧），后续补描述或废弃</td></tr>
+            <tr><td><kbd>Enter</kbd> 或 <kbd>Space</kbd></td><td>核验当前标注并自动跳至下一条待核验</td></tr>
+            <tr><td><kbd>P</kbd> 或 <kbd>Backspace</kbd></td><td>题目存疑或无目标：置为无框，清空当前框并跳至下一条</td></tr>
             <tr><td><kbd>A</kbd> / <kbd>D</kbd>（或 <kbd>H</kbd> / <kbd>L</kbd> / <kbd>←</kbd> / <kbd>→</kbd>）</td><td>切换到上一条 / 下一条</td></tr>
-
-
-            <tr><td><kbd>N</kbd> / <kbd>Shift + N</kbd>（或 <kbd>Shift + ←</kbd> / <kbd>Shift + →</kbd>）</td><td>快速跳至下一条 / 上一条未处理条目</td></tr>
+            <tr><td><kbd>J</kbd> / <kbd>K</kbd></td><td>跳至下一条 / 上一条待核验条目</td></tr>
+            <tr><td><kbd>N</kbd> / <kbd>Shift + N</kbd></td><td>快速跳至下一条 / 上一条无框条目</td></tr>
             <tr><td><kbd>G</kbd> / <kbd>Shift + G</kbd></td><td>跳至第一条 / 最后一条</td></tr>
             <tr><td><kbd>/</kbd></td><td>聚焦顶部图号跳转输入框（配合 <kbd>Enter</kbd> 跳转）</td></tr>
             <tr><td><kbd>0</kbd> 或 <kbd>R</kbd></td><td>重置视口（自适应居中）</td></tr>

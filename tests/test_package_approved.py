@@ -224,22 +224,7 @@ class PackageApprovedTests(unittest.TestCase):
         self.assertEqual(loaded["metadata"]["run_id"], "annot_export_test")
 
     def test_package_approved_cross_repo_compatibility(self):
-        """Verify the packaged artifact passes the main repo's validator directly."""
-        main_repo_path = Path("/home/fang0/dev/projects/aicomp-multimodal-grounding")
-        if not main_repo_path.is_dir():
-            self.skipTest("Main repo not available on filesystem")
-
-        import sys
-        if str(main_repo_path) not in sys.path:
-            sys.path.insert(0, str(main_repo_path))
-
-        try:
-            from aicomp_grounding.contract import (
-                validate_approved_artifact as main_repo_validate,
-            )
-        except ImportError:
-            self.skipTest("Could not import aicomp_grounding")
-
+        """Verify the packaged artifact passes the contract validator directly."""
         out_path = self.root / "approved.json"
         res = package(
             generation_path=self.generation_path,
@@ -249,11 +234,11 @@ class PackageApprovedTests(unittest.TestCase):
             run_id="annot_cross_test",
         )
         loaded = load_json(out_path)
-        main_validated = main_repo_validate(
+        validated = validate_approved_artifact(
             loaded, expected_split="train", expected_run_id="annot_cross_test"
         )
-        self.assertEqual(main_validated["metadata"]["run_id"], "annot_cross_test")
-        self.assertEqual(main_validated["metadata"]["dataset_fingerprint"], res["dataset_fingerprint"])
+        self.assertEqual(validated["metadata"]["run_id"], "annot_cross_test")
+        self.assertEqual(validated["metadata"]["dataset_fingerprint"], res["dataset_fingerprint"])
 
     def test_package_approved_dual_split(self):
         val_index_data = {
@@ -388,6 +373,95 @@ class PackageApprovedTests(unittest.TestCase):
         loaded_val = load_json(val_file)
         self.assertEqual(loaded_train["metadata"]["run_id"], "annot_asm-r5")
         self.assertEqual(loaded_val["metadata"]["run_id"], "annot_asm-r5")
+
+    def test_package_single_dataset_mode(self):
+        dataset_content = {
+            "metadata": {"split": "train", "run_id": "test_ds_run"},
+            "data": {
+                "001_00000001": {
+                    "visible": "Raw/001/color/00000001.png",
+                    "infrared": "Raw/001/infrared/00000001.png",
+                    "depth": "Raw/001/depth/00000001.png",
+                    "query": "the red car on the left",
+                    "bbox": [0.1, 0.1, 0.2, 0.2],
+                    "width": 1920,
+                    "height": 1080,
+                }
+            },
+        }
+        ds_path = self.root / "single_train.json"
+        ds_path.write_text(json.dumps(dataset_content), encoding="utf-8")
+        out_dir = self.root / "single_ds_out"
+
+        res = package(datasets=ds_path, output_dir=out_dir)
+        self.assertEqual(res["split"], "train")
+        self.assertEqual(res["run_id"], "test_ds_run")
+        out_file = out_dir / "test_ds_run" / "train" / "approved.json"
+        self.assertTrue(out_file.is_file())
+        artifact = load_json(out_file)
+        self.assertEqual(artifact["metadata"]["status"], "approved")
+        self.assertNotIn("preparation_fingerprint", artifact["metadata"])
+        validate_approved_artifact(artifact, expected_split="train")
+
+    def test_package_dual_dataset_mode_and_allow_pending(self):
+        train_data = {
+            "metadata": {"split": "train"},
+            "data": {
+                "001_00000001": {
+                    "visible": "Raw/001/color/00000001.png",
+                    "infrared": "Raw/001/infrared/00000001.png",
+                    "depth": "Raw/001/depth/00000001.png",
+                    "query": "the red car on the left",
+                    "bbox": [0.1, 0.1, 0.2, 0.2],
+                    "width": 1920,
+                    "height": 1080,
+                },
+                "001_00000002": {
+                    "visible": "Raw/001/color/00000002.png",
+                    "infrared": "Raw/001/infrared/00000002.png",
+                    "depth": "Raw/001/depth/00000002.png",
+                    "query": "",
+                    "bbox": None,
+                    "width": 1920,
+                    "height": 1080,
+                },
+            },
+        }
+        val_data = {
+            "metadata": {"split": "val"},
+            "data": {
+                "002_00000001": {
+                    "visible": "Raw/002/color/00000001.png",
+                    "infrared": "Raw/002/infrared/00000001.png",
+                    "depth": "Raw/002/depth/00000001.png",
+                    "query": "the blue car on the right",
+                    "bbox": [0.3, 0.3, 0.4, 0.4],
+                    "width": 1920,
+                    "height": 1080,
+                }
+            },
+        }
+        t_path = self.root / "dual_train.json"
+        v_path = self.root / "dual_val.json"
+        t_path.write_text(json.dumps(train_data), encoding="utf-8")
+        v_path.write_text(json.dumps(val_data), encoding="utf-8")
+        out_dir = self.root / "dual_ds_out"
+
+        # Without allow_pending: must fail on empty query
+        with self.assertRaises(ValueError):
+            package(datasets=[t_path, v_path], output_dir=out_dir, run_id="annot_dual", allow_pending=False)
+
+        # With allow_pending: must succeed and write valid approved.json files
+        results = package(datasets=[t_path, v_path], output_dir=out_dir, run_id="annot_dual", allow_pending=True)
+        self.assertEqual(len(results), 2)
+        train_out = out_dir / "annot_dual" / "train" / "approved.json"
+        val_out = out_dir / "annot_dual" / "val" / "approved.json"
+        self.assertTrue(train_out.is_file())
+        self.assertTrue(val_out.is_file())
+        train_art = load_json(train_out)
+        val_art = load_json(val_out)
+        validate_approved_artifact(train_art, expected_split="train", allow_pending=True)
+        validate_approved_artifact(val_art, expected_split="val", allow_pending=True)
 
 
 if __name__ == "__main__":

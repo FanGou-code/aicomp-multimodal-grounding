@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aicomp-grounding"
 version = "1.0.0"
-description = "RGB-trained visual grounding system with depth/infrared ordinal post-processing and its annotation pipeline"
+description = "RGB-trained visual grounding system and its annotation tool"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -16,10 +16,9 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
 ]
 dependencies = [
-    # 基础库：本地 CPU 测试与数据预处理共用
+    # 基础与数据格式依赖
     "numpy>=1.26",
     "pillow>=10.0",
-    "opencv-python-headless>=4.9",
     # 运行配置（YAML + CLI override）
     "pyyaml>=6.0",
     # 框架层：精确 pin。CUDA 轮子（cu130/cu128）由 tools/setup_cuda.sh
@@ -60,11 +59,7 @@ target-version = "py312"
 [tool.ruff.lint]
 # 窄规则集：只保留能发现「明显错误」的检查（E4/E7/E9 语法与导入；F 未定义名、
 # 未用导入、重定义）。更宽的类别经审阅后按下列结论不启用（2026-09-15）：
-#   - B905（zip 未声明 strict）：已全部补 strict=True，行为由代码本身保证；
-#   - B008（默认参数里调用函数）：run_census 那处是刻意用默认参数绑住每轮的值，
-#     正是为了避免 B023，属误报；
-#   - B023（闭包捕获循环变量）：facts 的 anchors() 与 api 的回调均在定义后同一轮内
-#     被调用，当前不触发；属「若改为延迟调用会静默算错」的脆弱点，决定不改；
+#   - B905（zip 未声明 strict）：循环按需声明 strict=True；
 #   - TRY003/TRY004、ARG、SIM、C4、RET：异常类型约定与写法偏好，不是缺陷。
 select = ["E4", "E7", "E9", "F"]
 

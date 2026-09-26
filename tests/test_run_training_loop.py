@@ -619,6 +619,148 @@ class BestMetricTests(unittest.TestCase):
             manifest = load_json(best_dir / "adapter_manifest.json")
             self.assertEqual(manifest["val_loss"], completed["best_val_loss"])
 
+    def test_spatial_queries_flip_augmentation_global_step_alignment(self):
+        """Spatial queries trigger flip augmentation; metadata['train_samples']
+        and expected_global_steps must align with the augmented count."""
+        calls: dict = {}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "annot_spatial"
+            _write_fixture_images(root)
+            train_art = _artifact("train", "001", run_id)
+            train_art["data"]["001_00000001"]["query"] = "the 001 object on the left side"
+            train_art["data"]["001_00000002"]["query"] = "the 001 object on the right side"
+            train_art["metadata"]["source_fingerprint"] = source_fingerprint(train_art["data"])
+            train_art["metadata"]["dataset_fingerprint"] = approved_dataset_fingerprint(train_art["data"])
+
+            val_art = _artifact("val", "002", run_id)
+
+            atomic_write_json(
+                root / "outputs" / "annotations" / run_id / "train" / "approved.json",
+                train_art,
+            )
+            atomic_write_json(
+                root / "outputs" / "annotations" / run_id / "val" / "approved.json",
+                val_art,
+            )
+            import sys as _sys
+            import peft as _peft  # noqa: F401
+            import transformers as _transformers  # noqa: F401
+
+            with mock.patch(
+                "aicomp_grounding.grounding.engine.training_core.get_adapter",
+                return_value=_fake_adapter(calls),
+            ) as adapter_patch, mock.patch(
+                "aicomp_grounding.grounding.models.get_adapter", adapter_patch
+            ), mock.patch.dict(
+                _sys.modules, {"torch": _CpuTorchShim(torch)}
+            ):
+                plan = prepare_training_plan(
+                    data_root=root,
+                    annotation_root=root / "outputs" / "annotations",
+                    output_root=root / "outputs",
+                    annotation_run_id=run_id,
+                    model="qwen3vl",
+                    run_tag="spatial-alignment-test",
+                    seed=42,
+                    resume=True,
+                    hyperparameter_overrides={
+                        "epochs": 2,
+                        "batch_size": 1,
+                        "gradient_accumulation_steps": 1,
+                    },
+                )
+                self.assertEqual(plan["metadata"]["train_samples"], 6)
+                completed = run_training(plan, data_root=root, allow_cpu=True)
+
+            self.assertEqual(completed["status"], "completed")
+            self.assertEqual(completed["global_step"], 12)
+            run_dir = Path(plan["run_dir"])
+            self.assertTrue((run_dir / "completed.json").is_file())
+
+    def test_run_training_with_pending_items(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "annot_pending_items"
+            calls: dict[str, list] = {}
+            _write_fixture_images(root)
+
+            train_art = _artifact("train", "001", run_id)
+            train_art["data"]["001_00000005"] = {
+                "visible": "Raw/001/color/1.png",
+                "infrared": "Raw/001/infrared/1.png",
+                "depth": "Raw/001/depth/1.png",
+                "query": "",
+                "bbox": None,
+                "width": 1920,
+                "height": 1080,
+            }
+            train_art["metadata"]["sample_count"] = len(train_art["data"])
+            train_art["metadata"]["source_fingerprint"] = source_fingerprint(train_art["data"])
+            train_art["metadata"]["dataset_fingerprint"] = approved_dataset_fingerprint(train_art["data"])
+            train_art["metadata"]["image_fingerprint"] = trusted_dataset_image_fingerprint(
+                train_art["data"], train_art["data"], require_recorded_size=True
+            )
+
+            val_art = _artifact("val", "002", run_id)
+            val_art["data"]["002_00000005"] = {
+                "visible": "Raw/002/color/1.png",
+                "infrared": "Raw/002/infrared/1.png",
+                "depth": "Raw/002/depth/1.png",
+                "query": "",
+                "bbox": None,
+                "width": 1920,
+                "height": 1080,
+            }
+            val_art["metadata"]["sample_count"] = len(val_art["data"])
+            val_art["metadata"]["source_fingerprint"] = source_fingerprint(val_art["data"])
+            val_art["metadata"]["dataset_fingerprint"] = approved_dataset_fingerprint(val_art["data"])
+            val_art["metadata"]["image_fingerprint"] = trusted_dataset_image_fingerprint(
+                val_art["data"], val_art["data"], require_recorded_size=True
+            )
+
+            atomic_write_json(
+                root / "outputs" / "annotations" / run_id / "train" / "approved.json",
+                train_art,
+            )
+            atomic_write_json(
+                root / "outputs" / "annotations" / run_id / "val" / "approved.json",
+                val_art,
+            )
+            import sys as _sys
+            import peft as _peft  # noqa: F401
+            import transformers as _transformers  # noqa: F401
+
+            with mock.patch(
+                "aicomp_grounding.grounding.engine.training_core.get_adapter",
+                return_value=_fake_adapter(calls),
+            ) as adapter_patch, mock.patch(
+                "aicomp_grounding.grounding.models.get_adapter", adapter_patch
+            ), mock.patch.dict(
+                _sys.modules, {"torch": _CpuTorchShim(torch)}
+            ):
+                plan = prepare_training_plan(
+                    data_root=root,
+                    annotation_root=root / "outputs" / "annotations",
+                    output_root=root / "outputs",
+                    annotation_run_id=run_id,
+                    model="qwen3vl",
+                    run_tag="pending-items-test",
+                    seed=42,
+                    resume=True,
+                    hyperparameter_overrides={
+                        "epochs": 1,
+                        "batch_size": 2,
+                        "gradient_accumulation_steps": 1,
+                    },
+                )
+                completed = run_training(plan, data_root=root, allow_cpu=True, checkpoint_interval=1)
+
+            self.assertEqual(completed["status"], "completed")
+            run_dir = Path(plan["run_dir"])
+            self.assertTrue((run_dir / "completed.json").is_file())
+            self.assertTrue((run_dir / "best" / "epoch_01").is_dir())
+
 
 if __name__ == "__main__":
     unittest.main()

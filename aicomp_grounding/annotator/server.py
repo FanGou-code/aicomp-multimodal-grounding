@@ -1,12 +1,3 @@
-"""Annotation server backend: manifest-driven human annotation.
-
-Same stdlib-only HTTP core and crash-safe store as gt-annotator; the session
-source is an annotation manifest (AI boxes pre-seeded for human verification).
-Annotation mode semantics: boxes can be dragged and resized but never deleted;
-a frame counts as annotated when every one of its objects carries a human
-annotation. ``--lock-query`` turns the server into box-only annotation.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -17,13 +8,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 from aicomp_grounding.annotator.bbox import normalize_bbox  # noqa: E402
 from aicomp_grounding.annotator.store import ABSENT_SUFFIX, AnnotationStore  # noqa: E402
 
-#: Label for boxes seeded from AI pre-annotations; never shipped in provenance.
-TEACHER_ANNOTATOR = "ai-prelabel"
+#: Label for boxes seeded from unreviewed inputs; never shipped in provenance.
+SEED_ANNOTATOR = "seed"
+TEACHER_ANNOTATOR = SEED_ANNOTATOR  # back-compat alias
 
 
 def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
@@ -93,68 +85,106 @@ def build_manifest_session(manifest_path: Path, review_root: Path) -> dict:
         "stores": stores,
         "store": primary_store,
         "split": manifest_split,
+        "is_manifest_session": True,
     }
 
 
-def build_skeleton_session(
-    skeleton_path: Path,
+def build_dataset_session(
+    dataset_path: Path,
     *,
     split: str = "train",
     output_path: Path | None = None,
     journal_path: Path | None = None,
+    data_root: Path | None = None,
 ) -> dict:
-    skeleton = json.loads(skeleton_path.read_text(encoding="utf-8"))
-    skeleton_items = skeleton.get("items", [])
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+    dataset_data = dataset.get("data", {})
+    if not isinstance(dataset_data, dict):
+        dataset_data = {}
     if journal_path is None:
         journal_path = PROJECT_ROOT / "outputs" / "annotations" / "journals" / f"{split}.jsonl"
     if output_path is None:
-        output_path = PROJECT_ROOT / "outputs" / "annotations" / f"{split}.json"
+        output_path = dataset_path
 
     store_dir = journal_path.parent
     store = AnnotationStore(
         store_dir,
         journal_path=journal_path,
         active_dataset_path=output_path,
-        skeleton_path=skeleton_path,
+        data_root=data_root or (PROJECT_ROOT / "data"),
     )
 
     items: list[dict] = []
-    for entry in skeleton_items:
-        item_id = entry["id"]
-        if item_id not in store._state and entry.get("bbox") is not None:
-            store._state[item_id] = [float(v) for v in entry["bbox"]]
-            store._meta[item_id] = {
-                "annotator": "human" if entry.get("status") == "annotated" else None,
-                "ts": "",
-            }
-        if item_id not in store._queries and entry.get("query"):
-            store._queries[item_id] = entry["query"]
+    seeds: list[tuple[str, list[float], str]] = []
+    queries_to_seed: dict[str, str] = {}
 
+    frame_counts: dict[str, int] = {}
+    for item_id in sorted(dataset_data):
+        entry = dataset_data[item_id]
+        bbox = entry.get("bbox")
+        has_bbox = isinstance(bbox, list) and len(bbox) == 4
+        query = entry.get("query", "")
+        has_query = bool(query)
+        status = "annotated" if (has_bbox and has_query) else "pending"
+        seq = item_id.split("_")[0]
+        image_path = entry.get("visible", entry.get("image", ""))
+        frame_id = f"{seq}_{Path(image_path).stem}" if image_path else item_id
+        if "#" in item_id:
+            part = item_id.split("#", 1)[1]
+            ordinal = int(part) if part.isdigit() else 1
+        else:
+            frame_counts[frame_id] = frame_counts.get(frame_id, 0) + 1
+            ordinal = frame_counts[frame_id]
+        entry_annotator = entry.get("annotator")
+        if not entry_annotator and status == "annotated":
+            entry_annotator = "human"
         items.append(
             {
                 "id": item_id,
-                "image": entry["image"],
-                "query": entry.get("query", ""),
-                "ordinal": entry.get("frame_idx", 0),
-                "frame_id": f"{entry.get('seq', '')}_{Path(entry['image']).stem}",
-                "gt_bbox": entry.get("bbox"),
-                "category": entry.get("category", ""),
+                "image": image_path,
+                "query": query,
+                "ordinal": ordinal,
+                "frame_id": frame_id,
+                "gt_bbox": [float(v) for v in bbox] if has_bbox else None,
+                "category": "",
                 "corpus": split,
-                "status": entry.get("status", "pending"),
+                "status": status,
+                "annotator": entry_annotator,
             }
         )
+    existing_boxes = store.all_boxes()
+    existing_queries = store.all_queries()
+    for itm in items:
+        item_id = itm["id"]
+        bbox = itm.get("gt_bbox")
+        query = itm.get("query")
+        has_bbox = bool(bbox)
+        has_query = bool(query)
+        entry_annotator = itm.get("annotator")
+        status = itm.get("status", "pending")
+        seed_annotator = entry_annotator or ("human" if status == "annotated" else TEACHER_ANNOTATOR)
+        if has_bbox and item_id not in existing_boxes:
+            seeds.append((item_id, [float(v) for v in bbox], seed_annotator))
+        if has_query and item_id not in existing_queries:
+            queries_to_seed[item_id] = query
+
+    if seeds:
+        store.seed_many(seeds)
+    if queries_to_seed:
+        store.seed_queries([(qid, qtext, None) for qid, qtext in queries_to_seed.items()])
 
     return {
-        "name": skeleton.get("name", skeleton_path.stem),
+        "name": dataset.get("metadata", {}).get("run_tag", dataset_path.stem),
         "items": items,
         "stats": {
-            "seeded": 0,
+            "seeded": len(seeds),
             "frames": len({it["frame_id"] for it in items}),
-            "already_seeded": 0,
+            "already_seeded": len(existing_boxes),
         },
         "stores": {split: store},
         "store": store,
         "split": split,
+        "is_manifest_session": False,
     }
 
 
@@ -195,6 +225,7 @@ class AnnotatorState:
         self.image_paths = {item["image"] for item in self.items}
         self.stores = stores
         self.corpus_of = corpus_of
+        self.is_manifest_session = bool(session.get("is_manifest_session", False))
 
     def store_for(self, item_id: str) -> AnnotationStore:
         corpus = self.corpus_of.get(item_id, "")
@@ -209,6 +240,7 @@ class AnnotatorState:
             isinstance(annotator, str)
             and annotator
             and not annotator.endswith(ABSENT_SUFFIX)
+            and not annotator.endswith(":todo")
             and annotator != TEACHER_ANNOTATOR
         )
 
@@ -217,13 +249,17 @@ class AnnotatorState:
         for item in self.items:
             store = self.store_for(item["id"])
             meta = store.meta(item["id"]) or {}
-            edited_query = store.get_query(item["id"])
-            current_bbox = self.store_for(item["id"]).get(item["id"])
-            if current_bbox is None and item.get("gt_bbox") is not None:
-                current_bbox = list(item["gt_bbox"])
             annotator = meta.get("annotator")
-            if annotator is None and item.get("status") == "annotated" and current_bbox is not None:
-                annotator = "human"
+            is_absent = bool(annotator and annotator.endswith(ABSENT_SUFFIX))
+            edited_query = store.get_query(item["id"])
+            current_bbox = store.get(item["id"])
+            if current_bbox is None and not is_absent and item.get("gt_bbox") is not None:
+                current_bbox = list(item["gt_bbox"])
+            if annotator is None or (not self.is_manifest_session and annotator == SEED_ANNOTATOR and item.get("status") == "annotated"):
+                if item.get("annotator"):
+                    annotator = item["annotator"]
+                elif item.get("status") == "annotated" and current_bbox is not None:
+                    annotator = "human"
             payload_items.append(
                 {
                     "id": item["id"],
@@ -258,6 +294,7 @@ class AnnotatorState:
         return {
             "mode": "review",
             "teacher_annotator": TEACHER_ANNOTATOR,
+            "seed_annotator": SEED_ANNOTATOR,
             "manifest": self.session["name"],
             "total_items": len(self.items),
             "annotated": sum(1 for e in payload_items if e["bbox"] is not None),
@@ -371,17 +408,35 @@ class AnnotationHandler(BaseHTTPRequestHandler):
             body = self._read_json_body()
         except (ValueError, json.JSONDecodeError) as exc:
             return self._send_json({"error": str(exc)}, 400)
+        raw_bbox = body.get("bbox")
+        annotator = body.get("annotator")
+        if self.state.is_manifest_session:
+            if not isinstance(annotator, str) or not annotator.strip() or len(annotator) > 64:
+                return self._send_json(
+                    {"error": "annotator (non-empty string, max 64 chars) is required in review mode"},
+                    400,
+                )
+            annotator_str = annotator.strip()
+        else:
+            if not annotator or not isinstance(annotator, str) or not annotator.strip():
+                annotator_str = "human"
+            elif len(annotator) > 64:
+                return self._send_json({"error": "annotator exceeds 64 chars"}, 400)
+            else:
+                annotator_str = annotator.strip()
+
+        if raw_bbox is None:
+            if not annotator_str.endswith(ABSENT_SUFFIX):
+                annotator_str = f"{annotator_str}{ABSENT_SUFFIX}"
+            self.state.store_for(item_id).delete(item_id, annotator_str)
+            return self._send_json({"id": item_id, "bbox": None, "annotated": False, "absent": True})
+
         try:
-            bbox = normalize_bbox(body.get("bbox"))
+            bbox = normalize_bbox(raw_bbox)
         except ValueError as exc:
             return self._send_json({"error": f"invalid bbox: {exc}"}, 400)
-        annotator = body.get("annotator")
-        if not isinstance(annotator, str) or not annotator.strip() or len(annotator) > 64:
-            return self._send_json(
-                {"error": "annotator (non-empty string, max 64 chars) is required in review mode"},
-                400,
-            )
-        saved = self.state.store_for(item_id).set(item_id, bbox, annotator.strip())
+
+        saved = self.state.store_for(item_id).set(item_id, bbox, annotator_str)
         return self._send_json({"id": item_id, "bbox": saved, "annotated": True})
 
     def _handle_put_query(self, item_id: str) -> None:
@@ -397,10 +452,14 @@ class AnnotationHandler(BaseHTTPRequestHandler):
         if not isinstance(query, str) or not query.strip() or len(query) > 200:
             return self._send_json({"error": "query must be a non-empty string (max 200 chars)"}, 400)
         annotator = body.get("annotator")
-        if not isinstance(annotator, str) or not annotator.strip() or len(annotator) > 64:
-            return self._send_json({"error": "annotator required"}, 400)
-        stored = self.state.store_for(item_id).set_query(item_id, query.strip(), annotator.strip())
-        return self._send_json({"id": item_id, "query": stored, "annotator": annotator.strip()})
+        if not annotator or not isinstance(annotator, str) or not annotator.strip():
+            annotator_str = "human"
+        elif len(annotator) > 64:
+            return self._send_json({"error": "annotator exceeds 64 chars"}, 400)
+        else:
+            annotator_str = annotator.strip()
+        stored = self.state.store_for(item_id).set_query(item_id, query.strip(), annotator_str)
+        return self._send_json({"id": item_id, "query": stored, "annotator": annotator_str})
 
     @staticmethod
     def _match_item_route(path: str, suffix: str) -> str | None:
@@ -444,44 +503,19 @@ def create_server(
     lock_query: bool = False,
 ) -> tuple[ThreadingHTTPServer, AnnotatorState]:
     """Build the review or annotation server."""
-    if skeleton_path:
-        sessions = [
-            build_skeleton_session(
-                Path(skeleton_path),
-                split=split,
-                output_path=Path(output_path) if output_path else None,
-                journal_path=Path(journal_path) if journal_path else None,
-            )
-        ]
-    elif manifest_path:
+    if manifest_path:
         manifest_p = Path(manifest_path)
-        is_skel = "skeleton" in manifest_p.name
-        if not is_skel and manifest_p.is_file():
-            try:
-                data = json.loads(manifest_p.read_text(encoding="utf-8"))
-                if data.get("name", "").endswith("skeleton") or "skeleton" in data.get("name", ""):
-                    is_skel = True
-            except Exception:
-                pass
-        if is_skel:
-            sessions = [
-                build_skeleton_session(
-                    manifest_p,
-                    split=split,
-                    output_path=Path(output_path) if output_path else None,
-                    journal_path=Path(journal_path) if journal_path else None,
-                )
-            ]
-        else:
-            sessions = [build_manifest_session(manifest_p, Path(review_root))]
+        sessions = [build_manifest_session(manifest_p, Path(review_root or PROJECT_ROOT / "outputs" / "annotations" / "journals" / "test"))]
     else:
-        default_skel = PROJECT_ROOT / "outputs" / "annotations" / "skeleton" / f"{split}_skeleton.json"
+        active_dataset = Path(output_path) if output_path else (PROJECT_ROOT / "outputs" / "annotations" / f"{split}.json")
+        default_journal = Path(review_root) / f"{split}.jsonl" if review_root else (PROJECT_ROOT / "outputs" / "annotations" / "journals" / f"{split}.jsonl")
         sessions = [
-            build_skeleton_session(
-                default_skel,
+            build_dataset_session(
+                active_dataset,
                 split=split,
                 output_path=Path(output_path) if output_path else None,
-                journal_path=Path(journal_path) if journal_path else None,
+                journal_path=Path(journal_path) if journal_path else default_journal,
+                data_root=Path(data_root) if data_root else None,
             )
         ]
 
@@ -502,6 +536,7 @@ def create_server(
             for key in ("seeded", "frames", "already_seeded")
         },
         "stores": stores,
+        "is_manifest_session": any(s.get("is_manifest_session", False) for s in sessions),
     }
     if len(sessions) == 1:
         session["store"] = sessions[0]["store"]  # single-corpus back-compat
@@ -522,12 +557,11 @@ def create_server(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="annotation server")
     parser.add_argument("--manifest", default=None, help="path to legacy review manifest JSON")
-    parser.add_argument("--skeleton", default=None, help="path to task skeleton JSON")
     parser.add_argument("--split", choices=["train", "val"], default="train", help="dataset split to annotate")
     parser.add_argument("--output", default=None, help="path to active annotations JSON")
     parser.add_argument("--journal", default=None, help="path to journal JSONL")
     parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT / "data")
-    parser.add_argument("--review-root", default=PROJECT_ROOT / "outputs" / "review")
+    parser.add_argument("--review-root", default=None, help="override review/journal root directory")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8788)
     parser.add_argument("--lock-query", action="store_true", help="disallow query edits")
@@ -538,7 +572,6 @@ def main(argv: list[str] | None = None) -> int:
             data_root=args.data_root,
             review_root=args.review_root,
             manifest_path=args.manifest,
-            skeleton_path=args.skeleton,
             split=args.split,
             output_path=args.output,
             journal_path=args.journal,

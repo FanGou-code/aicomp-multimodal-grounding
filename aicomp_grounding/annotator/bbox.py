@@ -1,12 +1,3 @@
-"""Bounding-box validation in normalized 0-1 XYXY coordinates.
-
-The on-disk annotation format matches the main project's prediction files:
-``{"<item_id>": [x1, y1, x2, y2]}`` with all values in [0, 1].
-
-
-Adapted from gt-annotator (upstream gt-annotator project,
-MIT License, (c) 2026 FanGou-code) - adapted for this repo's review tool."""
-
 from __future__ import annotations
 
 import math

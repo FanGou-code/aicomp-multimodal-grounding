@@ -16,7 +16,7 @@ from pathlib import Path
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 
-from aicomp_grounding.annotator.server import create_server
+from aicomp_grounding.annotator.server import create_server, SEED_ANNOTATOR
 from aicomp_grounding.annotator.store import AnnotationStore
 
 
@@ -88,7 +88,7 @@ class ManifestServerTest(unittest.TestCase):
         self.assertEqual(item["ordinal"], 1)
         self.assertEqual(item["frame_id"], "070_00000001")
         self.assertEqual(item["gt_bbox"], [0.10, 0.40, 0.20, 0.60])
-        self.assertEqual(item["annotator"], "ai-prelabel")  # teacher box seeded
+        self.assertEqual(item["annotator"], SEED_ANNOTATOR)  # seed box seeded
         self.assertAlmostEqual(item["bbox"][0], 0.10)
 
     def test_restart_resyncs_teacher_but_preserves_human_boxes(self):
@@ -117,7 +117,7 @@ class ManifestServerTest(unittest.TestCase):
             self.assertEqual(items[item_id]["bbox"], [0.11, 0.41, 0.21, 0.61])
             self.assertEqual(items[item_id]["annotator"], "fang0")
             # #02 is still teacher-seeded with the manifest box.
-            self.assertEqual(items["070_00000001#02"]["annotator"], "ai-prelabel")
+            self.assertEqual(items["070_00000001#02"]["annotator"], SEED_ANNOTATOR)
         finally:
             server2.shutdown()
             server2.server_close()
@@ -149,6 +149,23 @@ class ManifestServerTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             urllib.request.urlopen(request)
         self.assertEqual(ctx.exception.code, 400)
+
+    def test_put_bbox_null_marks_absent(self):
+        item_id = "070_00000001#01"
+        request = urllib.request.Request(
+            f"{self.base_url}/api/item/{urllib.parse.quote(item_id)}/bbox",
+            data=json.dumps({"bbox": None, "annotator": "fang0:absent"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        with urllib.request.urlopen(request) as resp:
+            body = json.loads(resp.read())
+            self.assertIsNone(body["bbox"])
+            self.assertTrue(body.get("absent"))
+        payload = self.state.session_payload()
+        first = next(e for e in payload["items"] if e["id"] == item_id)
+        self.assertIsNone(first["bbox"])
+        self.assertEqual(first["annotator"], "fang0:absent")
 
 
 class QueryLockTest(unittest.TestCase):
@@ -265,7 +282,7 @@ class StoreReplayTest(unittest.TestCase):
     def test_box_overwrite_and_delete_replay(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = AnnotationStore(Path(tmp) / "store")
-            store.set("f#01", [0.1, 0.4, 0.2, 0.6], annotator="ai-prelabel")
+            store.set("f#01", [0.1, 0.4, 0.2, 0.6], annotator="seed")
             store.set("f#01", [0.2, 0.4, 0.3, 0.6], annotator="fang0")
             replay = AnnotationStore(Path(tmp) / "store")
             self.assertEqual(replay.get("f#01"), [0.2, 0.4, 0.3, 0.6])
@@ -298,12 +315,12 @@ class SeedBatchingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = AnnotationStore(Path(tmp) / "store")
             n = store.seed_many([
-                ("070_00000001#01", [0.1, 0.4, 0.2, 0.6], "ai-prelabel"),
-                ("070_00000001#02", [0.5, 0.4, 0.6, 0.6], "ai-prelabel"),
+                ("070_00000001#01", [0.1, 0.4, 0.2, 0.6], "seed"),
+                ("070_00000001#02", [0.5, 0.4, 0.6, 0.6], "seed"),
             ])
             self.assertEqual(n, 2)
             self.assertEqual(store.get("070_00000001#01"), [0.1, 0.4, 0.2, 0.6])
-            self.assertEqual(store.meta("070_00000001#02")["annotator"], "ai-prelabel")
+            self.assertEqual(store.meta("070_00000001#02")["annotator"], "seed")
             journal = (Path(tmp) / "store" / "annotations.jsonl").read_text().splitlines()
             self.assertEqual(len(journal), 2)
             snapshot = json.loads(
@@ -316,6 +333,138 @@ class SeedBatchingTest(unittest.TestCase):
             # Empty batch: no append, no error.
             self.assertEqual(store.seed_many([]), 0)
             self.assertEqual(len((Path(tmp) / "store" / "annotations.jsonl").read_text().splitlines()), 2)
+
+    def test_all_queries_and_seed_queries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AnnotationStore(Path(tmp) / "store")
+            self.assertEqual(store.all_queries(), {})
+            store.set_query("item_1", "query one", annotator="human")
+            self.assertEqual(store.all_queries(), {"item_1": "query one"})
+            store.seed_queries([("item_2", "query two", None)])
+            self.assertEqual(store.all_queries(), {"item_1": "query one", "item_2": "query two"})
+
+
+class DatasetSessionTest(unittest.TestCase):
+    def test_create_server_dataset_mode_startup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            dataset_path = tmp / "dataset.json"
+            dataset_data = {
+                "metadata": {"run_tag": "test-dataset-run"},
+                "data": {
+                    "001_00000001": {
+                        "image": "Raw/001/color/00000001.png",
+                        "query": "a swan on water",
+                        "bbox": [0.1, 0.2, 0.3, 0.4],
+                    },
+                    "001_00000002": {
+                        "image": "Raw/001/color/00000002.png",
+                        "query": "",
+                        "bbox": None,
+                    },
+                },
+            }
+            dataset_path.write_text(json.dumps(dataset_data), encoding="utf-8")
+            server, state = create_server(
+                output_path=dataset_path,
+                review_root=tmp / "review",
+                host="127.0.0.1",
+                port=0,
+            )
+            try:
+                payload = state.session_payload()
+                self.assertEqual(payload["total_items"], 2)
+                self.assertFalse(state.is_manifest_session)
+                self.assertEqual(state.store_for("001_00000001").all_queries(), {"001_00000001": "a swan on water"})
+            finally:
+                server.server_close()
+
+    def test_approved_dataset_edit_updates_fingerprints(self):
+        from aicomp_grounding.contract import (
+            ANNOTATION_PROTOCOL_VERSION,
+            approved_dataset_fingerprint,
+            source_fingerprint,
+            validate_approved_artifact,
+        )
+        from aicomp_grounding.images import trusted_dataset_image_fingerprint
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            dataset_path = tmp / "train.json"
+            initial_data = {
+                "001_00000001": {
+                    "visible": "Raw/001/color/00000001.png",
+                    "infrared": "Raw/001/infrared/00000001.png",
+                    "depth": "Raw/001/depth/00000001.png",
+                    "query": "the red car on the left",
+                    "bbox": [0.1, 0.1, 0.2, 0.2],
+                    "width": 1920,
+                    "height": 1080,
+                }
+            }
+            img_fp = trusted_dataset_image_fingerprint(initial_data, initial_data, require_recorded_size=True)
+            initial_artifact = {
+                "metadata": {
+                    "status": "approved",
+                    "protocol_version": ANNOTATION_PROTOCOL_VERSION,
+                    "split": "train",
+                    "source_fingerprint": source_fingerprint(initial_data),
+                    "dataset_fingerprint": approved_dataset_fingerprint(initial_data),
+                    "image_fingerprint": img_fp,
+                    "sample_count": 1,
+                    "sequence_count": 1,
+                    "provenance": {"source_type": "human_annotated"},
+                },
+                "data": initial_data,
+            }
+            dataset_path.write_text(json.dumps(initial_artifact), encoding="utf-8")
+            store = AnnotationStore(
+                tmp / "store",
+                journal_path=tmp / "journal.jsonl",
+                active_dataset_path=dataset_path,
+                data_root=tmp,
+            )
+            store.set("001_00000001", [0.2, 0.2, 0.3, 0.3], annotator="human")
+            store.set_query("001_00000001", "the updated car description", annotator="human")
+
+            updated = json.loads(dataset_path.read_text(encoding="utf-8"))
+            self.assertEqual(updated["data"]["001_00000001"]["bbox"], [0.2, 0.2, 0.3, 0.3])
+            self.assertEqual(updated["data"]["001_00000001"]["query"], "the updated car description")
+            self.assertEqual(updated["metadata"]["source_fingerprint"], source_fingerprint(updated["data"]))
+            self.assertEqual(updated["metadata"]["dataset_fingerprint"], approved_dataset_fingerprint(updated["data"]))
+            validate_approved_artifact(updated, expected_split="train")
+
+    def test_todo_annotator_is_not_counted_as_human_and_leaves_query_pending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            dataset_path = tmp / "dataset.json"
+            dataset_data = {
+                "metadata": {"run_tag": "test-todo-run"},
+                "data": {
+                    "001_00000001": {
+                        "visible": "Raw/001/color/00000001.png",
+                        "query": "an ambiguous object",
+                        "bbox": [0.1, 0.2, 0.3, 0.4],
+                    }
+                },
+            }
+            dataset_path.write_text(json.dumps(dataset_data), encoding="utf-8")
+            server, state = create_server(
+                output_path=dataset_path,
+                review_root=tmp / "review",
+                host="127.0.0.1",
+                port=0,
+            )
+            try:
+                store = state.store_for("001_00000001")
+                store.set("001_00000001", [0.1, 0.2, 0.3, 0.4], annotator="human:todo")
+                payload = state.session_payload()
+                self.assertEqual(payload["human_annotated"], 0)
+                self.assertEqual(payload["reviewed_frames"], 0)
+                synced = json.loads(dataset_path.read_text(encoding="utf-8"))
+                self.assertEqual(synced["data"]["001_00000001"]["query"], "")
+            finally:
+                server.server_close()
 
 
 class ManifestSessionTest(unittest.TestCase):
@@ -365,6 +514,12 @@ class ManifestSessionTest(unittest.TestCase):
                 self.assertEqual(store_val.data_dir.name, "test-manifest-run-val")
             finally:
                 server.server_close()
+
+    def test_project_root_constant_points_to_repo_root(self):
+        from aicomp_grounding.annotator import server
+
+        expected_root = Path(__file__).resolve().parent.parent
+        self.assertEqual(server.PROJECT_ROOT, expected_root)
 
 
 if __name__ == "__main__":

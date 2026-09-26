@@ -28,6 +28,7 @@ class MockAdapter:
     name = "mock"
     model_name = "mock/grounding"
     model_revision = "static"
+    compute_dtype = "bfloat16"
     supports_lora = False
 
     def __init__(self):

@@ -32,7 +32,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 def build_manifest_from_source(
     source_path: Path,
-    images_root: Path,
+    images_root: Path | None = None,
     *,
     split: int = 0,
     part: int = 0,
@@ -47,7 +47,7 @@ def build_manifest_from_source(
     bbox is optional — null means manual annotation from scratch.
     """
     source = json.loads(source_path.read_text(encoding="utf-8"))
-    images_root = Path(images_root).resolve()
+    images_root_path = Path(images_root).resolve() if images_root is not None else None
 
     if isinstance(source, dict):
         entries = [{"id": k, **v} for k, v in source.items()]
@@ -60,6 +60,10 @@ def build_manifest_from_source(
     for entry in entries:
         item_id = entry.get("id", entry.get("item_id", ""))
         image = entry.get("image", entry.get("visible", ""))
+        if images_root_path is not None and not Path(str(image)).is_absolute():
+            candidate = images_root_path / str(image)
+            if candidate.is_file():
+                image = str(candidate)
         query = entry.get("query", "")
         bbox = entry.get("bbox")
         items.append({
@@ -95,8 +99,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True,
                         help="path to any query JSON (mapping or list shape)")
-    parser.add_argument("--images-root", type=Path, required=True,
-                        help="root directory for image paths")
+    parser.add_argument("--images-root", type=Path, default=None,
+                        help="optional root directory for image paths")
     parser.add_argument("--split", type=int, default=0,
                         help="divide into N parts (0 = no split)")
     parser.add_argument("--part", type=int, default=0,

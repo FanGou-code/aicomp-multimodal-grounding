@@ -3,7 +3,7 @@
 # Usage: python tools/train.py --config configs/train_glm46v.yaml
 # Precedence: CLI flags > this YAML > adapter defaults.
 run:
-  annotation_run_id: <annotation_run_id>   # from package_approved.py output
+  # annotation_run_id: <annotation_run_id>   # optional packaged run id, or omit for active train.json
   model: glm46v
   model_path: models/GLM-4.6V-Flash
   data_dir: data

@@ -1,17 +1,7 @@
-/**
- * gt-annotator — Frontend Application Logic
- * Single-page canvas bounding box annotation tool.
- * Zero external dependencies / 100% offline.
- *
- * Adapted from gt-annotator (upstream gt-annotator project, MIT,
- * (c) 2026 FanGou-code) - adapted for this repo's review tool.
- */
-
 (function () {
   'use strict';
 
   // --- Constants & Storage Keys ---
-  const STORAGE_KEY_ANNOTATOR = 'gt_annotator_name';
   const STORAGE_KEY_LAST_ITEM_ID = 'gt_last_item_id';
   const MIN_BOX_SIZE_PX = 4; // Minimum drag size in natural image pixels to avoid zero-area boxes
   const HANDLE_RADIUS_SCREEN = 7; // Radius of resize handles in canvas screen pixels
@@ -63,9 +53,10 @@
     totalItems: 0,
     items: [],
     currentIndex: 0,
-    annotator: localStorage.getItem(STORAGE_KEY_ANNOTATOR) || '',
+    annotator: 'human',
     reviewMode: false,
-    teacherAnnotator: 'ai-prelabel',
+    seedAnnotator: 'seed',
+    teacherAnnotator: 'seed',
     viewVersion: 0,
     pendingBboxSaves: new Set(),
     pendingQuerySaves: new Map(),
@@ -155,25 +146,27 @@
   const ctx = dom.canvas.getContext('2d');
 
   // --- Annotation Status Predicates ---
-  function isAiAnnotator(annotator) {
-    return annotator === state.teacherAnnotator || annotator === `${state.teacherAnnotator}:absent`;
+  function isSeedAnnotator(annotator) {
+    return (
+      annotator === state.seedAnnotator ||
+      annotator === `${state.seedAnnotator}:absent` ||
+      annotator === 'ai-prelabel' ||
+      annotator === 'ai-prelabel:absent'
+    );
   }
+  const isAiAnnotator = isSeedAnnotator;
 
-  // AI pre-annotation awaiting human review: a glm-drawn box
-  function isAiPendingItem(item) {
+  // Seed annotation awaiting human review
+  function isSeedPendingItem(item) {
     const ann = item.annotator || '';
-    return !!item.bbox && !!ann && isAiAnnotator(ann);
+    return !!item.bbox && !!ann && isSeedAnnotator(ann);
   }
+  const isAiPendingItem = isSeedPendingItem;
 
-  // Todo item predicate:
-  // Only items with a human-verified bounding box are considered Done.
-  // Everything else (unannotated, AI pre-annotated box) is treated as Todo
-  // requiring human review / final verdict.
+  // Unreviewed item predicate:
   function isTodoItem(item) {
     if (!item) return false;
-    if (item.annotator && item.annotator.endsWith(':todo')) return false;
-    const isHumanVerifiedBox = !!item.bbox && !isAiAnnotator(item.annotator);
-    return !isHumanVerifiedBox;
+    return isSeedPendingItem(item);
   }
 
   // --- API Client ---
@@ -220,7 +213,8 @@
       state.totalItems = data.total_items || data.items.length;
       state.items = data.items || [];
       state.reviewMode = data.mode === 'review';
-      state.teacherAnnotator = data.teacher_annotator || 'ai-prelabel';
+      state.seedAnnotator = data.seed_annotator || data.teacher_annotator || 'seed';
+      state.teacherAnnotator = state.seedAnnotator;
 
       // Corpus filter removed — manifest mode shows all items
 
@@ -264,24 +258,29 @@
       const scoped = state.items.filter(itemVisible);
       const total = scoped.length;
       let humanCount = 0;
-      let needsCount = 0;
+      let absentCount = 0;
+      let seedPendingCount = 0;
       const frames = new Map();
       scoped.forEach(it => {
         const ann = it.annotator || '';
-        const isNeeds = !!ann && ann.endsWith(':todo');
-        const isHuman = !!it.bbox && !!ann && !isAiAnnotator(ann) && !isNeeds;
-        if (isNeeds) needsCount++;
+        const isAbsent = !it.bbox;
+        const isHuman = !!it.bbox && !!ann && !isSeedAnnotator(ann) && !ann.endsWith(':absent');
+        const isSeed = isSeedPendingItem(it);
+        if (isAbsent) absentCount++;
         if (isHuman) humanCount++;
-        if (!frames.has(it.frame_id)) frames.set(it.frame_id, { total: 0, human: 0 });
+        if (isSeed) seedPendingCount++;
+        if (!frames.has(it.frame_id)) frames.set(it.frame_id, { total: 0, reviewed: 0 });
         const fr = frames.get(it.frame_id);
         fr.total++;
-        if (isHuman || isNeeds) fr.human++;
+        if (isHuman || isAbsent) fr.reviewed++;
       });
       let reviewedFrames = 0;
-      frames.forEach(fr => { if (fr.human === fr.total) reviewedFrames++; });
-      const pct = total > 0 ? (((humanCount + needsCount) / total) * 100).toFixed(1) : '0.0';
-      dom.progressText.textContent = `已核验: ${humanCount} · 待办: ${needsCount} / ${total} (${pct}%)`;
-      dom.imageProgressText.textContent = `整帧核验: ${reviewedFrames} / ${frames.size}`;
+      frames.forEach(fr => { if (fr.reviewed === fr.total) reviewedFrames++; });
+      const completedCount = humanCount + absentCount;
+      const pct = total > 0 ? ((completedCount / total) * 100).toFixed(1) : '0.0';
+      const absentSuffix = absentCount > 0 ? ` · 无框: ${absentCount}` : '';
+      dom.progressText.textContent = `已核验: ${humanCount} · 待核验: ${seedPendingCount}${absentSuffix} / ${total} (${pct}%)`;
+      dom.imageProgressText.textContent = `整帧完成: ${reviewedFrames} / ${frames.size}`;
       dom.progressBarFill.style.width = `${pct}%`;
     }
   }
@@ -361,22 +360,22 @@
 
   function findNextUnannotated(fromIndex = state.currentIndex) {
     for (let i = fromIndex + 1; i < state.items.length; i++) {
-      if (itemVisible(state.items[i]) && !state.items[i].bbox && !state.items[i].annotator) return i;
+      if (itemVisible(state.items[i]) && !state.items[i].bbox) return i;
     }
     // wrap around
     for (let i = 0; i <= fromIndex; i++) {
-      if (itemVisible(state.items[i]) && !state.items[i].bbox && !state.items[i].annotator) return i;
+      if (itemVisible(state.items[i]) && !state.items[i].bbox) return i;
     }
     return -1;
   }
 
   function findPrevUnannotated(fromIndex = state.currentIndex) {
     for (let i = fromIndex - 1; i >= 0; i--) {
-      if (itemVisible(state.items[i]) && !state.items[i].bbox && !state.items[i].annotator) return i;
+      if (itemVisible(state.items[i]) && !state.items[i].bbox) return i;
     }
     // wrap around
     for (let i = state.items.length - 1; i >= fromIndex; i--) {
-      if (itemVisible(state.items[i]) && !state.items[i].bbox && !state.items[i].annotator) return i;
+      if (itemVisible(state.items[i]) && !state.items[i].bbox) return i;
     }
     return -1;
   }
@@ -385,10 +384,10 @@
     const nextIdx = findNextUnannotated();
     if (nextIdx !== -1 && nextIdx !== state.currentIndex) {
       goToIndex(nextIdx);
-    } else if (state.items.every(it => !itemVisible(it) || it.bbox || it.annotator)) {
-      showToast('🎉 所有条目已标注完毕！', 'success');
+    } else if (state.items.every(it => !itemVisible(it) || it.bbox)) {
+      showToast('🎉 没有无框条目！', 'info');
     } else {
-      showToast('已是最后一条未标注', 'info');
+      showToast('已是最后一条无框条目', 'info');
     }
   }
 
@@ -397,7 +396,7 @@
     if (prevIdx !== -1 && prevIdx !== state.currentIndex) {
       goToIndex(prevIdx);
     } else {
-      showToast('没有更多未标注条目', 'info');
+      showToast('没有更多无框条目', 'info');
     }
   }
 
@@ -480,19 +479,16 @@
     }
     
     if (item.bbox) {
-      if (item.annotator && item.annotator.endsWith(':todo')) {
-        dom.annotationStatusBadge.textContent = `📋 待办-需消歧 (${item.annotator.replace(':todo', '')})`;
-        dom.annotationStatusBadge.className = 'badge badge-absent';
-      } else if (isAiPendingItem(item)) {
-        dom.annotationStatusBadge.textContent = "待标注";
+      if (isSeedPendingItem(item)) {
+        dom.annotationStatusBadge.textContent = '待核验';
         dom.annotationStatusBadge.className = 'badge badge-unannotated';
       } else {
-        dom.annotationStatusBadge.textContent = item.annotator ? `已核验 (${item.annotator})` : '已标注';
+        dom.annotationStatusBadge.textContent = '已核验';
         dom.annotationStatusBadge.className = 'badge badge-annotated';
       }
     } else {
-      dom.annotationStatusBadge.textContent = '未标注';
-      dom.annotationStatusBadge.className = 'badge badge-unannotated';
+      dom.annotationStatusBadge.textContent = '无框';
+      dom.annotationStatusBadge.className = 'badge badge-absent';
     }
 
     // Query text
@@ -508,7 +504,9 @@
 
     // Footer Info
     dom.footerItemInfo.textContent = `Item: ${item.id} (${state.currentIndex + 1}/${state.items.length})`;
-    dom.footerAnnotatorInfo.textContent = `Annotator: ${item.annotator || '-'}`;
+    if (dom.footerAnnotatorInfo) {
+      dom.footerAnnotatorInfo.textContent = `Annotator: ${item.annotator || '-'}`;
+    }
     updateFooterBboxInfo();
 
     // Load Image
@@ -780,15 +778,15 @@
     ctx.lineWidth = 1;
     ctx.strokeRect(offsetX, offsetY, iw * scale, ih * scale);
 
-    // 3. Review mode: GT reference rect + sibling boxes with ordinal labels
+    // 3. Confirmed sibling boxes on the same frame
     const current = getCurrentItem();
-    if (state.reviewMode && current) {
-      if (current.gt_bbox) {
-        drawReferenceRect(current.gt_bbox);
-      }
+    if (current) {
       state.items.forEach(it => {
         if (it.image_url === current.image_url && it.id !== current.id && it.bbox) {
-          drawStaticBox(it);
+          const isHuman = it.annotator && !isAiAnnotator(it.annotator) && !it.annotator.endsWith(':todo');
+          if (isHuman) {
+            drawStaticBox(it);
+          }
         }
       });
     }
@@ -1142,15 +1140,7 @@
     }
 
     const submittedBbox = [...state.activeBbox];
-
-    const annotatorName = (dom.annotatorInput.value || state.annotator || (state.reviewMode ? 'reviewer' : '')).trim();
-    if (!annotatorName) {
-      showToast('保存需署名：请先在右上角填写标注者', 'error');
-      dom.annotatorInput.focus();
-      return;
-    }
-    state.annotator = annotatorName;
-    localStorage.setItem(STORAGE_KEY_ANNOTATOR, annotatorName);
+    const annotatorName = (dom.annotatorInput?.value || state.annotator || 'human').trim() || 'human';
 
     state.pendingBboxSaves.add(item.id);
     try {
@@ -1172,7 +1162,7 @@
       
       // Update local item
       item.bbox = result.bbox;
-      item.annotator = annotatorName || null;
+      item.annotator = annotatorName;
       updateOverallProgress();
       if (state.viewVersion === viewVersion && getCurrentItem()?.id === item.id &&
           JSON.stringify(state.activeBbox) === JSON.stringify(submittedBbox)) {
@@ -1195,15 +1185,9 @@
     const fresh = el.value.trim();
     const previous = state.pendingQuerySaves.get(item.id);
     if (!fresh || (!previous && fresh === (el.dataset.original || ''))) return;
-    const name = (dom.annotatorInput.value || state.annotator || (state.reviewMode ? 'reviewer' : '')).trim();
-    if (!name) {
-      showToast('请先在右上角填写标注者', 'error');
-      return;
-    }
     if (previous?.query === fresh) return previous.promise;
     const viewVersion = state.viewVersion;
-    state.annotator = name;
-    localStorage.setItem(STORAGE_KEY_ANNOTATOR, name);
+    const annotatorName = (dom.annotatorInput?.value || state.annotator || 'human').trim() || 'human';
     // Enter + blur shares one request. A newer edit waits for the older one,
     // so responses cannot commit the same item's text out of order.
     const promise = (async () => {
@@ -1211,7 +1195,7 @@
       try {
         const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/query`, {
           method: 'PUT',
-          body: JSON.stringify({ query: fresh, annotator: name })
+          body: JSON.stringify({ query: fresh, annotator: annotatorName })
         });
         if (!resp.ok) {
           const err = await resp.json();
@@ -1235,84 +1219,78 @@
     }
   }
 
-  async function markTodo() {
-    // 加入待办: 这条有问题(指代歧义/表述不佳), 留在待办清单里
-    // 由后续消歧流程处理(补描述或废弃)。保留当前框, 署名带 :todo 后缀。
+  async function setNoBox() {
+    // 置为无框: 题目存疑/无目标/放弃。清空当前框，以 human:absent 写入 journal。
     const item = getCurrentItem();
-    if (!item || !state.activeBbox || state.pendingBboxSaves.has(item.id)) return;
+    if (!item || state.pendingBboxSaves.has(item.id)) return;
     const viewVersion = state.viewVersion;
-    const name = (dom.annotatorInput.value || state.annotator || (state.reviewMode ? 'reviewer' : '')).trim();
-    if (!name) {
-      showToast('请先在右上角填写标注者', 'error');
-      return;
-    }
-    state.annotator = name;
-    localStorage.setItem(STORAGE_KEY_ANNOTATOR, name);
+    const annotatorName = (dom.annotatorInput?.value || state.annotator || 'human').trim() || 'human';
     state.pendingBboxSaves.add(item.id);
     try {
       const resp = await apiFetch(`/api/item/${encodeURIComponent(item.id)}/bbox`, {
         method: 'PUT',
-        body: JSON.stringify({ bbox: state.activeBbox, annotator: `${name}:todo` })
+        body: JSON.stringify({ bbox: null, annotator: `${annotatorName}:absent` })
       });
       if (!resp.ok) {
         const err = await resp.json();
         throw new Error(err.error || `HTTP ${resp.status}`);
       }
-      item.annotator = `${name}:todo`;
+      item.bbox = null;
+      item.annotator = `${annotatorName}:absent`;
+      state.activeBbox = null;
+      renderCurrentItem();
+      redraw();
       updateOverallProgress();
-      if (state.viewVersion === viewVersion && getCurrentItem()?.id === item.id) goToNextTodo();
+      if (state.viewVersion === viewVersion && getCurrentItem()?.id === item.id) goToNextPending();
     } catch (err) {
-      showToast('标记失败: ' + err.message, 'error');
+      showToast('置为无框失败: ' + err.message, 'error');
     } finally {
       state.pendingBboxSaves.delete(item.id);
       dom.saveBtn.disabled = state.pendingBboxSaves.size > 0;
     }
   }
+  const markTodo = setNoBox;
 
   // --- Pending-item Jump (button + post-save smart jump) ---
-  function goToPrevAi() {
+  function goToPrevPending() {
     for (let i = state.currentIndex - 1; i >= 0; i--) {
-      if (itemVisible(state.items[i]) && isAiPendingItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isSeedPendingItem(state.items[i])) {
         goToIndex(i);
         return;
       }
     }
-    showToast('前面没有待处理条目', 'info');
+    for (let i = state.items.length - 1; i > state.currentIndex; i--) {
+      if (itemVisible(state.items[i]) && isSeedPendingItem(state.items[i])) {
+        goToIndex(i);
+        return;
+      }
+    }
+    showToast('前面没有待核验条目', 'info');
   }
+  const goToPrevAi = goToPrevPending;
 
-  function goToNextAi() {
+  function goToNextPending() {
     for (let i = state.currentIndex + 1; i < state.items.length; i++) {
-      if (itemVisible(state.items[i]) && isAiPendingItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isSeedPendingItem(state.items[i])) {
         goToIndex(i);
         return;
       }
     }
-    showToast('后面没有待处理条目', 'info');
-  }
-
-  function goToNextTodo() {
-    // Search forward from current index for the next todo item:
-    // Any item without a human-verified bounding box is a todo
-    // (unannotated, AI-pending box, AI absence, or human provisional absence).
-    for (let i = state.currentIndex + 1; i < state.items.length; i++) {
-      if (itemVisible(state.items[i]) && isTodoItem(state.items[i])) {
-        goToIndex(i);
-        return;
-      }
-    }
-    // Wrap around to search from the beginning up to the current item
     for (let i = 0; i < state.currentIndex; i++) {
-      if (itemVisible(state.items[i]) && isTodoItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isSeedPendingItem(state.items[i])) {
         goToIndex(i);
         return;
       }
     }
-    if (state.items.length > 0 && !isTodoItem(state.items[state.currentIndex])) {
-      showToast('🎉 所有待办条目已全部核验完成！', 'success');
+    if (state.items.length > 0 && !isSeedPendingItem(state.items[state.currentIndex])) {
+      showToast('🎉 所有待核验条目已全部核验完成！', 'success');
     } else {
-      showToast('当前已是唯一一条待处理项', 'info');
+      showToast('当前已是唯一一条待核验项', 'info');
     }
   }
+  const goToNextTodo = goToNextPending;
+  const goToNextAi = goToNextPending;
+
 
   // --- API Mutations (Save) ---
 
@@ -1366,9 +1344,10 @@
       return;
     }
 
-    if (e.key === 'p' || e.key === 'P') {
-      if (state.reviewMode && !e.repeat) {
-        markTodo();
+    if (e.key === 'p' || e.key === 'P' || e.key === 'Backspace') {
+      if (!isInput && !e.repeat) {
+        e.preventDefault();
+        setNoBox();
       }
       return;
     }
@@ -1591,12 +1570,6 @@
     window.addEventListener('unhandledrejection', (e) =>
       reportError(e.reason && e.reason.message ? e.reason.message : String(e.reason), 'promise'));
 
-    // Annotator Input
-    dom.annotatorInput.value = state.annotator;
-    dom.annotatorInput.addEventListener('input', () => {
-      state.annotator = dom.annotatorInput.value.trim();
-      localStorage.setItem(STORAGE_KEY_ANNOTATOR, state.annotator);
-    });
 
     // Zoom Floating Controls
     dom.zoomInBtn.addEventListener('click', () => {

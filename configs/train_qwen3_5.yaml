@@ -2,9 +2,8 @@
 #
 # Usage: python tools/train.py --config configs/train_qwen3_5.yaml
 # Precedence: CLI flags > this YAML > adapter defaults.
-# Requires the GDN kernels: pip install -e ".[kernels]".
 run:
-  annotation_run_id: <annotation_run_id>   # from package_approved.py output
+  # annotation_run_id: <annotation_run_id>   # optional packaged run id, or omit for active train.json
   model: qwen3_5
   model_path: models/Qwen3.5-9B
   data_dir: data

@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""Package reviewed generation records and split indexes into approved.json.
-
-Converts annotation generation records (generation.json) and source split indexes
-into the final, directly consumable approved.json artifact required by downstream
-training. Automatically computes and seals all four SHA-256 fingerprints:
-  1. source_fingerprint      (content hash of immutable inputs)
-  2. dataset_fingerprint     (content hash of full dataset dict)
-  3. image_fingerprint       (manifest reference binding prefix "manifest_")
-  4. preparation_fingerprint (content hash of split_manifest.json)
-
-Supports single-split packaging (train or val) or joint dual-split packaging
-(train + val) with cross-split leakage and prompt consistency verification.
-
-Zero external pip dependencies required.
-"""
 
 from __future__ import annotations
 
@@ -42,14 +27,22 @@ from aicomp_grounding.io import atomic_write_json, load_json
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Package generation records into approved.json with deterministic SHA-256 fingerprints"
+        description="Package annotation datasets into approved.json with deterministic SHA-256 fingerprints"
+    )
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        nargs="+",
+        default=None,
+        help="one or more paths to active annotation dataset JSON (e.g. outputs/annotations/train.json outputs/annotations/val.json)",
     )
     parser.add_argument(
         "--generation",
         type=Path,
         nargs="+",
-        required=True,
-        help="one or more paths to generation.json (e.g. asm-train-r6/generation.json asm-val-r6/generation.json)",
+        default=None,
+        required=False,
+        help="legacy: one or more paths to generation.json (e.g. asm-train-r6/generation.json asm-val-r6/generation.json)",
     )
     parser.add_argument(
         "--index",
@@ -123,6 +116,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="allow overwriting existing output files",
+    )
+    parser.add_argument(
+        "--allow-pending",
+        action="store_true",
+        help="allow packaging datasets containing pending unannotated items",
     )
     return parser
 
@@ -269,7 +267,7 @@ def package_single(
         "complete": True,
         "failed_sequences": 0,
         "failed_frames": 0,
-        "invalid_queries": 0,
+        "invalid_queries": len(qc_failures),
         "generated_samples": sample_count,
     }
 
@@ -378,6 +376,144 @@ def _derive_common_run_id(generations: list[Path]) -> str:
     return f"annot_{tags[0]}"
 
 
+def package_dataset_single(
+    dataset_path: Path,
+    split_manifest_path: Path | None = None,
+    split: str | None = None,
+    run_id: str | None = None,
+    output_path: Path | None = None,
+    output_dir: Path | None = None,
+    export_to_main: Path | None = None,
+    prompt_hash: str | None = None,
+    lenient_qc: bool = False,
+    allow_pending: bool = False,
+    dry_run: bool = False,
+    force: bool = False,
+) -> dict:
+    if not dataset_path.is_file():
+        raise FileNotFoundError(f"Dataset file not found: {dataset_path}")
+
+    dataset = load_json(dataset_path)
+    meta = dict(dataset.get("metadata", {}))
+    data = dict(dataset.get("data", {}))
+    if not data:
+        raise ValueError(f"Dataset contains no entries: {dataset_path}")
+
+    resolved_split = split or meta.get("split") or ("val" if "val" in dataset_path.stem else "train")
+    if resolved_split not in ("train", "val"):
+        raise ValueError("Unable to determine split (train/val); specify --split explicitly")
+
+    manifest_data = None
+    if split_manifest_path is None:
+        split_manifest_path = PROJECT_ROOT / "data" / "indexes" / "split_manifest.json"
+    if split_manifest_path.is_file():
+        manifest_data = load_json(split_manifest_path)
+    prep_fp = stable_json_hash(manifest_data) if manifest_data else meta.get("preparation_fingerprint")
+
+    resolved_run_id = run_id or meta.get("run_id") or f"annot_{dataset_path.stem}"
+    resolved_prompt_hash = prompt_hash or meta.get("prompt_hash") or _find_prompt_hash()
+
+    qc_failures: list[tuple[str, str, str]] = []
+    seen_queries: set[tuple[str, str]] = set()
+
+    for item_key, item in data.items():
+        bbox = item.get("bbox")
+        query = clean_query_text(item.get("query", ""))
+        if not bbox or not query:
+            qc_failures.append((item_key, query, "missing bbox or empty query"))
+            continue
+        query_key = (item["visible"], " ".join(query.split()).casefold())
+        if query_key in seen_queries:
+            raise ValueError(f"Unresolved same-frame query collision at {item_key!r}")
+        seen_queries.add(query_key)
+        valid, reason = validate_annotation_query(query)
+        if not valid:
+            qc_failures.append((item_key, query, reason))
+
+    if qc_failures and not lenient_qc and not allow_pending:
+        first_fail = qc_failures[0]
+        raise ValueError(
+            f"Query QC validation failed for {len(qc_failures)} samples in {resolved_split} (e.g. {first_fail[0]}: {first_fail[2]}). "
+            f"Fix the queries or pass --lenient-qc / --allow-pending."
+        )
+
+    src_fp = source_fingerprint(data)
+    data_fp = approved_dataset_fingerprint(data)
+    img_fp = trusted_dataset_image_fingerprint(data, data, require_recorded_size=True)
+    sequence_count = len(group_keys_by_scene(list(data), data))
+    sample_count = len(data)
+
+    metadata = {
+        "status": "approved",
+        "protocol_version": ANNOTATION_PROTOCOL_VERSION,
+        "run_id": resolved_run_id,
+        "split": resolved_split,
+        "source_fingerprint": src_fp,
+        "image_fingerprint": img_fp,
+        "dataset_fingerprint": data_fp,
+        "sample_count": sample_count,
+        "sequence_count": sequence_count,
+        "prompt_hash": resolved_prompt_hash,
+        "provenance": {"source_type": "human_annotated"},
+        "qc": {
+            "complete": True,
+            "failed_sequences": 0,
+            "failed_frames": 0,
+            "invalid_queries": len(qc_failures),
+            "generated_samples": sample_count,
+        },
+    }
+    if prep_fp:
+        metadata["preparation_fingerprint"] = prep_fp
+
+    artifact = {
+        "metadata": metadata,
+        "data": data,
+    }
+
+    validate_approved_artifact(
+        artifact,
+        expected_split=resolved_split,
+        expected_run_id=resolved_run_id,
+        strict_query_qc=not lenient_qc,
+        allow_pending=allow_pending,
+    )
+
+    base_out = output_dir or (PROJECT_ROOT / "outputs" / "annotations")
+    resolved_output_path = output_path or (base_out / resolved_run_id / resolved_split / "approved.json")
+
+    qc_report = None
+    if qc_failures and lenient_qc:
+        qc_report = {
+            "run_id": resolved_run_id,
+            "split": resolved_split,
+            "lenient_qc": True,
+            "qc_failures_count": len(qc_failures),
+            "failures": [{"item_key": k, "query": q, "reason": reason} for k, q, reason in qc_failures],
+        }
+
+    result = {
+        "run_id": resolved_run_id,
+        "split": resolved_split,
+        "sample_count": sample_count,
+        "sequence_count": sequence_count,
+        "source_fingerprint": src_fp,
+        "dataset_fingerprint": data_fp,
+        "image_fingerprint": img_fp,
+        "preparation_fingerprint": prep_fp,
+        "prompt_hash": resolved_prompt_hash,
+        "output_path": resolved_output_path,
+        "written_paths": [],
+        "qc_failures_count": len(qc_failures),
+        "artifact": artifact,
+        "qc_report": qc_report,
+    }
+
+    if not dry_run:
+        _publish_results([result], export_to_main=export_to_main, force=force)
+    return result
+
+
 def package(
     generations: list[Path] | Path | None = None,
     index_path: Path | None = None,
@@ -391,14 +527,69 @@ def package(
     prompt_hash: str | None = None,
     key_format: str = "auto",
     lenient_qc: bool = False,
+    allow_pending: bool = False,
     dry_run: bool = False,
     force: bool = False,
     generation_path: Path | None = None,
+    datasets: list[Path] | Path | None = None,
+    dataset_path: Path | None = None,
 ) -> list[dict] | dict:
+    if datasets is None and dataset_path is not None:
+        datasets = dataset_path
+    if datasets is not None:
+        return_single = dataset_path is not None or isinstance(datasets, (str, Path))
+        if isinstance(datasets, (str, Path)):
+            datasets = [Path(datasets)]
+
+        if len(datasets) > 1 and (output_path is not None or split is not None):
+            raise ValueError("--output and --split can only be used when packaging a single dataset file")
+
+        if len(datasets) > 1 and run_id is None:
+            run_id = _derive_common_run_id(datasets)
+
+        results: list[dict] = []
+        by_split: dict[str, dict] = {}
+        for dpath in datasets:
+            res = package_dataset_single(
+                dataset_path=dpath,
+                split_manifest_path=split_manifest_path,
+                split=split,
+                run_id=run_id,
+                output_path=output_path,
+                output_dir=output_dir,
+                export_to_main=export_to_main,
+                prompt_hash=prompt_hash,
+                lenient_qc=lenient_qc,
+                allow_pending=allow_pending,
+                dry_run=True,
+                force=force,
+            )
+            s = res["split"]
+            if s in by_split:
+                raise ValueError(f"Multiple datasets provided for split {s!r}")
+            by_split[s] = res
+            results.append(res)
+
+        if "train" in by_split and "val" in by_split:
+            target_run_id = results[0]["run_id"]
+            for r in results:
+                r["artifact"]["metadata"]["run_id"] = target_run_id
+            validate_training_artifacts(
+                by_split["train"]["artifact"],
+                by_split["val"]["artifact"],
+                annotation_run_id=target_run_id,
+                strict_query_qc=not lenient_qc,
+                allow_pending=allow_pending,
+            )
+
+        if not dry_run:
+            _publish_results(results, export_to_main=export_to_main, force=force)
+        return results[0] if return_single else results
+
     if generations is None and generation_path is not None:
         generations = generation_path
     if generations is None:
-        raise ValueError("Must provide generations or generation_path")
+        raise ValueError("Must provide datasets, generations, dataset_path, or generation_path")
 
     return_single = generation_path is not None or isinstance(generations, (str, Path))
     if isinstance(generations, (str, Path)):
@@ -446,6 +637,7 @@ def package(
             by_split["val"]["artifact"],
             annotation_run_id=target_run_id,
             strict_query_qc=not lenient_qc,
+            allow_pending=allow_pending,
         )
 
     if not dry_run:
@@ -457,9 +649,20 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    datasets = args.dataset
+    generations = args.generation
+    if datasets is None and generations is None:
+        default_train = PROJECT_ROOT / "outputs" / "annotations" / "train.json"
+        default_val = PROJECT_ROOT / "outputs" / "annotations" / "val.json"
+        if default_train.is_file() and default_val.is_file():
+            datasets = [default_train, default_val]
+        else:
+            parser.error("Must provide --dataset or --generation")
+
     try:
         raw_res = package(
-            generations=args.generation,
+            generations=generations,
+            datasets=datasets,
             index_path=args.index,
             index_dir=args.index_dir,
             split_manifest_path=args.split_manifest,
@@ -471,6 +674,7 @@ def main() -> None:
             prompt_hash=args.prompt_hash,
             key_format=args.key_format,
             lenient_qc=args.lenient_qc,
+            allow_pending=args.allow_pending,
             dry_run=args.dry_run,
             force=args.force,
         )

@@ -35,23 +35,21 @@ from aicomp_grounding.grounding.messages import (
     build_training_messages,
     grounding_prompt_hash,
 )
-from aicomp_grounding.grounding.engine.training_state import validated_prompt_length
+from aicomp_grounding.config import (
+    INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS,
+    INFERENCE_DEFAULT_MIN_PIXELS as MIN_PIXELS,
+)
+from aicomp_grounding.grounding.models.base import validated_prompt_length
 
 MODEL_NAME = "Qwen/Qwen3.5-9B"
 # ModelScope snapshot recorded at adoption. Download this version before
 # execution; the adapter only reads the explicit local --model-path.
 MODEL_REVISION = "460979c3d11864dd16408d860ac930a360a2fac2"
 
-# Pixel budgets in Qwen processor units (28x28 per patch); 3072 patches
-# covers a lossless 1920x1080 frame at ~2645 patches.
-MIN_PIXELS = 256 * 28 * 28
-MAX_PIXELS = 3072 * 28 * 28
-
 MAX_NEW_TOKENS = 32
 
-# Qwen3.5 thinks by default.  The grounding protocol requires the model to emit
-# only the box-token sequence, so the default for every chat-template call is
-# thinking off.  Enumeration overrides it per call.
+# Qwen3.5 thinks by default. The grounding protocol requires the model to emit
+# only the box-token sequence, so thinking is disabled.
 CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
 
 
@@ -60,15 +58,12 @@ def _apply_chat_template(
     messages: list[dict],
     *,
     add_generation_prompt: bool,
-    template_kwargs: dict | None = None,
 ) -> str:
-    kwargs = dict(CHAT_TEMPLATE_KWARGS)
-    kwargs.update(template_kwargs or {})
     return processor.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=add_generation_prompt,
-        **kwargs,
+        **CHAT_TEMPLATE_KWARGS,
     )
 
 
@@ -81,6 +76,7 @@ class Qwen3_5Adapter:
     name = "qwen3_5"
     model_name = MODEL_NAME
     model_revision = MODEL_REVISION
+    compute_dtype = "bfloat16"
     supports_lora = True
     supports_prepared_inputs = True
 
@@ -168,8 +164,7 @@ class Qwen3_5Adapter:
             "lora_rank": 16,
             "lora_alpha": 32,
             "lora_dropout": 0.05,
-            "compute_dtype": "bfloat16",
-            "autocast": True,
+            "compute_dtype": self.compute_dtype,
             "gradient_checkpointing": True,
             "eval_batch_size": 1,
             "best_epoch_primary_metric": "acc_at_0_5",

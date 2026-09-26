@@ -24,8 +24,8 @@ from aicomp_grounding.grounding.engine.training_state import (
     validate_loaded_training_state,
     validate_resume_checkpoint,
     validate_training_artifacts,
-    validated_prompt_length,
 )
+from aicomp_grounding.grounding.models.base import validated_prompt_length
 from aicomp_grounding.io import atomic_write_json
 from aicomp_grounding.images import trusted_dataset_image_fingerprint
 from aicomp_grounding.grounding.engine.training_core import (
@@ -261,6 +261,87 @@ class ApprovedDataGateTests(unittest.TestCase):
             self.assertEqual(
                 plan["metadata"]["model_name"], "Qwen/Qwen3-VL-8B-Instruct"
             )
+
+    def test_training_plan_active_dataset_direct_layout(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for split, scene in (("train", "001"), ("val", "002")):
+                artifact = _artifact(split, scene, run_id="round_active")
+                del artifact["metadata"]["run_id"]
+                artifact["metadata"]["image_fingerprint"] = (
+                    trusted_dataset_image_fingerprint(
+                        artifact["data"],
+                        artifact["data"],
+                        require_recorded_size=True,
+                    )
+                )
+                atomic_write_json(
+                    root / "outputs" / "annotations" / f"{split}.json",
+                    artifact,
+                )
+
+            # Test 1: annotation_run_id=None
+            plan = prepare_training_plan(
+                data_root=root,
+                annotation_root=root / "outputs" / "annotations",
+                output_root=root / "outputs",
+                annotation_run_id=None,
+                run_tag="active-direct",
+                seed=42,
+                resume=True,
+            )
+            self.assertEqual(
+                Path(plan["train_artifact_path"]),
+                root / "outputs" / "annotations" / "train.json",
+            )
+            self.assertEqual(
+                Path(plan["val_artifact_path"]),
+                root / "outputs" / "annotations" / "val.json",
+            )
+            self.assertEqual(plan["metadata"]["annotation_run_id"], "default")
+            self.assertFalse(plan["skip_training"])
+
+            # Test 2: annotation_run_id="" (empty string normalized to None)
+            plan_empty_str = prepare_training_plan(
+                data_root=root,
+                annotation_root=root / "outputs" / "annotations",
+                output_root=root / "outputs",
+                annotation_run_id="",
+                run_tag="active-direct-empty-str",
+                seed=42,
+                resume=True,
+            )
+            self.assertEqual(
+                Path(plan_empty_str["train_artifact_path"]),
+                root / "outputs" / "annotations" / "train.json",
+            )
+            self.assertEqual(plan_empty_str["metadata"]["annotation_run_id"], "default")
+
+            # Test 3: active dataset with existing metadata.run_id preserves that run_id
+            for split, scene in (("train", "001"), ("val", "002")):
+                artifact = _artifact(split, scene, run_id="my_active_run")
+                artifact["metadata"]["image_fingerprint"] = (
+                    trusted_dataset_image_fingerprint(
+                        artifact["data"],
+                        artifact["data"],
+                        require_recorded_size=True,
+                    )
+                )
+                atomic_write_json(
+                    root / "outputs" / "annotations" / f"{split}.json",
+                    artifact,
+                )
+            plan_with_meta_run = prepare_training_plan(
+                data_root=root,
+                annotation_root=root / "outputs" / "annotations",
+                output_root=root / "outputs",
+                annotation_run_id=None,
+                run_tag="active-direct-with-meta-run",
+                seed=42,
+                resume=True,
+            )
+            self.assertEqual(plan_with_meta_run["metadata"]["annotation_run_id"], "my_active_run")
+
 
 
 class TrainingScheduleTests(unittest.TestCase):

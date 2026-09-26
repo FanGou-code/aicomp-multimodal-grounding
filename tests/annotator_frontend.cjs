@@ -32,8 +32,8 @@ function harness() {
   vm.runInContext(source,context,{filename:sourcePath});
   const a=context.audit;
   a.state.items=[
-    {id:'a',bbox:[0.1,0.1,0.3,0.3],annotator:'ai-prelabel',image_url:'/a',query_en:'Query A',frame_id:'a',ordinal:1},
-    {id:'b',bbox:[0.6,0.6,0.9,0.9],annotator:'ai-prelabel',image_url:'/b',query_en:'Query B',frame_id:'b',ordinal:1}
+    {id:'a',bbox:[0.1,0.1,0.3,0.3],annotator:'seed',image_url:'/a',query_en:'Query A',frame_id:'a',ordinal:1},
+    {id:'b',bbox:[0.6,0.6,0.9,0.9],annotator:'seed',image_url:'/b',query_en:'Query B',frame_id:'b',ordinal:1}
   ];
   a.state.reviewMode=true;
   a.state.annotator='reviewer'; a.dom.annotatorInput.value='reviewer';
@@ -115,6 +115,7 @@ async function main() {
       assert.equal(a.isAiAnnotator(name),false);
       assert.equal(a.isTodoItem({bbox:[0,0,1,1],annotator:name}),false);
     }
+    assert.equal(a.isAiAnnotator('seed'),true);
     assert.equal(a.isAiAnnotator('ai-prelabel'),true);
   }
   console.log('frontend state tests passed');

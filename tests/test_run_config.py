@@ -131,6 +131,33 @@ class EntrypointConfigTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parse_args([])
 
+    def test_train_yaml_config_allows_omitting_annotation_run_id_for_active_dataset(self):
+        from tools.train import parse_args
+
+        with tempfile.TemporaryDirectory() as td:
+            path = _write_yaml(
+                Path(td),
+                "run:\n  model: qwen3_5\n",
+            )
+            args = parse_args(["--config", str(path)])
+            self.assertIsNone(args.annotation_run_id)
+            self.assertEqual(args.model, "qwen3_5")
+
+            empty_str_path = _write_yaml(
+                Path(td),
+                "run:\n  annotation_run_id: ''\n  model: qwen3_5\n",
+                name="empty.yaml",
+            )
+            args_empty = parse_args(["--config", str(empty_str_path)])
+            self.assertIsNone(args_empty.annotation_run_id)
+
+        # Also verify factory configs parse cleanly out of the box
+        for config_name in ("train_qwen3vl.yaml", "train_qwen3_5.yaml", "train_glm46v.yaml"):
+            cfg_path = Path("configs") / config_name
+            args = parse_args(["--config", str(cfg_path)])
+            self.assertIsNone(args.annotation_run_id)
+
+
     def test_infer_entrypoint_reads_yaml_and_rejects_hyperparameters(self):
         from tools.infer import parse_args
 

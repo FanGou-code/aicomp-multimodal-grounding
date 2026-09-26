@@ -8,7 +8,7 @@ Design notes
 - Weights are **model-level** (per input file), supplied on the command line.
 - Fusion per query: greedy IoU clustering of the valid boxes, cluster score
   = sum of member weights, winner = heaviest cluster, fused box = weighted
-  average of the cluster's coordinates (classic WBF, single-class reduced).
+  average of the cluster's coordinates (greedy member-wise clustering).
 - Fusion only. This module never builds a submission package; packaging is the
   separate, explicit ``aicomp_grounding.grounding.submission`` step.
 """
@@ -50,6 +50,8 @@ def wbf_fuse_key(
     iou_threshold: float,
 ) -> list[float] | None:
     """Fuse one query's (box, weight) pairs; None when nothing is valid."""
+    if not (0.0 < iou_threshold <= 1.0):
+        raise ValueError(f"iou_threshold must be in (0, 1], got {iou_threshold}")
     valid = [
         (box, weight)
         for box, weight in box_weight_pairs

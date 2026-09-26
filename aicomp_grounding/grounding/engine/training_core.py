@@ -1,13 +1,3 @@
-"""LoRA training core driven by the ``offline/`` entrypoint.
-
-Heavy dependencies (torch / peft / transformers) are imported lazily inside
-``run_training`` so this module stays importable in torch-free CI environments.
-
-Durable writes after each checkpoint are delegated to an injectable
-``commit_hook`` callback; the offline shell passes nothing because local
-filesystem writes are already atomic.
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -94,10 +84,14 @@ def metric_improved(metric_name: str, candidate: float, incumbent: float) -> boo
     return candidate > incumbent
 
 
-def _validate_training_bboxes(datasets: list[tuple[str, dict]]) -> None:
+def _validate_training_bboxes(datasets: list[tuple[str, dict]], *, allow_pending: bool = False) -> None:
     for split, dataset in datasets:
         for sample_id, item in dataset.items():
-            if validate_bbox(item["bbox"]) is None:
+            bbox = item.get("bbox")
+            query = item.get("query")
+            if allow_pending and not bbox and not query:
+                continue
+            if validate_bbox(bbox) is None:
                 raise ValueError(
                     f"{split} sample {sample_id!r} has an invalid training bbox"
                 )
@@ -122,6 +116,7 @@ def _evaluate_grounding_metrics(
     device,
     batch_size: int,
     image_cache: dict | None = None,
+    compute_dtype=None,
 ) -> dict:
     """Run full validation-set grounding inference and compute ACC/mIoU.
 
@@ -140,7 +135,10 @@ def _evaluate_grounding_metrics(
             cached = image_cache[path] = Image.open(path).convert("RGB")
         return cached
 
-    keys = sorted(val_data)
+    keys = [
+        k for k in sorted(val_data)
+        if val_data[k].get("query") and validate_bbox(val_data[k].get("bbox")) is not None
+    ]
     hits = 0
     total_iou = 0.0
     failures = 0
@@ -160,7 +158,8 @@ def _evaluate_grounding_metrics(
         inputs = adapter.build_grounding_batch(samples, processor=processor)
         inputs = {key: value.to(device) for key, value in inputs.items()}
 
-        with torch.no_grad(), _autocast(device, torch.bfloat16):
+        eval_dtype = compute_dtype if compute_dtype is not None else torch.bfloat16
+        with torch.no_grad(), _autocast(device, eval_dtype):
             generated_ids = model.generate(
                 **inputs,
                 max_new_tokens=adapter.generation_config["max_new_tokens"],
@@ -263,7 +262,7 @@ def prepare_training_plan(
     data_root: str | Path,
     annotation_root: str | Path | None = None,
     output_root: str | Path | None = None,
-    annotation_run_id: str,
+    annotation_run_id: str | None = None,
     model: str = "qwen3vl",
     model_path: str | None = None,
     run_tag: str,
@@ -274,8 +273,11 @@ def prepare_training_plan(
 ) -> dict:
     if not isinstance(smoke_test, bool):
         raise ValueError("smoke_test must be boolean")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id or ""):
-        raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
+    if annotation_run_id:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id):
+            raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
+    else:
+        annotation_run_id = None
     if model not in TRAINABLE_MODELS:
         raise ValueError(f"Unsupported training model: {model!r}")
     adapter = get_adapter(model)
@@ -369,20 +371,18 @@ def prepare_training_plan(
         if annotation_root is not None
         else root / "outputs" / "annotations"
     )
-    annotation_run_root = annotation_base / annotation_run_id
-    train_path = annotation_run_root / "train" / "approved.json"
-    val_path = annotation_run_root / "val" / "approved.json"
+    if annotation_run_id:
+        train_path = annotation_base / annotation_run_id / "train" / "approved.json"
+        val_path = annotation_base / annotation_run_id / "val" / "approved.json"
+    else:
+        train_path = annotation_base / "train.json"
+        val_path = annotation_base / "val.json"
+
     if not train_path.is_file() or not val_path.is_file():
-        direct_train = annotation_base / "train.json"
-        direct_val = annotation_base / "val.json"
-        if direct_train.is_file() and direct_val.is_file():
-            train_path = direct_train
-            val_path = direct_val
-        else:
-            raise FileNotFoundError(
-                "Training requires approved train and val artifacts from the same annotation run: "
-                f"{train_path}, {val_path}"
-            )
+        raise FileNotFoundError(
+            "Training requires approved train and val artifacts: "
+            f"{train_path}, {val_path}"
+        )
     train_artifact = load_json(train_path)
     val_artifact = load_json(val_path)
 
@@ -390,12 +390,13 @@ def prepare_training_plan(
         train_artifact,
         val_artifact,
         annotation_run_id=annotation_run_id,
+        allow_pending=True,
     )
     datasets = [
         ("train", train_artifact["data"]),
         ("val", val_artifact["data"]),
     ]
-    _validate_training_bboxes(datasets)
+    _validate_training_bboxes(datasets, allow_pending=True)
     for split, artifact in (("train", train_artifact), ("val", val_artifact)):
         recorded = artifact["metadata"].get("image_fingerprint")
         if recorded and is_trusted_image_fingerprint(recorded):
@@ -409,6 +410,11 @@ def prepare_training_plan(
                     f"{split} image references do not match the approved annotation artifact"
                 )
 
+    from aicomp_grounding.query import count_effective_training_samples
+
+    train_samples = count_effective_training_samples(train_artifact["data"], augment_flip=True)
+    val_samples = count_effective_training_samples(val_artifact["data"], augment_flip=False)
+
     metadata = build_training_metadata(
         annotation_run_id=annotation_run_id,
         train_artifact=train_artifact,
@@ -419,6 +425,9 @@ def prepare_training_plan(
         hyperparameters=hyperparameters,
         seed=seed,
         run_tag=run_tag,
+        train_samples=train_samples,
+        val_samples=val_samples,
+        allow_pending=True,
     )
     # Default to the dataset-root layout.  The CLI passes the repository-level
     # outputs directory explicitly so training artifacts do not get mixed into
@@ -451,6 +460,7 @@ def prepare_training_plan(
             "skip_training": True,
             "smoke_test": smoke_test,
             "completed": completed,
+            "allow_pending": True,
         }
 
     latest = _latest_resume_checkpoint(run_dir)
@@ -474,6 +484,7 @@ def prepare_training_plan(
         "skip_training": False,
         "smoke_test": smoke_test,
         "completed": None,
+        "allow_pending": True,
     }
 
 
@@ -568,10 +579,12 @@ def run_training(
     run_dir = Path(training_plan["run_dir"])
     train_artifact = load_json(Path(training_plan["train_artifact_path"]))
     val_artifact = load_json(Path(training_plan["val_artifact_path"]))
+    allow_pending = bool(training_plan.get("allow_pending", True))
     validate_training_artifacts(
         train_artifact,
         val_artifact,
         annotation_run_id=metadata["annotation_run_id"],
+        allow_pending=allow_pending,
     )
     rebuilt_metadata = build_training_metadata(
         annotation_run_id=metadata["annotation_run_id"],
@@ -583,6 +596,9 @@ def run_training(
         hyperparameters=hyperparameters,
         seed=metadata["seed"],
         run_tag=metadata["run_tag"],
+        train_samples=metadata.get("train_samples"),
+        val_samples=metadata.get("val_samples"),
+        allow_pending=allow_pending,
     )
     require_exact_metadata(metadata, rebuilt_metadata, label="training plan")
     # A worker re-scheduled by the platform starts from the original plan
@@ -626,7 +642,12 @@ def run_training(
     if use_cuda and not torch.cuda.is_bf16_supported():
         raise RuntimeError("This training configuration requires CUDA bfloat16 support")
     device = torch.device("cuda:0" if use_cuda else "cpu")
-    compute_dtype = torch.bfloat16 if use_cuda else torch.float32
+    adapter_dtype = getattr(adapter, "compute_dtype", "bfloat16")
+    compute_dtype = (
+        torch.bfloat16
+        if (use_cuda and adapter_dtype == "bfloat16")
+        else (torch.float16 if (use_cuda and adapter_dtype == "float16") else torch.float32)
+    )
 
     base_model, processor = adapter.load_for_training(
         device=device, model_path=training_plan.get("model_path")
@@ -752,7 +773,7 @@ def run_training(
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
+        batch_size=eval_batch_size,
         shuffle=False,
         collate_fn=collate_cpu,
         num_workers=num_workers,
@@ -958,6 +979,7 @@ def run_training(
                     eta_sec = int(remaining_steps * sec_per_step)
                     eta_min, eta_s = divmod(eta_sec, 60)
                     eta_hr, eta_min = divmod(eta_min, 60)
+                    eta_str = f"{eta_hr}h{eta_min:02d}m" if eta_hr > 0 else f"{eta_min}m{eta_s:02d}s"
                     pct = (global_step / max(1, total_steps)) * 100.0
                     current_lr = scheduler.get_last_lr()[0] if hasattr(scheduler, "get_last_lr") else learning_rate
                     vram_str = f" | {torch.cuda.memory_reserved() / 1024**3:.1f}G" if use_cuda else ""
@@ -1009,17 +1031,18 @@ def run_training(
 
         model.eval()
         validation_loss = 0.0
-        validation_batches = 0
+        validation_samples = 0
         with torch.no_grad():
             for cpu_batch in val_loader:
                 batch = move_batch_to_device(cpu_batch, device)
+                current_batch_size = batch["input_ids"].shape[0]
                 with _autocast(device, compute_dtype):
                     loss = model(**batch).loss
                 if not torch.isfinite(loss):
                     raise FloatingPointError(f"Non-finite validation loss at epoch {epoch + 1}")
-                validation_loss += loss.item()
-                validation_batches += 1
-        average_val_loss = validation_loss / validation_batches
+                validation_loss += loss.item() * current_batch_size
+                validation_samples += current_batch_size
+        average_val_loss = validation_loss / max(validation_samples, 1)
         average_train_loss = epoch_loss / len(train_loader)
         train_log(
             f"[{_log_now()}] Epoch {epoch + 1}: train_loss={average_train_loss:.4f}, "
@@ -1035,6 +1058,7 @@ def run_training(
             device=device,
             batch_size=eval_batch_size,
             image_cache=val_image_cache,
+            compute_dtype=compute_dtype,
         )
         candidate_metric = candidate_metric_value(
             best_metric_name,
