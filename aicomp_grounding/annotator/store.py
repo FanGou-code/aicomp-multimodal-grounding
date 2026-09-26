@@ -166,18 +166,24 @@ class AnnotationStore:
 
     @contextmanager
     def _write_lock(self):
-        # Review servers run on Linux/macOS. flock coordinates separate server
-        # processes/instances; the Python lock protects threads on this instance.
-        import fcntl
+        # Review servers run on Linux/macOS/Windows. flock coordinates separate server
+        # processes on POSIX; on Windows fallback to threading lock.
+        try:
+            import fcntl
+        except ImportError:
+            fcntl = None
+
         with self._lock:
             self.data_dir.mkdir(parents=True, exist_ok=True)
             self.journal_path.parent.mkdir(parents=True, exist_ok=True)
             with (self.data_dir / ".annotations.lock").open("a+b") as handle:
-                fcntl.flock(handle, fcntl.LOCK_EX)
+                if fcntl is not None:
+                    fcntl.flock(handle, fcntl.LOCK_EX)
                 try:
                     yield
                 finally:
-                    fcntl.flock(handle, fcntl.LOCK_UN)
+                    if fcntl is not None:
+                        fcntl.flock(handle, fcntl.LOCK_UN)
 
 
     def set(self, item_id: str, bbox: list[float], annotator: str | None = None) -> list[float]:
