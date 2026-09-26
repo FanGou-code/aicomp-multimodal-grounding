@@ -1,26 +1,3 @@
-"""Crash-safe annotation store.
-
-Durable state = append-only JSONL journal (one record per PUT/DELETE).
-``annotations.predictions.json`` is a consolidated snapshot in the main
-project's prediction-file shape (``{item_id: [x1, y1, x2, y2]}``, normalized
-0-1 XYXY, annotated items only) and is rewritten atomically on every change.
-Absence verdicts are journaled as ``bbox: null`` records whose ``annotator``
-ends in ``:absent`` (e.g. ``ai-prelabel:absent`` pending review, ``fang0:absent``
-human-confirmed) and consolidated into ``annotations.absent.json`` as
-``{item_id: annotator}``. Recovery = replay the journal; a torn trailing line
-from a crash is ignored.
-
-Snapshots are always re-derived from a full journal replay at write time, so
-concurrent writer processes (the review server and the apply step) never drop each
-other's entries. Readers re-replay automatically whenever the journal file
-changes on disk, which hot-reloads annotations written by other processes.
-Query edits are journaled as bbox-less records and replay as text + annotator
-updates without touching box state.
-
-
-Adapted from gt-annotator (upstream gt-annotator project,
-MIT License, (c) 2026 FanGou-code) - adapted for this repo's review tool."""
-
 from __future__ import annotations
 
 import json
@@ -54,16 +31,15 @@ class AnnotationStore:
         *,
         journal_path: str | Path | None = None,
         active_dataset_path: str | Path | None = None,
-        skeleton_path: str | Path | None = None,
+        data_root: str | Path | None = None,
     ) -> None:
         self.data_dir = Path(data_dir)
+        self.data_root = Path(data_root) if data_root is not None else None
         self.journal_path = Path(journal_path) if journal_path is not None else self.data_dir / JOURNAL_NAME
         self.snapshot_path = self.data_dir / SNAPSHOT_NAME
         self.queries_path = self.data_dir / QUERY_SNAPSHOT_NAME
         self.absent_path = self.data_dir / ABSENT_SNAPSHOT_NAME
         self.active_dataset_path = Path(active_dataset_path) if active_dataset_path is not None else None
-        self.skeleton_path = Path(skeleton_path) if skeleton_path is not None else None
-        self._skeleton_images: dict[str, str] | None = None
         self._lock = threading.Lock()
         self._state: dict[str, list[float]] = {}
         self._queries: dict[str, str] = {}
@@ -103,11 +79,9 @@ class AnnotationStore:
                 if record.get("query"):
                     queries[item_id] = str(record["query"])
                 if "bbox" not in record:
-                    # Query-only edit (set_query shape): updates the text and
-                    # the annotator claim; box state is untouched. The old
-                    # replay treated the missing bbox as a delete and wiped
-                    # the human box on every subsequent read/replay.
-                    meta[item_id] = {"annotator": annotator, "ts": record.get("ts")}
+                    # Query-only edit (set_query shape): updates the text; box state is untouched.
+                    if item_id not in meta:
+                        meta[item_id] = {"annotator": annotator, "ts": record.get("ts")}
                     continue
                 bbox = record["bbox"]
                 if bbox is None:
@@ -183,19 +157,12 @@ class AnnotationStore:
             self._refresh_locked()
             return {item_id: list(bbox) for item_id, bbox in self._state.items()}
 
-    # -- writes --------------------------------------------------------------
-
-    def snapshot(self) -> dict:
-        """Read one coherent journal state without modifying journal or snapshots."""
+    def all_queries(self) -> dict[str, str]:
         with self._lock:
             self._refresh_locked()
-            return {
-                "boxes": {k: list(v) for k, v in self._state.items()},
-                "queries": dict(self._queries),
-                "meta": {k: dict(v) for k, v in self._meta.items()},
-                "absent": dict(self._absent),
-                "touched_ids": set(self._touched),
-            }
+            return dict(self._queries)
+
+    # -- writes --------------------------------------------------------------
 
     @contextmanager
     def _write_lock(self):
@@ -242,6 +209,19 @@ class AnnotationStore:
             self._write_snapshots()
         return len(seeds)
 
+    def seed_queries(self, queries: list[tuple[str, str, str | None]]) -> int:
+        """Bulk query seed: one journal append per query, one snapshot write total."""
+        if not queries:
+            return 0
+        records = [
+            {"id": item_id, "query": query, "annotator": annotator, "ts": _now()}
+            for item_id, query, annotator in queries
+        ]
+        with self._write_lock():
+            self._append_many(records)
+            self._write_snapshots()
+        return len(queries)
+
 
     def set_query(self, item_id: str, query: str, annotator: str | None = None) -> str:
         """Record a human-edited query text; the box state is untouched."""
@@ -287,27 +267,6 @@ class AnnotationStore:
         atomic_write_json(self.queries_path, self._queries)
         atomic_write_json(self.absent_path, self._absent)
         self._sync_active_dataset()
-        self._sync_skeleton()
-
-    def _lookup_skeleton_image(self, item_id: str) -> str:
-        if self._skeleton_images is None:
-            self._skeleton_images = {}
-            if self.skeleton_path and self.skeleton_path.is_file():
-                try:
-                    skel = json.loads(self.skeleton_path.read_text(encoding="utf-8"))
-                    self._skeleton_images = {
-                        it["id"]: it["image"]
-                        for it in skel.get("items", [])
-                        if "id" in it and "image" in it
-                    }
-                except Exception:
-                    pass
-        if item_id in self._skeleton_images:
-            return self._skeleton_images[item_id]
-        parts = item_id.split("#")[0].split("_")
-        if len(parts) >= 2:
-            return f"Raw/{parts[0]}/color/{parts[1]}.png"
-        return ""
 
     def _sync_active_dataset(self) -> None:
         if not self.active_dataset_path or not self.active_dataset_path.is_file():
@@ -315,8 +274,10 @@ class AnnotationStore:
         from aicomp_grounding.sharding import group_keys_by_scene
         try:
             active_dataset = json.loads(self.active_dataset_path.read_text(encoding="utf-8"))
-        except Exception:
-            return
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Corrupt active dataset JSON at {self.active_dataset_path}: {exc}"
+            ) from exc
         data = active_dataset.get("data", {})
         changed = False
         for item_id in self._touched:
@@ -325,56 +286,75 @@ class AnnotationStore:
                 query = self._queries[item_id]
                 if bbox and query:
                     if item_id not in data:
-                        image = self._lookup_skeleton_image(item_id)
-                        if image:
-                            data[item_id] = {
-                                "visible": image,
-                                "infrared": image.replace("/color/", "/infrared/"),
-                                "depth": image.replace("/color/", "/depth/"),
-                                "bbox": bbox,
-                                "width": 1920,
-                                "height": 1080,
-                                "query": query,
-                            }
-                            changed = True
+                        parts = item_id.split("#")[0].split("_")
+                        image = f"Raw/{parts[0]}/color/{parts[1]}.png" if len(parts) >= 2 else ""
+                        if not image:
+                            continue
+                        candidate_paths = []
+                        if self.data_root:
+                            candidate_paths.append(self.data_root / image)
+                        candidate_paths.append(Path(image))
+                        resolved_path = None
+                        for cpath in candidate_paths:
+                            if cpath.is_file():
+                                resolved_path = cpath
+                                break
+                        if resolved_path is None:
+                            raise FileNotFoundError(f"Cannot resolve image file for {item_id}: {image}")
+                        from PIL import Image
+
+                        with Image.open(resolved_path) as img:
+                            img_w, img_h = img.size
+                        meta = self._meta.get(item_id) or {}
+                        annotator = meta.get("annotator") or ""
+                        effective_query = "" if annotator.endswith(":todo") else query
+                        data[item_id] = {
+                            "visible": image,
+                            "infrared": image.replace("/color/", "/infrared/"),
+                            "depth": image.replace("/color/", "/depth/"),
+                            "bbox": bbox,
+                            "width": img_w,
+                            "height": img_h,
+                            "query": effective_query,
+                        }
+                        changed = True
                     else:
                         entry = data[item_id]
-                        if entry.get("bbox") != bbox or entry.get("query") != query:
+                        meta = self._meta.get(item_id) or {}
+                        annotator = meta.get("annotator") or ""
+                        effective_query = "" if annotator.endswith(":todo") else query
+                        if entry.get("bbox") != bbox or entry.get("query") != effective_query:
                             entry["bbox"] = bbox
-                            entry["query"] = query
+                            entry["query"] = effective_query
                             changed = True
             elif item_id in self._absent and item_id in data:
                 del data[item_id]
                 changed = True
 
         if changed:
+            from aicomp_grounding.contract import (
+                approved_dataset_fingerprint,
+                source_fingerprint,
+            )
+            from aicomp_grounding.images import (
+                is_trusted_image_fingerprint,
+                trusted_dataset_image_fingerprint,
+            )
+
             active_dataset["data"] = data
+            if "metadata" not in active_dataset or not isinstance(active_dataset["metadata"], dict):
+                active_dataset["metadata"] = {}
             active_dataset["metadata"]["sample_count"] = len(data)
             active_dataset["metadata"]["sequence_count"] = len(group_keys_by_scene(list(data), data))
+            if "source_fingerprint" in active_dataset["metadata"]:
+                active_dataset["metadata"]["source_fingerprint"] = source_fingerprint(data)
+            if "dataset_fingerprint" in active_dataset["metadata"]:
+                active_dataset["metadata"]["dataset_fingerprint"] = approved_dataset_fingerprint(data)
+            if "image_fingerprint" in active_dataset["metadata"]:
+                recorded_img = active_dataset["metadata"]["image_fingerprint"]
+                if is_trusted_image_fingerprint(recorded_img):
+                    active_dataset["metadata"]["image_fingerprint"] = trusted_dataset_image_fingerprint(
+                        data, data, require_recorded_size=True
+                    )
             atomic_write_json(self.active_dataset_path, active_dataset)
-
-    def _sync_skeleton(self) -> None:
-        if not self.skeleton_path or not self.skeleton_path.is_file():
-            return
-        try:
-            skel = json.loads(self.skeleton_path.read_text(encoding="utf-8"))
-        except Exception:
-            return
-        items = skel.get("items", [])
-        changed = False
-        for it in items:
-            item_id = it.get("id")
-            if not item_id:
-                continue
-            if item_id in self._state or item_id in self._queries:
-                cur_bbox = self._state.get(item_id, it.get("bbox"))
-                cur_query = self._queries.get(item_id, it.get("query"))
-                cur_status = "annotated" if (cur_bbox is not None and cur_query) else it.get("status", "pending")
-                if it.get("bbox") != cur_bbox or it.get("query") != cur_query or it.get("status") != cur_status:
-                    it["bbox"] = cur_bbox
-                    it["query"] = cur_query
-                    it["status"] = cur_status
-                    changed = True
-        if changed:
-            atomic_write_json(self.skeleton_path, skel)
 

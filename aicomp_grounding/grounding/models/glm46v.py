@@ -34,8 +34,12 @@ from aicomp_grounding.grounding.models.base import (
     Prediction,
     language_model_lora_targets,
     require_local_model_path,
+    validated_prompt_length,
 )
-from aicomp_grounding.grounding.engine.training_state import validated_prompt_length
+from aicomp_grounding.config import (
+    INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS,
+    INFERENCE_DEFAULT_MIN_PIXELS as MIN_PIXELS,
+)
 
 MODEL_NAME = "zai-org/GLM-4.6V-Flash"
 # Weight snapshot recorded at adoption; fetch this revision before execution
@@ -60,10 +64,8 @@ MAX_NEW_TOKENS = 32
 #
 # The checkpoint's own preprocessor config allows `longest_edge = 28*28*12288`,
 # which in the doubled unit is a per-frame budget of 4,816,896 -- twice the
-# value below.  Neither the training nor the inference path overrode it, so
+# INFERENCE_DEFAULT_MAX_PIXELS value. Neither the training nor the inference path overrode it, so
 # GLM-4.6V ran on that wider budget until this pin was made to take effect.
-MIN_PIXELS = 256 * 28 * 28
-MAX_PIXELS = 3072 * 28 * 28
 
 #: Glm46VImageProcessor compares `temporal_factor * h * w` against
 #: `size.longest_edge`; a per-frame budget is doubled at the boundary.
@@ -138,15 +140,12 @@ def _apply_chat_template(
     messages,
     *,
     add_generation_prompt: bool,
-    template_kwargs: dict | None = None,
 ) -> str:
-    kwargs = dict(CHAT_TEMPLATE_KWARGS)
-    kwargs.update(template_kwargs or {})
     return processor.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=add_generation_prompt,
-        **kwargs,
+        **CHAT_TEMPLATE_KWARGS,
     )
 
 
@@ -180,6 +179,7 @@ class Glm46VAdapter:
     name = "glm46v"
     model_name = MODEL_NAME
     model_revision = MODEL_REVISION
+    compute_dtype = "bfloat16"
     supports_lora = True
     supports_prepared_inputs = True
 
@@ -267,8 +267,7 @@ class Glm46VAdapter:
             "lora_rank": 16,
             "lora_alpha": 32,
             "lora_dropout": 0.05,
-            "compute_dtype": "bfloat16",
-            "autocast": True,
+            "compute_dtype": self.compute_dtype,
             "gradient_checkpointing": True,
             "eval_batch_size": 1,
             "best_epoch_primary_metric": "acc_at_0_5",

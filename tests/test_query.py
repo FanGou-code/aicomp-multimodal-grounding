@@ -26,6 +26,25 @@ class QueryValidationTests(unittest.TestCase):
             "The small red chair beside the wooden desk",
         )
 
+    def test_flip_spatial_query(self):
+        from aicomp_grounding.query import flip_spatial_query
+
+        flipped, changed = flip_spatial_query("the person on the left side")
+        self.assertTrue(changed)
+        self.assertEqual(flipped, "the person on the right side")
+
+        flipped, changed = flip_spatial_query("the leftmost box and the rightmost chair")
+        self.assertTrue(changed)
+        self.assertEqual(flipped, "the rightmost box and the leftmost chair")
+
+        flipped, changed = flip_spatial_query("Left corner to RIGHT edge")
+        self.assertTrue(changed)
+        self.assertEqual(flipped, "Right corner to LEFT edge")
+
+        flipped, changed = flip_spatial_query("the red apple on the table")
+        self.assertFalse(changed)
+        self.assertEqual(flipped, "the red apple on the table")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -246,6 +246,8 @@ def parse_args(argv=None):
     for key, value in _RUN_DEFAULTS.items():
         if getattr(args, key) is None:
             setattr(args, key, value)
+    if args.batch_save is not None and args.batch_save < 1:
+        parser.error("--batch-save must be an integer >= 1")
     return args
 
 
@@ -739,12 +741,8 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     atomic_write_json(predictions_path, predictions)
     atomic_write_json(
         checkpoint_path,
-        {"metadata": metadata, "predictions": predictions,
-         "assigned_keys": selected_keys},
+        {"metadata": metadata, "predictions": predictions},
     )
-    if commit_hook is not None:
-        commit_hook()
-
     infer_log(f"\nInference finished for {len(predictions)} queries. Saved to {predictions_path}")
     infer_log(f"[{_now_str()}] [EVENT: RUN_COMPLETED] Inference completed successfully | Total queries: {len(predictions)}")
 
@@ -761,15 +759,6 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
         print(f"Failed Bbox Predictions : {metrics['failures']}")
         print("="*50 + "\n")
 
-    atomic_write_json(metadata_path, metadata)
-    atomic_write_json(
-        checkpoint_path,
-        {"metadata": metadata, "predictions": predictions,
-         "assigned_keys": selected_keys},
-    )
-    if commit_hook is not None:
-        commit_hook()
-
     summary = {
         "metadata": metadata,
         "metrics": metrics,
@@ -779,6 +768,10 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
         ),
     }
     atomic_write_json(run_dir / "summary.json", summary)
+
+    if commit_hook is not None:
+        commit_hook()
+
     print(f"Metadata saved to: {metadata_path}")
     print(f"Checkpoint saved to: {checkpoint_path}")
     print(f"Summary saved to: {run_dir / 'summary.json'}")

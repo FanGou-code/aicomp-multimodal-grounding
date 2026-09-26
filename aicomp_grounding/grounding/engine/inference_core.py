@@ -1,11 +1,3 @@
-"""Platform-agnostic inference core for the offline entrypoint.
-
-Pure, torch-free helpers for: loading inference items from the supported
-JSON shapes (approved annotation artifact, flat query index, or plain list),
-computing ACC@0.5 / mean-IoU metrics against ground truth, and merging the
-prediction payloads of parallel shards.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path

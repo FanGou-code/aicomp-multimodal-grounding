@@ -27,17 +27,16 @@ from aicomp_grounding.grounding.messages import (
     build_grounding_messages,
     grounding_prompt_hash,
 )
-from aicomp_grounding.grounding.engine.training_state import validated_prompt_length
+from aicomp_grounding.config import (
+    INFERENCE_DEFAULT_MAX_PIXELS as MAX_PIXELS,
+    INFERENCE_DEFAULT_MIN_PIXELS as MIN_PIXELS,
+)
+from aicomp_grounding.grounding.models.base import validated_prompt_length
 
 MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
 # Weight snapshot recorded at adoption; fetch this revision before execution
 # (repo and revision are listed in the README weight table).
 MODEL_REVISION = "5d854aab08710c16b980ec6d603d863b3821b915"
-
-# Pixel budgets in Qwen processor units (28x28 per patch); 3072 patches
-# covers a lossless 1920x1080 frame at ~2645 patches.
-MIN_PIXELS = 256 * 28 * 28
-MAX_PIXELS = 3072 * 28 * 28
 
 MAX_NEW_TOKENS = 32
 
@@ -46,6 +45,7 @@ class Qwen3VLAdapter:
     name = "qwen3vl"
     model_name = MODEL_NAME
     model_revision = MODEL_REVISION
+    compute_dtype = "bfloat16"
     supports_lora = True
     supports_prepared_inputs = True
 
@@ -133,8 +133,7 @@ class Qwen3VLAdapter:
             "lora_rank": 16,
             "lora_alpha": 32,
             "lora_dropout": 0.05,
-            "compute_dtype": "bfloat16",
-            "autocast": True,
+            "compute_dtype": self.compute_dtype,
             "gradient_checkpointing": True,
             "eval_batch_size": 1,
             "best_epoch_primary_metric": "acc_at_0_5",

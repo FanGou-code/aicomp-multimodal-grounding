@@ -451,7 +451,7 @@ class MockPipelineEndToEndTests(unittest.TestCase):
                         key=item["key"],
                     )
                 )
-            for sample, result in zip(samples, adapter.predict(samples)):
+            for sample, result in zip(samples, adapter.predict(samples), strict=True):
                 predictions[sample.key] = result.bbox
 
             self.assertIsNone(evaluate_predictions(items, predictions))

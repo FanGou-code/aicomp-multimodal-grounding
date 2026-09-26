@@ -58,14 +58,18 @@ checkpoints/
 Thumbs.db
 *:Zone.Identifier
 
-# Outputs: local only. Every generated artifact (annotations, LoRA adapters,
-# predictions, submissions) stays out of the repository.
-outputs/
+# Outputs: default ignore all, whitelist only the two active annotation datasets.
+outputs/*
+!outputs/annotations/
+outputs/annotations/*
+!outputs/annotations/train.json
+!outputs/annotations/val.json
 
-# Internal working notes and platform runbook: kept in the local checkout,
-# never published (README + docs/ carry everything an external user needs).
-*handoff*.md
-docs/sop*.md
+# docs/: whitelist mode — only data-contract.md is published.
+docs/*
+!docs/data-contract.md
+
+# Internal working notes: never published.
 AGENTS.md
 
 # Platform-specific tooling kept in the local checkout, never published:

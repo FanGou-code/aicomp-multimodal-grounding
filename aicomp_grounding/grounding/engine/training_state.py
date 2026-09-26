@@ -30,6 +30,8 @@ import re
 from pathlib import Path
 
 from aicomp_grounding.contract import approved_dataset_fingerprint, validate_training_artifacts
+from aicomp_grounding.images import trusted_dataset_image_fingerprint
+from aicomp_grounding.query import count_effective_training_samples
 from aicomp_grounding.artifacts import stable_json_hash
 from aicomp_grounding.io import load_json
 from aicomp_grounding.config import TRAINING_PROTOCOL_VERSION
@@ -56,7 +58,7 @@ TRAINING_METADATA_FIELDS = (
 
 def build_training_metadata(
     *,
-    annotation_run_id: str,
+    annotation_run_id: str | None = None,
     train_artifact: dict,
     val_artifact: dict,
     model_name: str,
@@ -65,23 +67,45 @@ def build_training_metadata(
     hyperparameters: dict,
     seed: int,
     run_tag: str,
+    train_samples: int | None = None,
+    val_samples: int | None = None,
+    allow_pending: bool = True,
 ) -> dict:
+    train_meta = train_artifact.get("metadata", {})
+    if not annotation_run_id:
+        annotation_run_id = train_meta.get("run_id") or "default"
     if not annotation_run_id or not re.fullmatch(r"[A-Za-z0-9_.-]+", annotation_run_id):
         raise ValueError(f"Invalid annotation_run_id {annotation_run_id!r}")
     train, val = validate_training_artifacts(
         train_artifact,
         val_artifact,
         annotation_run_id=annotation_run_id,
+        allow_pending=allow_pending,
     )
     train_meta = train["metadata"]
     val_meta = val["metadata"]
+
+    train_image_fp = train_meta.get("image_fingerprint") or (
+        trusted_dataset_image_fingerprint(train["data"], train["data"], require_recorded_size=True)
+        if train.get("data")
+        else ""
+    )
+    val_image_fp = val_meta.get("image_fingerprint") or (
+        trusted_dataset_image_fingerprint(val["data"], val["data"], require_recorded_size=True)
+        if val.get("data")
+        else ""
+    )
+    annotation_prompt_hash = train_meta.get("prompt_hash") or "human_annotated"
+
     identity = {
         "annotation_run_id": annotation_run_id,
-        "train_dataset_fingerprint": train_meta.get("dataset_fingerprint") or approved_dataset_fingerprint(train["data"]),
-        "val_dataset_fingerprint": val_meta.get("dataset_fingerprint") or approved_dataset_fingerprint(val["data"]),
-        "train_image_fingerprint": train_meta.get("image_fingerprint", ""),
-        "val_image_fingerprint": val_meta.get("image_fingerprint", ""),
-        "annotation_prompt_hash": train_meta.get("prompt_hash", ""),
+        "train_dataset_fingerprint": train_meta.get("dataset_fingerprint")
+        or approved_dataset_fingerprint(train["data"]),
+        "val_dataset_fingerprint": val_meta.get("dataset_fingerprint")
+        or approved_dataset_fingerprint(val["data"]),
+        "train_image_fingerprint": train_image_fp,
+        "val_image_fingerprint": val_image_fp,
+        "annotation_prompt_hash": annotation_prompt_hash,
         "model_name": model_name,
         "model_revision": model_revision,
         "grounding_prompt_hash": grounding_prompt_hash,
@@ -90,13 +114,28 @@ def build_training_metadata(
         "run_tag": run_tag,
     }
 
-    training_run_id = f"train_{stable_json_hash(identity, length=16)}"
+    if train_samples is None:
+        train_samples = count_effective_training_samples(train["data"], augment_flip=True)
+    if val_samples is None:
+        val_samples = count_effective_training_samples(val["data"], augment_flip=False)
+
+    # runtime_packages is recorded in hyperparameters for provenance but excluded
+    # from the identity hash to keep run_id stable across environments.
+    identity_hash_payload = {
+        key: (
+            {k: v for k, v in value.items() if k != "runtime_packages"}
+            if key == "hyperparameters" and isinstance(value, dict)
+            else value
+        )
+        for key, value in identity.items()
+    }
+    training_run_id = f"train_{stable_json_hash(identity_hash_payload, length=16)}"
     metadata = {
         "protocol_version": TRAINING_PROTOCOL_VERSION,
         "training_run_id": training_run_id,
         **identity,
-        "train_samples": len(train["data"]),
-        "val_samples": len(val["data"]),
+        "train_samples": train_samples,
+        "val_samples": val_samples,
     }
     if tuple(metadata) != TRAINING_METADATA_FIELDS:
         raise AssertionError("Training metadata schema is out of sync")
@@ -289,21 +328,6 @@ def expected_global_steps(
         raise ValueError("Training metadata has an invalid train_samples count")
     batches = math.ceil(train_samples / batch_size)
     return completed_epochs * optimizer_steps_per_epoch(batches, grad_accum_steps)
-
-
-def validated_prompt_length(full_input_ids, prompt_input_ids, *, sample_id: str) -> int:
-    if len(full_input_ids.shape) != 2 or len(prompt_input_ids.shape) != 2:
-        raise ValueError(f"Training token IDs must be rank 2 for {sample_id}")
-    prompt_length = int(prompt_input_ids.shape[1])
-    if (
-        full_input_ids.shape[0] != prompt_input_ids.shape[0]
-        or prompt_length <= 0
-        or prompt_length >= full_input_ids.shape[1]
-    ):
-        raise ValueError(f"Training label boundary is invalid for {sample_id}")
-    if not bool((full_input_ids[:, :prompt_length] == prompt_input_ids).all().item()):
-        raise ValueError(f"Training prompt tokens are not an exact prefix for {sample_id}")
-    return prompt_length
 
 
 def validate_adapter_directory(

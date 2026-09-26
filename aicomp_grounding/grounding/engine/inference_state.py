@@ -1,26 +1,3 @@
-"""Pure state management for resumable sharded inference.
-
-Data structures
----------------
-Run metadata dict (from build_run_metadata):
-    {version, run_id, mode, split, annotation_run_id, model, model_revision,
-     lora_path, adapter_fingerprint, prompt_hash, generation_config, compute_dtype,
-     min_pixels, max_pixels, run_tag, limit, selected_key_hash, input_fingerprint,
-     image_fingerprint, num_shards, base_run_id, base_prediction_fingerprint}
-
-Shard payload / checkpoint dict:
-    {metadata: RunMetadata + {shard_id, assigned_key_hash},
-     predictions: dict[query_id, [x1,y1,x2,y2] | None]}
-
-Inference plan dict (from prepare_inference_plan):
-    {metadata, keys, shards, result_keys, all_key_hash, result_is_full_split,
-     base_predictions, completed_payloads, pending_shard_ids}
-
-Summary dict (summary.json):
-    {metadata, metrics: {hits, total, acc_at_0_5, mean_iou, failures} | None,
-     total_predictions, valid_predictions}
-"""
-
 from __future__ import annotations
 
 import hashlib
