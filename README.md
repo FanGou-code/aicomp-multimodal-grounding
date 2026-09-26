@@ -64,7 +64,7 @@ tools/                          CLI 入口
   setup_cuda.sh                 CUDA 环境一键安装
 configs/                        A10 24GB YAML 配置（训练 + 推理 × 3 模型）
 tests/                          218 项 CPU 单元测试
-docs/                           数据契约、赛题调研
+docs/                           数据契约
 ```
 
 ## 硬件与环境
@@ -100,7 +100,7 @@ pip install -e ".[dev]"      # 开发：ruff + modelscope
 训练图像来自公开数据集 [RGBDT500](https://xuefeng-zhu5.github.io/RGBDT500/)
 （research-only 许可）。本仓库不重新分发原始数据。
 
-下载链接：`https://pan.baidu.com/s/1wIrUz1Zk8ptALpIZkGr_9Q?pwd=2w7f`
+下载链接（Google Drive）：<https://drive.google.com/drive/folders/1UAe_maNR_ukYgtBrmeqiv87WhW28yK9r>
 
 ### 目录布局
 
