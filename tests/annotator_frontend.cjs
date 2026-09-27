@@ -3,7 +3,7 @@ const vm = require('vm');
 const sourcePath = require('path').join(__dirname, '../aicomp_grounding/annotator/static/app.js');
 const assert = require('node:assert/strict');
 const raw = fs.readFileSync(sourcePath, 'utf8');
-const source = raw.replace(/\}\)\(\);\s*$/, 'globalThis.audit = {state,dom,saveBbox,saveQueryEdit,goToIndex,isAiAnnotator,isTodoItem,markTodo};\n})();');
+const source = raw.replace(/\}\)\(\);\s*$/, 'globalThis.audit = {state,dom,saveBbox,saveQueryEdit,goToIndex,isSeedAnnotator,isTodoItem,markTodo};\n})();');
 if (source === raw) throw new Error('Instrumentation did not match the source terminator');
 
 function harness() {
@@ -111,12 +111,12 @@ async function main() {
   }
   {
     const {a}=harness();
-    for(const name of ['reviewer','Eric','Kai','Bai']) {
-      assert.equal(a.isAiAnnotator(name),false);
-      assert.equal(a.isTodoItem({bbox:[0,0,1,1],annotator:name}),false);
-    }
-    assert.equal(a.isAiAnnotator('seed'),true);
-    assert.equal(a.isAiAnnotator('ai-prelabel'),true);
+    assert.equal(a.isSeedAnnotator('seed'),true);
+    assert.equal(a.isSeedAnnotator('seed:absent'),true);
+    assert.equal(a.isSeedAnnotator('human'),false);
+    assert.equal(a.isTodoItem({bbox:[0,0,1,1],annotator:'human'}),false);
+    assert.equal(a.isTodoItem({bbox:[0,0,1,1],annotator:'seed'}),true);
+    assert.equal(a.isTodoItem({bbox:null,annotator:null}),true);
   }
   console.log('frontend state tests passed');
 }

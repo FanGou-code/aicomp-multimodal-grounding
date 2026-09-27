@@ -269,9 +269,10 @@ class AnnotationStore:
         # Caller holds both thread and process locks, so all snapshots reflect
         # the same journal. Readers recover from the journal after any crash.
         self._replay()
-        atomic_write_json(self.snapshot_path, self._state)
-        atomic_write_json(self.queries_path, self._queries)
-        atomic_write_json(self.absent_path, self._absent)
+        if self.active_dataset_path is None:
+            atomic_write_json(self.snapshot_path, self._state)
+            atomic_write_json(self.queries_path, self._queries)
+            atomic_write_json(self.absent_path, self._absent)
         self._sync_active_dataset()
 
     def _sync_active_dataset(self) -> None:

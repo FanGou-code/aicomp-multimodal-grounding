@@ -60,10 +60,9 @@ tools/                          CLI 入口
   prepare_split.py              train/val 划分与跨集去重
   package_approved.py           数据集封包与指纹签章
   annotator_server.py           标注服务器启动
-  make_manifest.py              标注清单生成
   setup_cuda.sh                 CUDA 环境一键安装
 configs/                        A10 24GB YAML 配置（训练 + 推理 × 3 模型）
-tests/                          218 项 CPU 单元测试
+tests/                          217 项 CPU 单元测试
 docs/                           数据契约
 ```
 
@@ -138,9 +137,8 @@ python tools/prepare_split.py --raw-root data --out-dir data/indexes \
 # 启动标注服务器（--split 加载 outputs/annotations/{split}.json）
 python tools/annotator_server.py --split train --port 8788
 
-# 或对外部预标注清单进行校验
-python tools/annotator_server.py --manifest path/to/manifest.json \
-  --data-root data/Test --port 8790
+# 启动验证集标注服务器
+python tools/annotator_server.py --split val --port 8789
 ```
 
 3. **封包**：将标注结果封装为带 4 重 SHA-256 指纹的 `approved.json`，

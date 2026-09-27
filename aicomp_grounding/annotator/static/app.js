@@ -149,25 +149,22 @@
   function isSeedAnnotator(annotator) {
     return (
       annotator === state.seedAnnotator ||
-      annotator === `${state.seedAnnotator}:absent` ||
-      annotator === 'ai-prelabel' ||
-      annotator === 'ai-prelabel:absent'
+      annotator === `${state.seedAnnotator}:absent`
     );
   }
-  const isAiAnnotator = isSeedAnnotator;
 
-  // Seed annotation awaiting human review
-  function isSeedPendingItem(item) {
-    const ann = item.annotator || '';
-    return !!item.bbox && !!ann && isSeedAnnotator(ann);
-  }
-  const isAiPendingItem = isSeedPendingItem;
-
-  // Unreviewed item predicate:
-  function isTodoItem(item) {
+  // Any item that is not yet completed by human (unreviewed seed or unannotated)
+  function isPendingItem(item) {
     if (!item) return false;
-    return isSeedPendingItem(item);
+    const ann = item.annotator || '';
+    if (!ann || isSeedAnnotator(ann) || ann.endsWith(':todo')) {
+      return true;
+    }
+    return false;
   }
+
+  const isSeedPendingItem = isPendingItem;
+  const isTodoItem = isPendingItem;
 
   // --- API Client ---
   async function apiFetch(url, options = {}) {
@@ -223,7 +220,7 @@
       // Resolve initial item index with 3-tier precedence:
       // 1. URL hash (#<id>) if matching an item
       // 2. Last viewed item remembered in localStorage
-      // 3. First todo item (unannotated or AI pre-box)
+      // 3. First todo item (unannotated or seed box)
       let initialIdx = -1;
       const hashId = (window.location.hash || '').replace(/^#/, '').trim();
       if (hashId) {
@@ -259,16 +256,16 @@
       const total = scoped.length;
       let humanCount = 0;
       let absentCount = 0;
-      let seedPendingCount = 0;
+      let pendingCount = 0;
       const frames = new Map();
       scoped.forEach(it => {
         const ann = it.annotator || '';
-        const isAbsent = !it.bbox;
-        const isHuman = !!it.bbox && !!ann && !isSeedAnnotator(ann) && !ann.endsWith(':absent');
-        const isSeed = isSeedPendingItem(it);
+        const isAbsent = ann.endsWith(':absent');
+        const isPending = isPendingItem(it);
+        const isHuman = !isPending && !!it.bbox && !!ann && !isSeedAnnotator(ann) && !isAbsent;
         if (isAbsent) absentCount++;
-        if (isHuman) humanCount++;
-        if (isSeed) seedPendingCount++;
+        else if (isHuman) humanCount++;
+        if (isPending) pendingCount++;
         if (!frames.has(it.frame_id)) frames.set(it.frame_id, { total: 0, reviewed: 0 });
         const fr = frames.get(it.frame_id);
         fr.total++;
@@ -279,7 +276,7 @@
       const completedCount = humanCount + absentCount;
       const pct = total > 0 ? ((completedCount / total) * 100).toFixed(1) : '0.0';
       const absentSuffix = absentCount > 0 ? ` · 无框: ${absentCount}` : '';
-      dom.progressText.textContent = `已核验: ${humanCount} · 待核验: ${seedPendingCount}${absentSuffix} / ${total} (${pct}%)`;
+      dom.progressText.textContent = `已核验: ${humanCount} · 待办: ${pendingCount}${absentSuffix} / ${total} (${pct}%)`;
       dom.imageProgressText.textContent = `整帧完成: ${reviewedFrames} / ${frames.size}`;
       dom.progressBarFill.style.width = `${pct}%`;
     }
@@ -479,7 +476,7 @@
     }
     
     if (item.bbox) {
-      if (isSeedPendingItem(item)) {
+      if (isPendingItem(item)) {
         dom.annotationStatusBadge.textContent = '待核验';
         dom.annotationStatusBadge.className = 'badge badge-unannotated';
       } else {
@@ -487,8 +484,13 @@
         dom.annotationStatusBadge.className = 'badge badge-annotated';
       }
     } else {
-      dom.annotationStatusBadge.textContent = '无框';
-      dom.annotationStatusBadge.className = 'badge badge-absent';
+      if (isPendingItem(item)) {
+        dom.annotationStatusBadge.textContent = '待办 (无框)';
+        dom.annotationStatusBadge.className = 'badge badge-unannotated';
+      } else {
+        dom.annotationStatusBadge.textContent = '已置无框';
+        dom.annotationStatusBadge.className = 'badge badge-absent';
+      }
     }
 
     // Query text
@@ -783,7 +785,7 @@
     if (current) {
       state.items.forEach(it => {
         if (it.image_url === current.image_url && it.id !== current.id && it.bbox) {
-          const isHuman = it.annotator && !isAiAnnotator(it.annotator) && !it.annotator.endsWith(':todo');
+          const isHuman = it.annotator && !isSeedAnnotator(it.annotator) && !it.annotator.endsWith(':todo');
           if (isHuman) {
             drawStaticBox(it);
           }
@@ -822,7 +824,7 @@
     const y = Math.min(p1.y, p2.y);
     const w = Math.abs(p2.x - p1.x);
     const h = Math.abs(p2.y - p1.y);
-    const human = item.annotator && !isAiAnnotator(item.annotator) && !item.annotator.endsWith(':todo');
+    const human = item.annotator && !isSeedAnnotator(item.annotator) && !item.annotator.endsWith(':todo');
     ctx.fillStyle = human ? 'rgba(34, 197, 94, 0.10)' : 'rgba(148, 163, 184, 0.10)';
     ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = human ? 'rgba(34, 197, 94, 0.9)' : 'rgba(148, 163, 184, 0.9)';
@@ -852,7 +854,7 @@
     const h = Math.abs(p2.y - p1.y);
 
     const curItem = getCurrentItem();
-    const verified = !!(curItem && curItem.annotator && !isAiAnnotator(curItem.annotator)
+    const verified = !!(curItem && curItem.annotator && !isSeedAnnotator(curItem.annotator)
                         && !curItem.annotator.endsWith(':todo'));
     const boxColor = verified ? '#22c55e' : '#94a3b8';
     const boxFill = verified ? 'rgba(34, 197, 94, 0.16)' : 'rgba(148, 163, 184, 0.16)';
@@ -1254,42 +1256,55 @@
   // --- Pending-item Jump (button + post-save smart jump) ---
   function goToPrevPending() {
     for (let i = state.currentIndex - 1; i >= 0; i--) {
-      if (itemVisible(state.items[i]) && isSeedPendingItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isPendingItem(state.items[i])) {
         goToIndex(i);
         return;
       }
     }
     for (let i = state.items.length - 1; i > state.currentIndex; i--) {
-      if (itemVisible(state.items[i]) && isSeedPendingItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isPendingItem(state.items[i])) {
         goToIndex(i);
         return;
       }
     }
-    showToast('前面没有待核验条目', 'info');
+    showToast('前面没有待办条目', 'info');
   }
-  const goToPrevAi = goToPrevPending;
 
   function goToNextPending() {
     for (let i = state.currentIndex + 1; i < state.items.length; i++) {
-      if (itemVisible(state.items[i]) && isSeedPendingItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isPendingItem(state.items[i])) {
         goToIndex(i);
         return;
       }
     }
     for (let i = 0; i < state.currentIndex; i++) {
-      if (itemVisible(state.items[i]) && isSeedPendingItem(state.items[i])) {
+      if (itemVisible(state.items[i]) && isPendingItem(state.items[i])) {
         goToIndex(i);
         return;
       }
     }
-    if (state.items.length > 0 && !isSeedPendingItem(state.items[state.currentIndex])) {
-      showToast('🎉 所有待核验条目已全部核验完成！', 'success');
+    if (state.items.length > 0 && !isPendingItem(state.items[state.currentIndex])) {
+      showToast('🎉 所有待办条目已全部完成！', 'success');
     } else {
-      showToast('当前已是唯一一条待核验项', 'info');
+      showToast('当前已是唯一一条待办项', 'info');
     }
   }
   const goToNextTodo = goToNextPending;
-  const goToNextAi = goToNextPending;
+
+  function deleteCurrentBox() {
+    if (!state.activeBbox) {
+      showToast('当前无目标框', 'info');
+      return;
+    }
+    state.activeBbox = null;
+    const item = getCurrentItem();
+    if (item) {
+      item.bbox = null;
+    }
+    updateFooterBboxInfo();
+    redraw();
+    showToast('已删除当前框', 'info');
+  }
 
 
   // --- API Mutations (Save) ---
@@ -1309,23 +1324,6 @@
 
   // --- Keyboard Shortcuts ---
   function handleKeyDown(e) {
-    // Ctrl family used by the query editor: kill browser defaults page-wide
-    // (find / view-source / select-all-page). Ctrl+A stays native inside
-    // text inputs (the edit box rebinds it to readline home itself).
-    if (e.ctrlKey && !e.altKey && !e.metaKey) {
-      const k = e.key.toLowerCase();
-      if (['f', 'b', 'e', 'k', 'u'].includes(k)) {
-        e.preventDefault();
-        return;
-      }
-      const target = e.target;
-      if (k === 'a' && target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
-        e.preventDefault();
-        return;
-      }
-    }
-
-    // If typing inside an input/textarea, do not intercept navigation shortcuts
     const target = e.target;
     const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
 
@@ -1336,145 +1334,53 @@
       return;
     }
 
-    if (e.key === 'Enter' || e.key === ' ' || e.code === 'Space') {
+    // 1. Enter: only delete current active box
+    if (e.key === 'Enter') {
       e.preventDefault();
-      if (!e.repeat) {
-        submitCurrent();
-      }
+      deleteCurrentBox();
       return;
     }
 
-    if (e.key === 'p' || e.key === 'P' || e.key === 'Backspace') {
-      if (!isInput && !e.repeat) {
-        e.preventDefault();
+    // 2. P: set current item to absent (置为无框)
+    if (e.key === 'p' || e.key === 'P') {
+      e.preventDefault();
+      if (!e.repeat) {
         setNoBox();
       }
       return;
     }
 
-    // Navigation: A/D and H/L (arrow keys remain as aliases)
-    if (e.key === 'a' || e.key === 'A' || e.key === 'h' || e.key === 'H') {
+    // 3. Previous item: ArrowLeft, Ctrl+B, h / H
+    const isPrev = e.key === 'ArrowLeft' ||
+                   ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) ||
+                   (!e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'h' || e.key === 'H'));
+    if (isPrev) {
       e.preventDefault();
       prevItem();
       return;
     }
 
-    if (e.key === 'd' || e.key === 'D' || e.key === 'l' || e.key === 'L') {
+    // 4. Next item: ArrowRight, Ctrl+F, l / L
+    const isNext = e.key === 'ArrowRight' ||
+                   ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) ||
+                   (!e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'l' || e.key === 'L'));
+    if (isNext) {
       e.preventDefault();
       nextItem();
       return;
     }
 
-    if (e.key === 'j' || e.key === 'J') {
+    // 5. Jump to Next Pending: j / J (vim)
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'j' || e.key === 'J')) {
       e.preventDefault();
-      goToNextAi();
+      goToNextPending();
       return;
     }
 
-    if (e.key === 'k' || e.key === 'K') {
+    // 6. Jump to Previous Pending: k / K (vim)
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'k' || e.key === 'K')) {
       e.preventDefault();
-      goToPrevAi();
-      return;
-    }
-
-    if (e.key === 'n') {
-      e.preventDefault();
-      goToNextUnannotated();
-      return;
-    }
-
-    if (e.key === 'N') {
-      e.preventDefault();
-      goToPrevUnannotated();
-      return;
-    }
-
-    if (e.key === 'g') {
-      e.preventDefault();
-      const vis = visibleIndices();
-      if (vis.length) goToIndex(vis[0]);
-      return;
-    }
-
-    if (e.key === 'G') {
-      e.preventDefault();
-      const vis = visibleIndices();
-      if (vis.length) goToIndex(vis[vis.length - 1]);
-      return;
-    }
-
-    if (e.key === 'e' || e.key === 'E') {
-      // Edit the query text without touching the mouse; caret at the tail.
-      e.preventDefault();
-      dom.queryEnText.focus();
-      const end = dom.queryEnText.value.length;
-      dom.queryEnText.setSelectionRange(end, end);
-      return;
-    }
-
-    if (e.key === '/') {
-      e.preventDefault();
-      dom.jumpInput.focus();
-      dom.jumpInput.select();
-      return;
-    }
-
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      if (e.altKey) {
-        goToNextAi();
-      } else if (e.shiftKey) {
-        goToNextUnannotated();
-      } else {
-        nextItem();
-      }
-      return;
-    }
-
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      if (e.altKey) {
-        goToPrevAi();
-      } else if (e.shiftKey) {
-        goToPrevUnannotated();
-      } else {
-        prevItem();
-      }
-      return;
-    }
-
-    if (e.key === '0' || e.key === 'r' || e.key === 'R') {
-      e.preventDefault();
-      fitImageToCanvas();
-      redraw();
-      return;
-    }
-
-    if (e.key === '1') {
-      e.preventDefault();
-      setActualSize();
-      return;
-    }
-
-    if (e.key === '+' || e.key === '=') {
-      e.preventDefault();
-      state.transform.scale = Math.min(50, state.transform.scale * 1.25);
-      updateZoomDisplay();
-      redraw();
-      return;
-    }
-
-    if (e.key === '-' || e.key === '_') {
-      e.preventDefault();
-      state.transform.scale = Math.max(0.05, state.transform.scale / 1.25);
-      updateZoomDisplay();
-      redraw();
-      return;
-    }
-
-    if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
-      e.preventDefault();
-      showHelpModal();
+      goToPrevPending();
       return;
     }
   }

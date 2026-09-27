@@ -147,14 +147,13 @@ UTF-8 编码的 SHA-256 hex digest。
 
 ## 8. 标注存储格式
 
-标注服务器（`annotator/store.py`）使用 JSONL 日志 + 原子快照：
+标注服务器（`annotator/store.py`）采用直接落盘 + 预写日志（WAL）机制：
 
-- **日志**：`journal.jsonl`，每行一条 PUT/DELETE 记录
-- **bbox 快照**：`annotations.predictions.json` → `{item_id: [x1, y1, x2, y2]}`
-- **无框快照**：`annotations.absent.json` → `{item_id: annotator}`
-- **恢复**：从日志重放重建快照；末尾不完整行自动跳过
+- **活动数据集**：`outputs/annotations/{split}.json`（原子写回，含图像路径、尺寸、bbox、query 及三哈希指纹）
+- **崩溃日志**：`outputs/annotations/journals/{split}.jsonl`，追加写入每条操作（PUT / DELETE / QUERY），进程崩溃后自动重放恢复
+- **恢复**：从日志重放重建内存状态；末尾不完整行自动丢弃跳过
 
 标注者标识规则：
-- `seed`：预标注（待核验）
-- `human`：人工确认
-- `*:absent`：标记为无框（如 `human:absent`）
+- `seed`：初始种子标注（待核验）
+- `human`：人工核验/新增
+- `*:absent`：标记为无框目标（如 `human:absent`）

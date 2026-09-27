@@ -1,4 +1,4 @@
-"""Tests for the manifest-driven annotation server (annotator)."""
+"""Tests for the dataset annotation server (annotator)."""
 
 import json
 import os
@@ -20,51 +20,52 @@ from aicomp_grounding.annotator.server import create_server, SEED_ANNOTATOR
 from aicomp_grounding.annotator.store import AnnotationStore
 
 
-def make_manifest(tmp: Path, split: str = "train") -> Path:
-    """Minimal review manifest with one frame and two seeded objects."""
-    manifest_path = tmp / f"manifest-{split}.json"
-    items = [
-        {
-            "id": "070_00000001#01",
-            "image": "Raw/070/color/00000001.png",
+def make_test_dataset(tmp: Path, split: str = "train") -> Path:
+    dataset_path = tmp / f"{split}.json"
+    items = {
+        "070_00000001#01": {
+            "visible": "Raw/070/color/00000001.png",
             "query": "the white swan on the left side of the image",
             "bbox": [0.10, 0.40, 0.20, 0.60],
-            "corpus": split,
-            "source": "real",
             "category": "swan",
-            "object_index": 1,
-            "frame_id": "070_00000001",
+            "annotator": "seed",
         },
-        {
-            "id": "070_00000001#02",
-            "image": "Raw/070/color/00000001.png",
+        "070_00000001#02": {
+            "visible": "Raw/070/color/00000001.png",
             "query": "a duck closest to the camera",
             "bbox": [0.50, 0.40, 0.60, 0.60],
-            "corpus": split,
             "category": "duck",
-            "object_index": 2,
-            "frame_id": "070_00000001",
+            "annotator": "seed",
         },
-    ]
-    manifest_path.write_text(
+    }
+    dataset_path.write_text(
         json.dumps(
-            {"name": f"test-{split}", "run_tag": f"test-{split}", "split": split, "items": items}
+            {
+                "metadata": {
+                    "name": f"test-{split}",
+                    "run_tag": f"test-{split}",
+                    "split": split,
+                    "provenance": {"source_type": "seed"},
+                },
+                "data": items,
+            }
         ),
         encoding="utf-8",
     )
-    return manifest_path
+    return dataset_path
 
 
-class ManifestServerTest(unittest.TestCase):
+class AnnotationServerTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
-        self.manifest = make_manifest(self.tmp)
+        self.dataset = make_test_dataset(self.tmp)
         self.review_root = self.tmp / "review"
         self.server, self.state = create_server(
             data_root=self.tmp / "data",
             review_root=self.review_root,
-            manifest_path=self.manifest,
+            output_path=self.dataset,
+            split="train",
             host="127.0.0.1",
             port=0,
         )
@@ -107,7 +108,8 @@ class ManifestServerTest(unittest.TestCase):
         server2, state2 = create_server(
             data_root=self.tmp / "data",
             review_root=self.review_root,
-            manifest_path=self.manifest,
+            output_path=self.dataset,
+            split="train",
             host="127.0.0.1",
             port=0,
         )
@@ -116,7 +118,7 @@ class ManifestServerTest(unittest.TestCase):
             items = {e["id"]: e for e in state2.session_payload()["items"]}
             self.assertEqual(items[item_id]["bbox"], [0.11, 0.41, 0.21, 0.61])
             self.assertEqual(items[item_id]["annotator"], "fang0")
-            # #02 is still teacher-seeded with the manifest box.
+            # #02 is still teacher-seeded with the initial box.
             self.assertEqual(items["070_00000001#02"]["annotator"], SEED_ANNOTATOR)
         finally:
             server2.shutdown()
@@ -172,11 +174,12 @@ class QueryLockTest(unittest.TestCase):
     def test_locked_server_rejects_query_edits(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            manifest = make_manifest(tmp)
+            dataset = make_test_dataset(tmp)
             server, state = create_server(
                 data_root=tmp / "data",
                 review_root=tmp / "review",
-                manifest_path=manifest,
+                output_path=dataset,
+                split="train",
                 host="127.0.0.1",
                 port=0,
                 lock_query=True,
@@ -367,14 +370,13 @@ class DatasetSessionTest(unittest.TestCase):
             dataset_path.write_text(json.dumps(dataset_data), encoding="utf-8")
             server, state = create_server(
                 output_path=dataset_path,
-                review_root=tmp / "review",
+                journal_path=tmp / "test.jsonl",
                 host="127.0.0.1",
                 port=0,
             )
             try:
                 payload = state.session_payload()
                 self.assertEqual(payload["total_items"], 2)
-                self.assertFalse(state.is_manifest_session)
                 self.assertEqual(state.store_for("001_00000001").all_queries(), {"001_00000001": "a swan on water"})
             finally:
                 server.server_close()
@@ -451,7 +453,7 @@ class DatasetSessionTest(unittest.TestCase):
             dataset_path.write_text(json.dumps(dataset_data), encoding="utf-8")
             server, state = create_server(
                 output_path=dataset_path,
-                review_root=tmp / "review",
+                journal_path=tmp / "test.jsonl",
                 host="127.0.0.1",
                 port=0,
             )
@@ -467,54 +469,7 @@ class DatasetSessionTest(unittest.TestCase):
                 server.server_close()
 
 
-class ManifestSessionTest(unittest.TestCase):
-    def test_manifest_session_with_mixed_corpuses(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            manifest_path = tmp / "manifest.json"
-            manifest_data = {
-                "name": "mixed-manifest",
-                "run_tag": "test-manifest-run",
-                "split": "train",
-                "items": [
-                    {
-                        "id": "item_train#01",
-                        "image": "Raw/070/color/00000001.png",
-                        "query": "train swan",
-                        "bbox": [0.1, 0.1, 0.2, 0.2],
-                        "corpus": "train",
-                    },
-                    {
-                        "id": "item_val#01",
-                        "image": "Raw/004/color/00000001.png",
-                        "query": "val swan",
-                        "bbox": [0.3, 0.3, 0.4, 0.4],
-                        "corpus": "val",
-                    },
-                ],
-            }
-            manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
-            server, state = create_server(
-                manifest_path=manifest_path,
-                review_root=tmp / "review",
-                host="127.0.0.1",
-                port=0,
-            )
-            try:
-                payload = state.session_payload()
-                self.assertEqual(payload["total_items"], 2)
-                self.assertEqual(payload["manifest"], "mixed-manifest")
-                # Ensure store_for routes items to their respective corpus stores
-                store_train = state.store_for("item_train#01")
-                store_val = state.store_for("item_val#01")
-                self.assertIsNotNone(store_train)
-                self.assertIsNotNone(store_val)
-                self.assertNotEqual(store_train, store_val)
-                self.assertEqual(store_train.data_dir.name, "test-manifest-run")
-                self.assertEqual(store_val.data_dir.name, "test-manifest-run-val")
-            finally:
-                server.server_close()
-
+class ProjectRootTest(unittest.TestCase):
     def test_project_root_constant_points_to_repo_root(self):
         from aicomp_grounding.annotator import server
 
