@@ -217,7 +217,7 @@ python tools/submission.py \
 ## 测试
 
 ```bash
-python -m unittest discover -s tests     # 218 项，纯 CPU
+python -m unittest discover -s tests     # 217 项，纯 CPU
 ruff check .                             # 静态检查
 ```
 
