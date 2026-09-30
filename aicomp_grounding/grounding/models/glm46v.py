@@ -354,7 +354,13 @@ class Glm46VAdapter:
         )
         labels = inputs["input_ids"].clone()
         labels[0, :prompt_length] = -100
-        result = {key: value.squeeze(0) for key, value in inputs.items()}
+        # Only the token streams drop their batch dim (collation stacks them).
+        # `image_grid_thw` must stay `(num_images, 3)` for the vision tower,
+        # and `pixel_values` rows concatenate per patch across samples.
+        result = {
+            key: value if key in ("image_grid_thw", "pixel_values") else value.squeeze(0)
+            for key, value in inputs.items()
+        }
         result["labels"] = labels.squeeze(0)
         return result
 

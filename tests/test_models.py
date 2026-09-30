@@ -382,6 +382,90 @@ class TrainableAdapterContractTests(unittest.TestCase):
                 self.assertIsNone(re.fullmatch(pattern, key), f"{name} would train {key}")
 
 
+class TrainingBatchShapeTests(unittest.TestCase):
+    """``image_grid_thw`` must reach the vision tower as ``(num_images, 3)``.
+
+    Regression: the per-sample batch used to squeeze every tensor, which turned
+    the processor's ``(1, 3)`` grid into ``(3,)``; collating then produced a 1-D
+    grid and the vision tower's interpolation helper indexed it with two
+    dimensions (``IndexError: too many indices for tensor of dimension 1``).
+    """
+
+    @staticmethod
+    def _processor():
+        import torch
+
+        class Tokenizer:
+            pad_token_id = 0
+
+        class Processor:
+            tokenizer = Tokenizer()
+
+            def __init__(self):
+                self.calls = 0
+
+            def apply_chat_template(self, messages, **kwargs):
+                return "rendered"
+
+            def __call__(self, *, text, images=None, videos=None, return_tensors=None):
+                self.calls += 1
+                # Odd calls render the supervised text, even calls the shorter
+                # generation prompt (an exact prefix, as production requires).
+                ids = [1, 2, 3, 4, 5] if self.calls % 2 else [1, 2, 3]
+                length = len(ids)
+                return {
+                    "input_ids": torch.tensor([ids]),
+                    "attention_mask": torch.ones(1, length, dtype=torch.long),
+                    "mm_token_type_ids": torch.zeros(1, length, dtype=torch.long),
+                    "pixel_values": torch.zeros((4, 8)),
+                    "image_grid_thw": torch.tensor([[1, 4, 4]]),
+                }
+
+        return Processor()
+
+    def test_collate_keeps_multimodal_tensors_batched(self):
+        try:
+            import torch  # noqa: F401
+        except ModuleNotFoundError:
+            self.skipTest("torch is required for tensor collation")
+        from PIL import Image
+        from unittest import mock as _mock
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            Image.new("RGB", (8, 8)).save(root / "img.png")
+            item = {
+                "key": "k",
+                "visible": "img.png",
+                "query": "the person on the left",
+                "bbox": [0.1, 0.2, 0.3, 0.4],
+                "flip_horizontal": False,
+            }
+            with _mock.patch("qwen_vl_utils.process_vision_info", return_value=([], None)):
+                for name in TRAINABLE_ADAPTERS:
+                    with self.subTest(model=name):
+                        adapter = get_adapter(name)
+                        processor = self._processor()
+                        sample = adapter.build_training_batch(
+                            item, data_root=root, processor=processor
+                        )
+                        self.assertEqual(
+                            tuple(sample["image_grid_thw"].shape), (1, 3), name
+                        )
+                        self.assertEqual(
+                            tuple(sample["pixel_values"].shape), (4, 8), name
+                        )
+                        batched = adapter.collate_training_batch(
+                            [sample, sample], processor=processor
+                        )
+                        self.assertEqual(
+                            tuple(batched["image_grid_thw"].shape), (2, 3), name
+                        )
+                        self.assertEqual(
+                            tuple(batched["pixel_values"].shape), (8, 8), name
+                        )
+
+
 class LocalModelPolicyTests(unittest.TestCase):
     def test_real_adapters_reject_missing_directory_before_loading(self):
         for name in ("qwen3vl", "qwen3_5", "glm46v"):
