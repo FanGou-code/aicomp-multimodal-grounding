@@ -62,7 +62,7 @@ tools/                          CLI 入口
   annotator_server.py           标注服务器启动
   setup_cuda.sh                 CUDA 环境一键安装
 configs/                        A10 24GB YAML 配置（训练 + 推理 × 3 模型）
-tests/                          217 项 CPU 单元测试
+tests/                          221 项 CPU 单元测试
 docs/                           数据契约
 ```
 
@@ -180,6 +180,15 @@ python tools/train.py --config configs/train_qwen3vl.yaml --run-tag qwen3vl-r1
 
 产物路径：`outputs/training/<run_id>/best/<best_epoch>`。
 
+### 水平翻转增强
+
+训练集在内存中做水平翻转增强：图像镜像、bbox 按 `x1' = 1 - x2` 镜像、query 的左右词互换。
+仅对左右顺序由图像平面决定的 query 生效。以下两类不翻转（镜像后标注会变假）：
+文字/符号的字形顺序（如 `letter`/`symbol`），以及以人身为参照的部位方位（如 `right foot`）。
+判定为 `aicomp_grounding.query.is_flip_safe`，`flip_spatial_query` 与
+`count_effective_training_samples` 均经它把关，因此 `metadata["train_samples"]`
+与 DataLoader 实际产出的样本数始终一致。验证集不增强。
+
 ## 推理与评测
 
 ```bash
@@ -217,7 +226,7 @@ python tools/submission.py \
 ## 测试
 
 ```bash
-python -m unittest discover -s tests     # 217 项，纯 CPU
+python -m unittest discover -s tests     # 221 项，纯 CPU
 ruff check .                             # 静态检查
 ```
 

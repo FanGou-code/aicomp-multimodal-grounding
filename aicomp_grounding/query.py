@@ -167,8 +167,48 @@ def preflight_check_dataset(
     return errors
 
 
+# Scene content whose left/right ordering is intrinsic to the object rather than to
+# the image plane.  Mirroring the image makes the caption false, so these items are
+# never flip-augmented.
+_FLIP_UNSAFE_GLYPH = re.compile(
+    r"(?<![A-Za-z])(?:letter|letters|word|words|text|writing|glyph|symbol)(?![A-Za-z])",
+    re.IGNORECASE,
+)
+_FLIP_UNSAFE_EGOCENTRIC = re.compile(
+    r"(?<![A-Za-z])(?:left|right)[\s‐‑-]+"
+    r"(?:hand|hands|arm|arms|foot|feet|leg|legs|eye|eyes|ear|ears|knee|knees|"
+    r"shoulder|shoulders|wing|wings|paw|paws|hoof|hooves|thumb|palm|elbow|"
+    r"ankle|cheek|hip|thigh|shin|horn|antler|tooth|tusk|fist|wrist)(?![A-Za-z])",
+    re.IGNORECASE,
+)
+
+
+def is_flip_safe(query: str) -> bool:
+    """Whether a query's left/right terms describe the image plane.
+
+    Flip augmentation mirrors the image, so it stays label-preserving only when the
+    lateral terms order objects on the image plane.  Two classes break that: glyph
+    order (mirroring text reverses the glyphs themselves) and egocentric body parts
+    (the person's own left/right, not the viewer's).
+    """
+    if not isinstance(query, str) or not query:
+        return False
+    if _FLIP_UNSAFE_GLYPH.search(query):
+        return False
+    if _FLIP_UNSAFE_EGOCENTRIC.search(query):
+        return False
+    return True
+
+
 def flip_spatial_query(query: str) -> tuple[str, bool]:
-    """Invert horizontal spatial terms in a query (left <-> right, leftmost <-> rightmost)."""
+    """Invert horizontal spatial terms in a query (left <-> right, leftmost <-> rightmost).
+
+    Returns ``(query, False)`` unchanged when the query is not flip-safe; see
+    :func:`is_flip_safe`.
+    """
+    if not is_flip_safe(query):
+        return query, False
+
     def repl(m: re.Match) -> str:
         word = m.group(0)
         lower = word.lower()
