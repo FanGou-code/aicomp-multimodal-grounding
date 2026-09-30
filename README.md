@@ -81,7 +81,7 @@ bash tools/setup_cuda.sh
 
 # 或手动安装
 pip install -e .             # 运行依赖
-pip install -e ".[dev]"      # 开发：ruff + modelscope
+pip install -e ".[dev]"      # 开发：ruff + modelscope-hub
 ```
 
 核心依赖版本：
