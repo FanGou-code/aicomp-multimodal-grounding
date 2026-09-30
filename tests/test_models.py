@@ -466,6 +466,84 @@ class TrainingBatchShapeTests(unittest.TestCase):
                         )
 
 
+class SupervisedShiftWindowTests(unittest.TestCase):
+    """The loss window must cover exactly the supervised span of a padded batch.
+
+    Regression: the training forward used to hand the model the full sequence,
+    which materializes ``length x vocab`` logits and upcasts them to float32
+    (~3 GiB per 2.1k-token sequence at a 248k vocabulary) and OOMs a 24 GiB
+    card.  The window replaces that with the same loss over fewer positions.
+    """
+
+    @staticmethod
+    def _torch():
+        try:
+            import torch
+        except ModuleNotFoundError:
+            return None
+        return torch
+
+    def test_window_covers_first_supervised_label_to_end(self):
+        torch = self._torch()
+        if torch is None:
+            self.skipTest("torch is required for loss windowing")
+        from aicomp_grounding.grounding.models.base import supervised_shift_window
+
+        labels = torch.tensor(
+            [[-100, -100, -100, -100, 5, 6], [-100, -100, -100, -100, -100, -100]]
+        )
+        keep, shift = supervised_shift_window(labels)
+        # Row 0 becomes supervised at index 4, so the window starts at index 3
+        # (the position whose next token is the first supervised label).
+        self.assertEqual(keep, 3)
+        self.assertEqual(shift.tolist(), [[5, 6, -100], [-100, -100, -100]])
+
+    def test_window_equals_full_loss_terms(self):
+        torch = self._torch()
+        if torch is None:
+            self.skipTest("torch is required for loss windowing")
+        from aicomp_grounding.grounding.models.base import supervised_shift_window
+
+        labels = torch.tensor(
+            [
+                [-100, -100, -100, -100, 5, 6, 7],
+                [-100, -100, -100, 4, -100, -100, -100],
+            ]
+        )
+        keep, shift = supervised_shift_window(labels)
+        full_shift = torch.nn.functional.pad(labels, (0, 1), value=-100)[:, 1:]
+        # The window keeps every supervised term and drops the leading ignored
+        # ones, which the loss would ignore anyway.
+        self.assertEqual(keep, 5)
+        for row in range(2):
+            self.assertEqual(
+                [v for v in shift[row].tolist() if v != -100],
+                [v for v in full_shift[row].tolist() if v != -100],
+            )
+
+    def test_window_is_contiguous_for_the_loss_view(self):
+        torch = self._torch()
+        if torch is None:
+            self.skipTest("torch is required for loss windowing")
+        from aicomp_grounding.grounding.models.base import supervised_shift_window
+
+        labels = torch.tensor(
+            [[-100, -100, -100, -100, 5, 6], [-100, -100, -100, -100, -100, -100]]
+        )
+        _, shift = supervised_shift_window(labels)
+        self.assertTrue(shift.is_contiguous())
+        shift.view(-1)  # ForCausalLMLoss flattens with .view(-1)
+
+    def test_empty_supervision_is_rejected(self):
+        torch = self._torch()
+        if torch is None:
+            self.skipTest("torch is required for loss windowing")
+        from aicomp_grounding.grounding.models.base import supervised_shift_window
+
+        with self.assertRaisesRegex(ValueError, "no supervised token"):
+            supervised_shift_window(torch.full((1, 4), -100))
+
+
 class LocalModelPolicyTests(unittest.TestCase):
     def test_real_adapters_reject_missing_directory_before_loading(self):
         for name in ("qwen3vl", "qwen3_5", "glm46v"):

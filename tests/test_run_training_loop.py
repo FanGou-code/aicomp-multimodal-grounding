@@ -177,6 +177,19 @@ class _FakeModel(torch.nn.Module):
         return {}
 
     def forward(self, input_ids=None, labels=None, **kwargs):
+        # The loop passes logits_to_keep/shift_labels for the loss window; a
+        # fake has no vocabulary head, but the window still has to cover every
+        # label this fake will score, and the two views must agree.
+        if "shift_labels" in kwargs:
+            shift_labels = kwargs["shift_labels"]
+            keep = kwargs.get("logits_to_keep", 0)
+            self.windowed_forwards = getattr(self, "windowed_forwards", 0) + 1
+            assert int(keep) == shift_labels.shape[1], "window and shifted labels disagree"
+            assert shift_labels.shape[1] <= input_ids.shape[1], "window exceeds the sequence"
+            full_shift = torch.nn.functional.pad(labels, (0, 1), value=-100)[:, 1:]
+            assert torch.equal(shift_labels, full_shift[:, -shift_labels.shape[1]:]), (
+                "shifted labels are not the windowed labels"
+            )
         loss = self.embed(input_ids).sum()
         if labels is not None:
             loss = loss + self.embed(labels.clamp(min=0)).sum() * 0.0

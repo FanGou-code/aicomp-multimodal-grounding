@@ -62,7 +62,7 @@ tools/                          CLI 入口
   annotator_server.py           标注服务器启动
   setup_cuda.sh                 CUDA 环境一键安装
 configs/                        A10 24GB YAML 配置（训练 + 推理 × 3 模型）
-tests/                          222 项 CPU 单元测试
+tests/                          226 项 CPU 单元测试
 docs/                           数据契约
 ```
 
@@ -227,7 +227,7 @@ python tools/submission.py \
 ## 测试
 
 ```bash
-python -m unittest discover -s tests     # 222 项，纯 CPU
+python -m unittest discover -s tests     # 226 项，纯 CPU
 ruff check .                             # 静态检查
 ```
 

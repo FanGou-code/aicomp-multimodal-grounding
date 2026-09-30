@@ -20,7 +20,7 @@ from aicomp_grounding.images import (
     trusted_dataset_image_fingerprint,
 )
 from aicomp_grounding.grounding.models import get_adapter
-from aicomp_grounding.grounding.models.base import ModelInput
+from aicomp_grounding.grounding.models.base import ModelInput, supervised_shift_window
 from aicomp_grounding.paths import output_dir
 from aicomp_grounding.grounding.engine.training_state import (
     accumulation_window_size,
@@ -506,6 +506,17 @@ def persist_training_plan(plan: dict, *, commit_hook=None) -> None:
             commit_hook()
 
 
+def _forward_supervised_loss(model, batch):
+    """Forward one batch, restricting logits and loss to the supervised span.
+
+    The windowing is what keeps the LM-head logits and their float32 upcast off
+    the full sequence (see ``supervised_shift_window``); the loss value is
+    unchanged because the ignored positions contribute no terms either way.
+    """
+    keep, shift_labels = supervised_shift_window(batch["labels"])
+    return model(**batch, logits_to_keep=keep, shift_labels=shift_labels).loss
+
+
 def _atomic_torch_save(torch_module, value: object, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
@@ -896,7 +907,7 @@ def run_training(
         optimizer.zero_grad(set_to_none=True)
         batch = move_batch_to_device(cpu_batch, device)
         with _autocast(device, compute_dtype):
-            smoke_train_loss = model(**batch).loss
+            smoke_train_loss = _forward_supervised_loss(model, batch)
         if not torch.isfinite(smoke_train_loss):
             raise FloatingPointError("Non-finite training loss in one-batch smoke test")
         smoke_train_loss.backward()
@@ -908,7 +919,7 @@ def run_training(
         model.eval()
         validation_batch = move_batch_to_device(validation_cpu_batch, device)
         with torch.no_grad(), _autocast(device, compute_dtype):
-            smoke_val_loss = model(**validation_batch).loss
+            smoke_val_loss = _forward_supervised_loss(model, validation_batch)
         if not torch.isfinite(smoke_val_loss):
             raise FloatingPointError("Non-finite validation loss in one-batch smoke test")
         print(f"[{_log_now()}] [smoke] One-batch verification finished.", flush=True)
@@ -949,8 +960,7 @@ def run_training(
         for batch_index, cpu_batch in enumerate(train_iter, start=skip_batches):
             batch = move_batch_to_device(cpu_batch, device)
             with _autocast(device, compute_dtype):
-                outputs = model(**batch)
-            raw_loss = outputs.loss
+                raw_loss = _forward_supervised_loss(model, batch)
             loss_value = raw_loss.item()
             if not math.isfinite(loss_value):
                 raise FloatingPointError(
@@ -1037,7 +1047,7 @@ def run_training(
                 batch = move_batch_to_device(cpu_batch, device)
                 current_batch_size = batch["input_ids"].shape[0]
                 with _autocast(device, compute_dtype):
-                    loss = model(**batch).loss
+                    loss = _forward_supervised_loss(model, batch)
                 if not torch.isfinite(loss):
                     raise FloatingPointError(f"Non-finite validation loss at epoch {epoch + 1}")
                 validation_loss += loss.item() * current_batch_size

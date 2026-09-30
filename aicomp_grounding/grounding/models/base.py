@@ -86,6 +86,41 @@ def validated_prompt_length(full_input_ids, prompt_input_ids, *, sample_id: str)
     return prompt_length
 
 
+def supervised_shift_window(labels, *, ignore_index: int = -100):
+    """Window the causal-LM loss to the batch's supervised span.
+
+    Returns ``(logits_to_keep, shift_labels)`` for the model forward.  The
+    window starts one position before the earliest supervised label -- its
+    logit is the first prediction the loss needs -- and runs to the end of the
+    padded batch, so it contains every supervised term and nothing else.  The
+    loss is a mean over non-ignored terms, so the value is unchanged; what
+    changes is that the LM head and its float32 upcast touch ``keep``
+    positions instead of the full length (a 2.1k-token sequence against a 248k
+    vocabulary costs ~2 GiB there and OOMs a 24 GiB card).  ``shift_labels[j]``
+    is the label predicted at window position ``j``, i.e. ``labels[j + 1]``.
+    """
+    import torch
+
+    labels = torch.as_tensor(labels)
+    if labels.dim() != 2:
+        raise ValueError("Training labels must be rank 2 for loss windowing")
+    length = int(labels.shape[1])
+    supervised = labels != ignore_index
+    per_row_first = torch.where(
+        supervised.any(dim=1),
+        supervised.int().argmax(dim=1),
+        torch.full((labels.shape[0],), length, device=labels.device),
+    )
+    first = int(per_row_first.min())
+    if first >= length:
+        raise ValueError("Training labels contain no supervised token to window")
+    keep = min(length, length - first + 1)
+    full_shift = torch.nn.functional.pad(labels, (0, 1), value=ignore_index)[:, 1:]
+    # ``ForCausalLMLoss`` calls ``.view(-1)`` on the shifted labels, which a
+    # strided column slice cannot satisfy.
+    return keep, full_shift[:, length - keep:].contiguous()
+
+
 @dataclass(frozen=True)
 class Prediction:
     """Unified grounding output: normalized XYXY box."""
