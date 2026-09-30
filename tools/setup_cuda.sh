@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
-# CUDA environment setup: install the pinned CUDA wheels, then the project.
+# Install the pinned torch/torchvision, then the project.
 #
 # Usage:
 #   bash tools/setup_cuda.sh
 #
-# Mirror choice: PyPI carries the CUDA builds of torch/torchvision directly
-# (torch 2.14.0 on Linux pulls cuda-toolkit==13.0.3, nvidia-cudnn-cu13,
-# nvidia-nccl-cu13), so no separate pytorch wheel index is needed. Package
-# downloads go to mirrors.ustc.edu.cn because mirrors.aliyun.com throttles
-# HTTP/1.1 to ~0.04 MB/s and pip speaks HTTP/1.1 only; USTC serves the same
-# files at ~8 MB/s over HTTP/1.1. Override with PIP_INDEX_MIRROR.
+# Requires CUDA 13.x (driver >= R580). torch 2.14.0 on PyPI is the CUDA 13
+# build: it pulls cuda-toolkit==13.0.3 and the nvidia-*-cu13 libraries.
 #
-# A managed image that already ships a matching torch short-circuits: pip
-# reports the requirement as already satisfied and downloads nothing for it.
+# Packages come from mirrors.ustc.edu.cn, not mirrors.aliyun.com: aliyun
+# throttles HTTP/1.1 to ~0.04 MB/s and pip has no HTTP/2, which turns the
+# 553 MB nvidia-cudnn wheel into hours. Override with PIP_INDEX_MIRROR.
 
 set -euo pipefail
 

@@ -70,10 +70,13 @@ docs/                           数据契约
 
 **测试环境**：NVIDIA A10 24GB, Ubuntu, CUDA 13.0, Python 3.12。
 
+训练与推理需要 CUDA 13.x（驱动 R580 及以上）。`torch==2.14.0` 在 Linux 上即
+CUDA 13 构建，随包安装 `cuda-toolkit==13.0.3` 与 `nvidia-*-cu13` 运行时。
+
 依赖在 `pyproject.toml` 声明，torch / torchvision 精确 pin。
 
 ```bash
-# CUDA 环境一键安装（torch / torchvision 走 USTC 镜像）
+# 环境准备（torch / torchvision 取 USTC 镜像，绕开阿里云 HTTP/1.1 限速）
 bash tools/setup_cuda.sh
 
 # 或手动安装
