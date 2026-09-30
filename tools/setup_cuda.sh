@@ -10,6 +10,9 @@
 #   driver <  13.0 -> cu128 wheels
 # Both variants install the same torch version declared in pyproject.toml.
 #
+# torch/torchvision come from mirrors.aliyun.com/pytorch-wheels, which is a
+# flat file listing rather than a PEP 503 index: hence --find-links.
+#
 # A managed image that already ships a matching torch (for example a
 # CUDA 13.x / Python 3.12 / torch 2.14 base image) short-circuits: pip
 # reports the requirement as already satisfied and downloads nothing for it.
@@ -31,15 +34,17 @@ if [ -z "$CUDA_MAJOR" ]; then
 fi
 
 if [ "$CUDA_MAJOR" -ge 13 ]; then
-    WHEEL_INDEX="https://download.pytorch.org/whl/cu130"
-    echo "[setup] Driver supports CUDA ${CUDA_MAJOR}.x; installing cu130 wheels."
+    WHEEL_TAG="cu130"
 else
-    WHEEL_INDEX="https://download.pytorch.org/whl/cu128"
-    echo "[setup] Driver supports CUDA ${CUDA_MAJOR}.x; installing cu128 wheels."
+    WHEEL_TAG="cu128"
 fi
+WHEEL_DIR="${PYTORCH_WHEEL_DIR:-https://mirrors.aliyun.com/pytorch-wheels/${WHEEL_TAG}/}"
+echo "[setup] Driver supports CUDA ${CUDA_MAJOR}.x; installing ${WHEEL_TAG} wheels from ${WHEEL_DIR}"
 
-pip install --quiet torch==2.14.0 torchvision==0.29.0 --index-url "$WHEEL_INDEX"
-pip install --quiet -e .
+pip install torch==2.14.0 torchvision==0.29.0 \
+    --find-links "$WHEEL_DIR" \
+    --index-url https://mirrors.aliyun.com/pypi/simple/
+pip install -e .
 
 python - <<'PY'
 import sys
