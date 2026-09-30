@@ -122,12 +122,10 @@ data/
 
 ### 预处理流程
 
-1. **划分与去重**：解析 `groundtruth.txt`，按序列级 8:2 划分 train / val，
-   SHA-256 去重与测试集图像重叠的训练样本。
+1. **划分**：解析 `groundtruth.txt`，按序列级 8:2 划分 train / val。
 
 ```bash
-python tools/prepare_split.py --raw-root data --out-dir data/indexes \
-  --test-images-dir data/Test/Images/visible
+python tools/prepare_split.py --raw-root data --out-dir data/indexes
 ```
 
 2. **标注补齐**：原始数据不含 query 文本。标注服务器提供浏览器界面，
