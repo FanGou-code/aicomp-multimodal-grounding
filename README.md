@@ -73,7 +73,7 @@ docs/                           数据契约
 依赖在 `pyproject.toml` 声明，torch / torchvision 精确 pin。
 
 ```bash
-# CUDA 环境一键安装（按驱动版本选 cu130 / cu128 轮子）
+# CUDA 环境一键安装（按驱动版本选 cu130 / cu126 轮子）
 bash tools/setup_cuda.sh
 
 # 或手动安装
