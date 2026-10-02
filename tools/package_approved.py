@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=None,
         required=False,
-        help="legacy: one or more paths to generation.json (e.g. asm-train-r6/generation.json asm-val-r6/generation.json)",
+        help="one or more paths to generation.json (e.g. asm-train-r6/generation.json asm-val-r6/generation.json)",
     )
     parser.add_argument(
         "--index",
@@ -105,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lenient-qc",
         action="store_true",
-        help="warn on query QC failures instead of raising an error",
+        help="warn on query QC failures rather than raising",
     )
     parser.add_argument(
         "--dry-run",

@@ -21,8 +21,7 @@ dependencies = [
     "pillow>=10.0",
     # 运行配置（YAML + CLI override）
     "pyyaml>=6.0",
-    # 框架层：精确 pin。CUDA 轮子（cu130/cu128）由 tools/setup_cuda.sh
-    # 按驱动版本选变体安装，pyproject 只声明版本号。
+    # 框架层：精确 pin。Linux 上 PyPI 的 torch 2.14.0 为 CUDA 13 构建。
     "torch==2.14.0",
     "torchvision==0.29.0",
     # 模型框架层：== 紧 pin，跨平台行为一致
@@ -38,7 +37,6 @@ dependencies = [
 
 [project.optional-dependencies]
 # 本地开发与运维：代码检查 + 魔搭数据集/模型下载 CLI（上传脚本在 local/，不入库）。
-# 只要 modelscope-hub：它提供 CLI，modelscope 那层 SDK 无消费者。
 dev = ["ruff", "modelscope-hub>=0.4.2"]
 
 [project.urls]
@@ -58,10 +56,8 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-# 窄规则集：只保留能发现「明显错误」的检查（E4/E7/E9 语法与导入；F 未定义名、
-# 未用导入、重定义）。更宽的类别经审阅后按下列结论不启用（2026-09-15）：
-#   - B905（zip 未声明 strict）：循环按需声明 strict=True；
-#   - TRY003/TRY004、ARG、SIM、C4、RET：异常类型约定与写法偏好，不是缺陷。
+# 窄规则集：只启用能发现明显错误的检查（E4/E7/E9 语法与导入；F 未定义名、
+# 未用导入、重定义）。B905、TRY003/TRY004、ARG、SIM、C4、RET 不启用。
 select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.lint.per-file-ignores]

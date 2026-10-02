@@ -4,12 +4,8 @@
 # Usage:
 #   bash tools/setup_cuda.sh
 #
-# Requires CUDA 13.x (driver >= R580). torch 2.14.0 on PyPI is the CUDA 13
-# build: it pulls cuda-toolkit==13.0.3 and the nvidia-*-cu13 libraries.
-#
-# Packages come from mirrors.ustc.edu.cn, not mirrors.aliyun.com: aliyun
-# throttles HTTP/1.1 to ~0.04 MB/s and pip has no HTTP/2, which turns the
-# 553 MB nvidia-cudnn wheel into hours. Override with PIP_INDEX_MIRROR.
+# Requires CUDA 13.x. torch 2.14.0 on PyPI is the CUDA 13 build: it pulls
+# cuda-toolkit==13.0.3 and the nvidia-*-cu13 libraries.
 
 set -euo pipefail
 

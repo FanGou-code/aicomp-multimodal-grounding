@@ -16,8 +16,8 @@ def load_inference_items(
     Accepts an approved annotation artifact (``{metadata, data}``), a flat
     ``{query_id: item}`` index, or the official Test template directly.
     Official template paths are mapped in memory to the dataset layout
-    (``Test/Images/...``), so a separate ``data/test.json`` file is not required.
-    Every item gains a ``"key"`` entry. Returns ``(items, approved_metadata_or_None)``.
+    (``Test/Images/...``). Every item gains a ``"key"`` entry.
+    Returns ``(items, approved_metadata_or_None)``.
     """
     raw = load_json(path)
 
@@ -54,7 +54,7 @@ def load_inference_items(
     for key, value in raw.items():
         if not isinstance(value, dict):
             raise ValueError(
-                f"Dataset entry {key!r} is not a JSON object; refusing to skip it silently"
+                f"Dataset entry {key!r} is not a JSON object"
             )
         entry = dict(value)
         entry["key"] = key
@@ -71,11 +71,10 @@ def evaluate_predictions(
 ) -> dict | None:
     """Compute ACC@0.5 / mean-IoU metrics, or None when items carry no GT.
 
-    Driven by the dataset: every evaluated item counts toward the denominator,
-    so a partial prediction set is scored as failures instead of silently
-    shrinking the denominator. Unparsable (None/invalid) predictions count as
-    failures; every evaluated item must carry a valid ground-truth bbox
-    (invalid GT raises ValueError).
+    Driven by the dataset: every evaluated item counts toward the denominator;
+    unparsable (None/invalid) predictions count as failures, and every
+    evaluated item must carry a valid ground-truth bbox (invalid GT raises
+    ValueError).
     """
     if not items or "bbox" not in items[0]:
         return None

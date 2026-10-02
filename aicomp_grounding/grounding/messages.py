@@ -1,8 +1,7 @@
 """Grounding message construction; prompt texts live in ``prompts/<model>.md``.
 
-One prompt file per model so each model's protocol and wording are independently
-editable. Prompt texts are files so prompt edits are text edits and the run
-identity can hash everything that changes the model's behaviour. A missing,
+One prompt file per model: each model's protocol and wording are independently
+editable, and the run identity is computed from the prompt text. A missing,
 empty, or malformed file is a hard error.
 """
 

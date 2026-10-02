@@ -1,8 +1,7 @@
 """Bind committed index image references.
 
-``trusted_dataset_image_fingerprint`` binds references without reading bytes,
-so the annotation contract can bind references at import time without pulling
-in an imaging library.
+``trusted_dataset_image_fingerprint`` binds references without reading bytes
+or importing an imaging library.
 """
 
 from __future__ import annotations

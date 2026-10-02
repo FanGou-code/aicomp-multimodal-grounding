@@ -42,13 +42,13 @@ class PackageApprovedTests(unittest.TestCase):
     def test_existing_export_target_is_checked_before_local_output_is_written(self):
         dest = self.root / "main/outputs/annotations/annot_existing/train/approved.json"
         dest.parent.mkdir(parents=True)
-        dest.write_bytes(b"historical output")
+        dest.write_bytes(b"pre-existing export")
         out = self.root / "new.json"
         with self.assertRaises(FileExistsError):
             package(generation_path=self.generation_path, index_path=self.index_path,
                     split_manifest_path=self.manifest_path, output_path=out,
                     export_to_main=self.root / "main", run_id="annot_existing")
-        self.assertEqual(dest.read_bytes(), b"historical output")
+        self.assertEqual(dest.read_bytes(), b"pre-existing export")
         self.assertFalse(out.exists())
 
     def setUp(self):
@@ -200,8 +200,8 @@ class PackageApprovedTests(unittest.TestCase):
         )
         self.assertTrue(lenient_out.is_file())
         self.assertEqual(res["qc_failures_count"], 1)
-        # The artifact metadata must stay contract-clean (invalid_queries 0),
-        # so the honest failure count lands in a sidecar report.
+        # Failures land in the sidecar report, not in the artifact metadata
+        # (invalid_queries stays 0).
         sidecar = lenient_out.with_name(lenient_out.stem + ".qc_report.json")
         self.assertTrue(sidecar.is_file())
         report = json.loads(sidecar.read_text(encoding="utf-8"))

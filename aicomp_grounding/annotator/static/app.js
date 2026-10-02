@@ -3,9 +3,9 @@
 
   // --- Constants & Storage Keys ---
   const STORAGE_KEY_LAST_ITEM_ID = 'gt_last_item_id';
-  const MIN_BOX_SIZE_PX = 4; // Minimum drag size in natural image pixels to avoid zero-area boxes
+  const MIN_BOX_SIZE_PX = 4; // Minimum drag size in natural image pixels (zero-area guard)
   const HANDLE_RADIUS_SCREEN = 7; // Radius of resize handles in canvas screen pixels
-  const IMAGE_CACHE_CAPACITY = 50; // Maximum cached images in LRU cache to prevent memory explosion
+  const IMAGE_CACHE_CAPACITY = 50; // Maximum cached images in the LRU cache
 
   // --- LRU Image Cache with Blob ObjectURL Management ---
   class ImageLRUCache {
@@ -524,8 +524,7 @@
     }
   }
 
-  // Warm the cache with the next visible item's image so crossing frames
-  // paints instantly instead of lingering on the previous picture.
+  // Warm the cache with the next visible item's image.
   function prefetchNext() {
     const vis = visibleIndices();
     const at = vis.indexOf(state.currentIndex);
@@ -759,7 +758,7 @@
 
   // --- Canvas Drawing ---
   function redraw() {
-    // Thoroughly clear the entire physical canvas buffer to prevent ghosting/clipping
+    // Clear the full physical canvas buffer.
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);

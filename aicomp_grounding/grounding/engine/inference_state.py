@@ -50,7 +50,7 @@ RUN_METADATA_FIELDS = (
 
 
 def fingerprint_lora(adapter_dir: Path | None) -> str:
-    """Hash complete adapter configuration and weight files; never fall back to path identity."""
+    """Hash adapter configuration and weight file contents, not the path."""
     if adapter_dir is None:
         return "base"
     weight_file = adapter_weight_path(adapter_dir)
@@ -199,8 +199,8 @@ def validate_checkpoint_payload(
     actual_metadata = payload["metadata"]
     if not isinstance(actual_metadata, dict):
         raise ValueError(f"{label} metadata must be an object")
-    # The adapter content fingerprint, not its machine-specific directory,
-    # identifies weights. Keep the original path as trace information only.
+    # The adapter content fingerprint identifies weights; the original path is
+    # trace information only.
     require_exact_metadata(
         {k: v for k, v in actual_metadata.items() if k != "lora_path"},
         {k: v for k, v in expected_metadata.items() if k != "lora_path"},
@@ -286,8 +286,8 @@ def load_resume_predictions(
             raise ValueError(f"Unexpected shard ID in {path}")
         assigned = payload.get("assigned_keys")
         if assigned is None:
-            # Legacy files did not store assignments. Validate their full run
-            # identity and every result key; do not invent a new assignment hash.
+            # Files without stored assignments: validate the recorded run
+            # identity and every result key.
             digest = recorded.get("assigned_key_hash")
             if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
                 raise ValueError(f"Invalid legacy shard assignment hash: {path}")

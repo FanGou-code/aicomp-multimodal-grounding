@@ -1,11 +1,10 @@
 """Single-machine LoRA training entrypoint around the shared training core.
 
-Runs the training pipeline on a local CUDA GPU. Practical uses: cheap
-QLoRA-style experiments on 24GB cards (with a reduced pixel budget), or full
-runs on >=48GB local hardware.
+Runs the training pipeline on a local CUDA GPU. Practical uses: experiments on
+24GB cards (with a reduced pixel budget), or full runs on >=48GB local hardware.
 
-The repository layout keeps approved annotations and training outputs under
-repository-level ``outputs/``.
+Approved annotations and training outputs live under the repository-level
+``outputs/``.
 """
 
 from __future__ import annotations
@@ -135,8 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--num-workers",
         type=int,
         default=None,
-        help="Training DataLoader worker processes. Default 0 avoids forking after "
-        "large model/CUDA context initialization; enable only after a smoke benchmark.",
+        help="Training DataLoader worker processes (default 0: no fork after "
+        "large model/CUDA context initialization).",
     )
     parser.add_argument(
         "--checkpoint-interval",
@@ -266,8 +265,7 @@ def run_cli(args, *, commit_hook=None):
     """Orchestration shared by ``main()`` and programmatic callers.
 
     ``commit_hook`` is invoked after every durable write (run plan, training
-    checkpoints); it defaults to None because local filesystem writes are
-    already atomic.
+    checkpoints); it defaults to None.
     """
     paths = ProjectPaths.from_root(args.project_root)
     data_root = resolve_from_root(args.data_dir, paths.root)

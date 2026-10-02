@@ -69,8 +69,7 @@ def candidate_metric_value(metric_name: str, *, epoch_metrics: dict, val_loss: f
     """This epoch's value for the run's best-epoch metric.
 
     ``val_loss`` comes from the validation forward pass; the grounding metric
-    dict only carries accuracy/IoU counts, so the two sources are not
-    interchangeable.
+    dict carries accuracy/IoU counts.
     """
     if metric_name in MINIMIZED_METRICS:
         return val_loss
@@ -120,8 +119,8 @@ def _evaluate_grounding_metrics(
 ) -> dict:
     """Run full validation-set grounding inference and compute ACC/mIoU.
 
-    ``image_cache`` (optional) memoizes decoded images across epochs so the val
-    set is read from disk once per run instead of once per epoch.
+    ``image_cache`` (optional) memoizes decoded images across epochs; without
+    it the val set is read from disk every epoch.
     """
     import torch
     from PIL import Image
@@ -235,8 +234,8 @@ def _latest_resume_checkpoint(run_dir: Path) -> Path | None:
             if not path.is_dir():
                 continue
             # Accept both epoch_* and step_* as resume sources.  Step
-            # checkpoints carry a batch_index so the loader can skip
-            # already-trained batches on resume without double-training.
+            # checkpoints carry a batch_index the loader uses to skip
+            # already-trained batches on resume.
             if not (path.name.startswith("epoch_") or path.name.startswith("step_")):
                 continue
             if (
@@ -429,9 +428,8 @@ def prepare_training_plan(
         val_samples=val_samples,
         allow_pending=True,
     )
-    # Default to the dataset-root layout.  The CLI passes the repository-level
-    # outputs directory explicitly so training artifacts do not get mixed into
-    # the dataset tree.
+    # Default to the dataset-root layout; the CLI passes the repository-level
+    # outputs directory explicitly.
     output_base = (
         Path(output_root).resolve()
         if output_root is not None
@@ -509,9 +507,8 @@ def persist_training_plan(plan: dict, *, commit_hook=None) -> None:
 def _forward_supervised_loss(model, batch):
     """Forward one batch, restricting logits and loss to the supervised span.
 
-    The windowing is what keeps the LM-head logits and their float32 upcast off
-    the full sequence (see ``supervised_shift_window``); the loss value is
-    unchanged because the ignored positions contribute no terms either way.
+    See ``supervised_shift_window``; the loss value is unchanged because the
+    ignored positions contribute no terms either way.
     """
     keep, shift_labels = supervised_shift_window(batch["labels"])
     return model(**batch, logits_to_keep=keep, shift_labels=shift_labels).loss
@@ -548,10 +545,9 @@ def run_training(
     """Execute the LoRA training run described by ``training_plan``.
 
     ``data_root`` locates the dataset (images and annotation artifacts);
-    ``commit_hook`` is invoked after every checkpoint persistence so remote
-    storage can snapshot; local runs simply omit it. ``allow_cpu`` permits a
-    CPU run when no CUDA device is visible; production callers leave it
-    False so a missing GPU still fails loudly.
+    ``commit_hook`` is invoked after every checkpoint persistence; local runs
+    omit it. ``allow_cpu`` permits a CPU run when no CUDA device is visible;
+    production callers leave it False.
     """
     import torch
     from peft import LoraConfig, PeftModel, get_peft_model
@@ -612,10 +608,9 @@ def run_training(
         allow_pending=allow_pending,
     )
     require_exact_metadata(metadata, rebuilt_metadata, label="training plan")
-    # A worker re-scheduled by the platform starts from the original plan
-    # (whose resume_checkpoint was None at creation time).  Dynamically
-    # re-probe the run directory so it picks up any step/epoch checkpoint
-    # written before the interruption.
+    # Re-scheduled workers start from the original plan, whose
+    # resume_checkpoint was None at creation time; re-probe the run directory
+    # for step/epoch checkpoints written before the interruption.
     resume_checkpoint = training_plan.get("resume_checkpoint")
     if not resume_checkpoint:
         latest = _latest_resume_checkpoint(run_dir)
@@ -801,9 +796,9 @@ def run_training(
     else:
         train_log(f"[{_log_now()}] [EVENT: RUN_START] Starting fresh training run | ID: {metadata['training_run_id']} | Total Steps: {total_steps}")
 
-    # Decode-once cache for the epoch-end grounding eval: hold decoded val
-    # images in RAM across epochs when they comfortably fit in the machine's
-    # available memory, otherwise fall back to per-epoch reads.
+    # Decode-once cache for the epoch-end grounding eval: decoded val images
+    # are held in RAM across epochs when they fit the machine's available
+    # memory, else read per epoch.
     val_image_cache: dict | None = None
     # 3 bytes per pixel: one RGB image per sample.
     estimated_val_bytes = 3 * sum(
@@ -886,11 +881,9 @@ def run_training(
                     epoch_metrics=best_metrics,
                     val_loss=best_val_loss,
                 )
-        # Restore the running epoch-loss accumulator so the per-epoch loss
-        # printout stays correct after a mid-epoch resume.  The step
-        # checkpoint stored it; the epoch checkpoint stores the completed
-        # epoch average (times a full epoch denominator) which we cannot
-        # use as a running total, so default to 0 there.
+        # Running epoch-loss accumulator: the step checkpoint stores it, the
+        # epoch checkpoint stores the completed-epoch average; resume from 0
+        # there.
         resume_epoch_loss = state.get("epoch_loss", 0.0)
 
     if training_plan.get("smoke_test"):
@@ -935,11 +928,9 @@ def run_training(
 
     for epoch in range(start_epoch, num_epochs):
         train_loader = make_train_loader(epoch)
-        # When resuming mid-epoch from a step checkpoint, skip
-        # already-trained batches.  The loader uses a deterministic
-        # per-epoch seed, so reconstruction produces identical batch
-        # order; dropout/RNG streams are not replayed, so a resumed run
-        # is not bit-identical to an uninterrupted one.
+        # Mid-epoch resume from a step checkpoint: skip already-trained
+        # batches.  The loader's per-epoch seed reproduces the batch order;
+        # dropout/RNG streams are not replayed.
         skip_batches = resume_batch_index if (epoch == start_epoch and resume_batch_index > 0) else 0
         train_iter = iter(train_loader)
         if skip_batches > 0:
@@ -951,9 +942,8 @@ def run_training(
             )
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        # On a mid-epoch resume, seed the running loss accumulator with the
-        # value stored in the step checkpoint so the loss printout is not
-        # distorted by dividing a fresh accumulator by a large batch index.
+        # Seed the running loss accumulator from the step checkpoint so the
+        # printout stays comparable across a mid-epoch resume.
         epoch_loss = resume_epoch_loss if (epoch == start_epoch and skip_batches > 0) else 0.0
         last_log_time = time.monotonic()
         last_log_step = global_step
@@ -1013,9 +1003,8 @@ def run_training(
                         "batch_index": batch_index + 1,
                         "best_val_loss": best_val_loss,
                         "best_path": best_path,
-                        # Store the RAW running accumulator (not the average)
-                        # so a mid-epoch resume can restore it exactly; the
-                        # per-step print uses epoch_loss / (batch_index + 1).
+                        # RAW running accumulator, not the average; per-step
+                        # print divides by (batch_index + 1).
                         "epoch_loss": epoch_loss,
                     }
                     atomic_write_json(step_dir / "state.json", step_state)
@@ -1140,8 +1129,7 @@ def run_training(
             checkpoint_dir / "training_state.pt",
         )
         # The epoch checkpoint supersedes every step checkpoint of the
-        # completed epoch, and older epoch checkpoints can no longer be
-        # selected for resume (resume picks the highest global_step).
+        # completed epoch; resume picks the highest global_step.
         _prune_checkpoints(run_dir / "checkpoints", "step_", 0)
         _prune_checkpoints(
             run_dir / "checkpoints", "epoch_", _EPOCH_CHECKPOINT_RETENTION
@@ -1168,8 +1156,8 @@ def run_training(
     validate_completed_training_state(completed, metadata, run_dir,
         batch_size=batch_size, grad_accum_steps=grad_accum_steps, num_epochs=num_epochs)
     atomic_write_json(run_dir / "completed.json", completed)
-    # A completed run short-circuits before resume probing, so its resume
-    # checkpoints are pure disk weight; keep only best/ and last/.
+    # A completed run short-circuits before resume probing; its checkpoints are
+    # dead weight beyond best/ and last/.
     shutil.rmtree(run_dir / "checkpoints", ignore_errors=True)
     _commit()
     train_log(

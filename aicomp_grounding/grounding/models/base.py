@@ -8,8 +8,8 @@ An adapter owns everything model-specific on the inference path:
 - ``predict()``         (visible image, query) -> Prediction, in batches
 
 Pure logic (prompt construction, output parsing, coordinate conversion) lives
-in adapter modules as module-level functions so it stays unit-testable in
-torch-free CI; only ``load``/``predict`` require a GPU.
+in adapter modules as module-level functions, kept unit-testable in torch-free
+CI; only ``load``/``predict`` require a GPU.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from PIL.Image import Image
 
 #: Language-model projection names for adapters whose model exposes the standard
 #: split MLP.  An adapter whose model fuses or renames projections declares its
-#: own set rather than inheriting this one.
+#: own set.
 DEFAULT_LORA_PROJECTIONS = (
     "q_proj",
     "k_proj",
@@ -47,19 +47,16 @@ def language_model_lora_targets(*projections: str) -> str:
     ``["q_proj", ...]`` list also matches any vision-tower projection that reuses
     a language-model name -- the Qwen2.5-VL-style vision MLP (``gate_proj`` /
     ``up_proj`` / ``down_proj``) and the InternViT attention (``q_proj`` /
-    ``k_proj`` / ``v_proj``).  A trainable vision tower is not part of this
-    recipe: it puts the vision encoder through backward plus gradient-checkpoint
-    recomputation and leaves adapters mutually incomparable.  PEFT matches a
-    *string* ``target_modules`` with ``re.fullmatch``, so the
-    ``model.language_model`` prefix and the trailing ``$`` keep the encoder
-    frozen whichever names an adapter declares.
+    ``k_proj`` / ``v_proj``).  PEFT matches a *string* ``target_modules`` with
+    ``re.fullmatch``, so the ``model.language_model`` prefix and the trailing
+    ``$`` keep the encoder frozen whichever names an adapter declares.
     """
     alternation = "|".join(re.escape(name) for name in projections)
     return rf"model\.language_model\..*\.(?:{alternation})$"
 
 
 def require_local_model_path(model_path: str | Path | None) -> str:
-    """Require a pre-downloaded model; model execution never downloads files."""
+    """Require a pre-downloaded model directory; no hub access."""
     if model_path is None or not str(model_path).strip():
         raise ValueError(
             "Automatic model download is disabled. Download the model first "
@@ -92,12 +89,10 @@ def supervised_shift_window(labels, *, ignore_index: int = -100):
     Returns ``(logits_to_keep, shift_labels)`` for the model forward.  The
     window starts one position before the earliest supervised label -- its
     logit is the first prediction the loss needs -- and runs to the end of the
-    padded batch, so it contains every supervised term and nothing else.  The
-    loss is a mean over non-ignored terms, so the value is unchanged; what
-    changes is that the LM head and its float32 upcast touch ``keep``
-    positions instead of the full length (a 2.1k-token sequence against a 248k
-    vocabulary costs ~2 GiB there and OOMs a 24 GiB card).  ``shift_labels[j]``
-    is the label predicted at window position ``j``, i.e. ``labels[j + 1]``.
+    padded batch.  The loss is a mean over non-ignored terms, so the value is
+    unchanged; the LM head and its float32 upcast touch ``keep`` positions
+    instead of the full length.  ``shift_labels[j]`` is the label predicted at
+    window position ``j``, i.e. ``labels[j + 1]``.
     """
     import torch
 
@@ -176,8 +171,8 @@ class GroundingAdapter(Protocol):
         """Predict a batch of (visible image, query) inputs; order is preserved."""
         ...
 
-    #: Adapters that split preprocessing from generation set this True so the
-    #: DataLoader can run ``prepare_inputs`` inside worker processes.
+    #: Adapters that split preprocessing from generation set this True; the
+    #: DataLoader then runs ``prepare_inputs`` inside worker processes.
     supports_prepared_inputs: bool
 
     def prepare_inputs(self, samples: list[ModelInput]) -> dict:

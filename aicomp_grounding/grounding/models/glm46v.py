@@ -2,17 +2,16 @@
 
 GLM-4.6V-Flash is the dense 9B member of the GLM-4.6V family (model_type
 ``glm4v``). The Hugging Face chat template accepts an ``enable_thinking``
-kwarg; the grounding protocol disables it so the model emits only the box
+kwarg, which the grounding protocol disables: the model then emits only the box
 token sequence. Bounding boxes use the tokenizer's added box-delimiter
 tokens (ids 151361 / 151362) with integer coordinates on a 0-1000 grid
 normalized by image width and height. The processor output schema
-(mm_token_type_ids, image_grid_thw, pixel_values) mirrors
+(mm_token_type_ids, image_grid_thw, pixel_values) matches
 :mod:`aicomp_grounding.grounding.models.qwen3vl`, so the training collate is reused.
 
-Local processor dry-run verified (no weights): the single-image chat template
-renders with ``enable_thinking=False`` and the supervised target is an exact
-prefix of the generation prompt. The GPU val slice should still be
-smoke-tested before a recorded run.
+Local processor dry-run (no weights): the single-image chat template renders
+with ``enable_thinking=False`` and the supervised target is an exact prefix of
+the generation prompt.
 """
 
 from __future__ import annotations
@@ -42,38 +41,32 @@ from aicomp_grounding.config import (
 )
 
 MODEL_NAME = "zai-org/GLM-4.6V-Flash"
-# Weight snapshot recorded at adoption; fetch this revision before execution
-# (repo and revision are listed in the README weight table). Execution only
-# reads the explicit local --model-path and never contacts a hub.
+# Weight snapshot; also listed in the README weight table. Execution reads the
+# explicit local --model-path and contacts no hub.
 MODEL_REVISION = "a4ec61fcdfab32bbccdf26c5ca8cb5a437b7ca41"
 
 MAX_NEW_TOKENS = 32
 
 # Pixel budgets, in units of 28x28 pixels per vision token (patch 14 x merge 2),
-# stated per frame so that the value recorded in the run identity means the same
-# thing here as it does for the other adapters.
+# stated per frame in the same unit the other adapters record.
 #
 # Glm46VImageProcessor takes its budget as a `size` dict -- `min_pixels` /
 # `max_pixels` passed to `AutoProcessor.from_pretrained` are dropped without
 # warning -- and its `smart_resize` is called with `num_frames =
 # temporal_factor`, so what it compares against `longest_edge` is `2 * h * w`.
-# `load()` therefore doubles both budgets at the processor boundary
-# (GLM_PIXEL_UNIT_FACTOR).  Handing it the per-frame numbers unmodified would
-# halve the effective budget and shrink every frame: at 1920x1080, 2691 vision
-# tokens down to 1508.
+# `load()` doubles both budgets at the processor boundary
+# (GLM_PIXEL_UNIT_FACTOR); the per-frame numbers passed unmodified would halve
+# the effective budget (at 1920x1080, 2691 vision tokens down to 1508).
 #
 # The checkpoint's own preprocessor config allows `longest_edge = 28*28*12288`,
-# which in the doubled unit is a per-frame budget of 4,816,896 -- twice the
-# INFERENCE_DEFAULT_MAX_PIXELS value. Neither the training nor the inference path overrode it, so
-# GLM-4.6V ran on that wider budget until this pin was made to take effect.
+# i.e. a per-frame budget of 4,816,896 in the doubled unit.
 
 #: Glm46VImageProcessor compares `temporal_factor * h * w` against
 #: `size.longest_edge`; a per-frame budget is doubled at the boundary.
 GLM_PIXEL_UNIT_FACTOR = 2
 
-# Tokenizer-added box delimiters (verified from the added vocab): ids
-# 151361 and 151362. Built from chr() so the source carries no raw
-# pipe-delimited special tokens that could confuse editors or diffs.
+# Tokenizer-added box delimiters (added-vocab ids 151361 and 151362); spelled
+# with chr() so the source carries no raw pipe-delimited special tokens.
 GLM_BOX_OPEN = chr(0x3C) + "|begin_of_box|" + chr(0x3E)
 GLM_BOX_CLOSE = chr(0x3C) + "|end_of_box|" + chr(0x3E)
 
@@ -98,8 +91,8 @@ def format_glm_bbox(box) -> str:
 def processor_pixel_kwargs(max_pixels: int) -> dict[str, Any]:
     """Convert a per-frame pixel budget into Glm46V's processor `size` dict.
 
-    The processor counts `temporal_factor * h * w`, so the unit conversion lives
-    here and is doubled once, at the boundary -- see the constants above.
+    The processor counts `temporal_factor * h * w`; the unit conversion is
+    doubled here, at the boundary.
     """
     return {
         "size": {
@@ -121,9 +114,8 @@ def parse_glm_box(text: str) -> list[float] | None:
         if len(candidates) != 1:
             return None
         bare = candidates[0]
-        # Preserve the existing bare-coordinate fallback, including surrounding
-        # prose, without taking a numeric substring or four entries from a
-        # longer coordinate list.
+        # Accepts the bare-coordinate fallback with surrounding prose, but not a
+        # numeric substring or four entries from a longer coordinate list.
         prefix, suffix = text[:bare.start()].rstrip(), text[bare.end():].lstrip()
         if re.search(r"[\d.]\s*,$", prefix) or re.match(r",\s*[+-]?\d", suffix):
             return None
@@ -184,8 +176,7 @@ class Glm46VAdapter:
     supports_prepared_inputs = True
 
     def __init__(self, *, max_pixels: int = MAX_PIXELS):
-        # Per frame, i.e. in the same unit the other five adapters record;
-        # `load()` converts it to the processor's doubled unit.
+        # Per frame; `load()` converts it to the processor's doubled unit.
         self.max_pixels = max_pixels
         self.generation_config: dict[str, Any] = {
             "max_new_tokens": MAX_NEW_TOKENS,
@@ -278,10 +269,9 @@ class Glm46VAdapter:
         }
 
     def lora_target_modules(self) -> str:
-        # GLM-4.6V fuses the MLP gate and up projections into `gate_up_proj`, so
-        # this adapter declares the projections its own language model exposes
-        # instead of the split `gate_proj` / `up_proj` pair the other five use.
-        # Widening it to include `gate_up_proj` is a recipe change, not a fix.
+        # GLM-4.6V fuses the MLP gate and up projections into `gate_up_proj`,
+        # so this adapter declares the projections its own language model
+        # exposes: the split `gate_proj` / `up_proj` pair does not apply.
         return language_model_lora_targets(
             "q_proj", "k_proj", "v_proj", "o_proj", "down_proj"
         )
@@ -294,15 +284,13 @@ class Glm46VAdapter:
         model_path: str | None = None,
     ):
         self.load(device=device, lora_path=lora_path, model_path=model_path)
-        # Training backward has no use for the KV cache and transformers would
-        # force it off at forward time with a warning.  Setting it here keeps
-        # the inference path (which does want the cache) untouched.
+        # Training backward needs no KV cache; transformers would force it off
+        # at forward time with a warning.  Setting it here leaves the inference
+        # path (which does want the cache) untouched.
         text_config = getattr(self._model.config, "text_config", None)
         if text_config is not None and hasattr(text_config, "use_cache"):
             # Nested multimodal models keep the language model under
-            # text_config; the outer config has no use_cache attribute, so
-            # setting it there is a no-op and generation still builds a KV
-            # cache during training forward passes.
+            # text_config; the outer config has no use_cache attribute.
             text_config.use_cache = False
         else:
             self._model.config.use_cache = False

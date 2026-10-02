@@ -23,7 +23,7 @@ INFERENCE_DEFAULT_MAX_PIXELS = 3072 * 28 * 28
 # only the fallback name/version set recorded into run metadata; the four model
 # libraries are kept identical to pyproject by tests/test_env_contract.py.
 # current_runtime_packages() overwrites each entry with the actually-installed
-# version, so the pinned values below matter only when a package is absent.
+# version; the pinned values apply only when a package is absent.
 RUNTIME_PACKAGES = (
     "transformers==5.17.0",
     "accelerate==1.15.0",
@@ -73,9 +73,8 @@ INFERENCE_SPLITS = frozenset({"train", "val", "test"})
 def load_run_config(path: str | Path) -> dict[str, dict]:
     """Load a YAML run configuration with ``run`` / ``hyperparameters`` sections.
 
-    Unknown sections are rejected so a typo cannot silently create a section
-    nothing reads.  Key validation against each entrypoint's accepted
-    parameters happens in :func:`merge_run_config`.
+    Unknown sections are rejected.  Key validation against each entrypoint's
+    accepted parameters happens in :func:`merge_run_config`.
     """
     import yaml
 
@@ -107,10 +106,9 @@ def merge_run_config(
 
     ``args`` is mutated in place.  A parameter counts as unspecified when its
     value is ``None``; the entrypoint applies its real defaults after this
-    call.  Keys outside ``run_keys`` / ``hyperparameter_keys`` are rejected so
-    a typo cannot silently fall back to a default.  String scalars pass through
-    the matching argparse ``type`` so ``data_dir: data`` and ``--data-dir data``
-    resolve identically.
+    call.  Keys outside ``run_keys`` / ``hyperparameter_keys`` are rejected.
+    String scalars pass through the matching argparse ``type``: ``data_dir:
+    data`` and ``--data-dir data`` resolve identically.
     """
     type_by_dest = {action.dest: action.type for action in parser._actions}
     for section, allowed in (

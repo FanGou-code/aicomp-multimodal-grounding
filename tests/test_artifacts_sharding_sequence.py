@@ -78,9 +78,9 @@ class SequenceAnnotationTests(unittest.TestCase):
             for idx, key in enumerate(self.keys, start=1)
         }
 
-    def test_source_fingerprint_ignores_legacy_query_but_not_bbox(self):
+    def test_source_fingerprint_ignores_query_but_not_bbox(self):
         original = source_fingerprint(self.data)
-        changed_query = {key: dict(item, query="closed API text") for key, item in self.data.items()}
+        changed_query = {key: dict(item, query="rewritten description") for key, item in self.data.items()}
         self.assertEqual(original, source_fingerprint(changed_query))
         changed_bbox = {key: dict(item) for key, item in self.data.items()}
         changed_bbox[self.keys[0]]["bbox"] = [0.2, 0.2, 0.4, 0.4]

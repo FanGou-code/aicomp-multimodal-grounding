@@ -16,7 +16,7 @@ APPROVED_FIELDS = ("visible", "infrared", "depth", "query", "bbox", "width", "he
 
 
 def source_fingerprint(dataset: dict) -> str:
-    """Fingerprint immutable annotation inputs while deliberately ignoring Query."""
+    """Fingerprint immutable annotation inputs, excluding Query."""
     identity = {}
     for key in sorted(dataset):
         item = dataset[key]

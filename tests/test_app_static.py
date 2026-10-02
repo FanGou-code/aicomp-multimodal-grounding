@@ -21,8 +21,8 @@ class FrontendStaticTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_no_references_to_retired_identifiers(self):
-        # Retired variables must never be referenced again: a leftover throws
-        # ReferenceError/TypeError on startup or canvas redraw and freezes the reviewer.
+        # A leftover reference to a removed variable throws
+        # ReferenceError/TypeError on startup or canvas redraw.
         source = APP_JS.read_text(encoding="utf-8")
         body = re.sub(r"//[^\n]*", "", source)
         for name in (

@@ -12,7 +12,7 @@ from pathlib import Path
 
 #: Artifact families under the output root. This is the single source of the
 #: layout documented in ``docs/data-contract.md``; entrypoints take their
-#: defaults from here instead of spelling the directory out again.
+#: defaults from here.
 OUTPUT_FAMILIES = frozenset({
     "annotations",
     "training",

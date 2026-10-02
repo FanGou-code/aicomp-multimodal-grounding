@@ -46,7 +46,7 @@ class QueryValidationTests(unittest.TestCase):
         self.assertEqual(flipped, "the red apple on the table")
 
     def test_flip_refuses_glyph_order(self):
-        """Mirroring text reverses the glyphs, so lateral order of letters is not image-plane order."""
+        """Mirroring text reverses the glyphs: lateral order of letters is not image-plane order."""
         from aicomp_grounding.query import flip_spatial_query
 
         for query in (
@@ -60,7 +60,7 @@ class QueryValidationTests(unittest.TestCase):
             self.assertEqual(flipped, query)
 
     def test_flip_refuses_egocentric_body_parts(self):
-        """The person's own left/right is not the viewer's, so the mirrored caption would be false."""
+        """The person's own left/right is not the viewer's; the mirrored caption would be false."""
         from aicomp_grounding.query import flip_spatial_query
 
         query = "The black and white shoe on the right foot of the person on the right"
@@ -85,8 +85,7 @@ class QueryValidationTests(unittest.TestCase):
             self.assertEqual(flipped, expected)
 
     def test_flip_unsafe_items_are_not_counted_as_augmented(self):
-        """Excluded items must not inflate the effective training count, since
-        metadata['train_samples'] drives the global-step expectation."""
+        """metadata['train_samples'] drives the global-step expectation."""
         from aicomp_grounding.query import count_effective_training_samples
 
         def item(query):

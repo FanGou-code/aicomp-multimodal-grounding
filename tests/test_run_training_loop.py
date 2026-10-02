@@ -1,10 +1,10 @@
 """Behavior tests for the training main loop via a fake LoRA-free model.
 
 ``run_training`` normally loads real weights and PEFT adapters. These tests
-swap the model/adapter call surface for deterministic fakes so the loop
+swap the model/adapter call surface for deterministic fakes, so the loop
 itself — batching, step checkpoints, epoch metrics, best-path selection — is
 exercised without a GPU. Plans are built through ``prepare_training_plan``
-against on-disk approved artifacts, so the entry path is the real one.
+against on-disk approved artifacts, which is the real entry path.
 """
 
 from __future__ import annotations
@@ -123,8 +123,7 @@ class _CpuTorchShim(types.ModuleType):
                 return None
 
         # The update above copies the real module's ``cuda``; re-bind the
-        # stand-in, otherwise is_available() reports the host's GPU and these
-        # CPU tests only pass on machines that happen to have one.
+        # stand-in so is_available() reports the CPU.
         self.cuda = _CpuCuda()
 
 
@@ -194,10 +193,8 @@ class _FakeModel(torch.nn.Module):
         if labels is not None:
             loss = loss + self.embed(labels.clamp(min=0)).sum() * 0.0
         if not self.training:
-            # Validation loss rises by 1.0 per eval batch, so every epoch has a
-            # distinct, strictly increasing val_loss.  Best-epoch selection is
-            # then *identifiable* (the winner is a known epoch) instead of only
-            # self-consistent, which is what the val_loss tests assert.
+            # Validation loss rises by 1.0 per eval batch, so val_loss is
+            # distinct and strictly increasing per epoch.
             self.eval_forward_calls += 1
             loss = loss + float(self.eval_forward_calls)
         return type("Out", (), {"loss": loss})()
@@ -337,8 +334,7 @@ class RunTrainingLoopTests(unittest.TestCase):
                 )
                 self.assertTrue(plan["smoke_test"])
                 result = run_training(plan, data_root=root, allow_cpu=True)
-                # Without the explicit opt-in a CPU-only torch must still be
-                # refused, so production callers cannot silently train on CPU.
+                # The CPU path needs the explicit opt-in.
                 with self.assertRaisesRegex(RuntimeError, "CUDA GPU"):
                     run_training(plan, data_root=root)
             self.assertEqual(result["status"], "smoke_passed")
@@ -579,8 +575,8 @@ class BestMetricTests(unittest.TestCase):
         )
 
     def test_val_loss_best_metric_runs_every_epoch_and_selects_a_best_adapter(self):
-        """The grounding metric dict has no ``val_loss`` key, so this path used
-        to raise KeyError once the first epoch finished."""
+        """The grounding metric dict has no ``val_loss`` key; this path must
+        select on the validation loss instead."""
         calls: dict = {}
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

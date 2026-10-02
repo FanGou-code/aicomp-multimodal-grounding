@@ -39,11 +39,11 @@ keys/
 htmlcov/
 .ipynb_checkpoints/
 
-# Data files & Datasets: never committed, never distributed.
+# Data files & Datasets: not committed, not distributed.
 data/
 
 # Model weights & LoRA adapters (any location)
-# NOTE: *.bin / *.pt are intentionally broad — weight files of any naming land here.
+# NOTE: *.bin / *.pt are broad on purpose: weight files under any name land here.
 *.safetensors
 *.bin
 *.pt
@@ -69,9 +69,9 @@ outputs/annotations/*
 docs/*
 !docs/data-contract.md
 
-# Internal working notes: never published.
+# Internal working notes.
 AGENTS.md
 
-# Platform-specific tooling kept in the local checkout, never published:
+# Platform-specific tooling, kept out of the published tree:
 # the repository itself stays platform-neutral.
 local/

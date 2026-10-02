@@ -1,4 +1,4 @@
-"""Pure validation and scheduling helpers for compliant QLoRA training.
+"""Pure validation and scheduling helpers for LoRA training.
 
 Data structures
 ---------------
@@ -120,7 +120,7 @@ def build_training_metadata(
         val_samples = count_effective_training_samples(val["data"], augment_flip=False)
 
     # runtime_packages is recorded in hyperparameters for provenance but excluded
-    # from the identity hash to keep run_id stable across environments.
+    # from the identity hash.
     identity_hash_payload = {
         key: (
             {k: v for k, v in value.items() if k != "runtime_packages"}
@@ -543,9 +543,9 @@ def validate_resume_checkpoint(
         step = int(match_step.group(1))
         if state.get("global_step") != step:
             raise ValueError(f"Training checkpoint path step={step} and global_step={state.get('global_step')} disagree")
-        # Step-level checkpoints are valid resume sources.  The training
-        # loop uses batch_index to skip deterministic batches and
-        # restore RNG / optimizer state so double-training is avoided.
+        # Step-level checkpoints are valid resume sources; batch_index skips
+        # deterministic batches, and RNG / optimizer state restore avoids
+        # double-training.
         step_epoch = state.get("completed_epoch")
         batch_index = state.get("batch_index", 0)
         if not isinstance(step_epoch, int) or isinstance(step_epoch, bool):

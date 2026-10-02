@@ -1,7 +1,7 @@
 """Deterministic mock adapter: enables torch-free end-to-end pipeline tests.
 
 Loads nothing and answers every query with a stable pseudo-random valid box
-derived from the query text, so the full chain
+derived from the query text, so the chain
 (items -> adapter -> predictions -> evaluation -> submission ZIP)
 runs in CI without a GPU.
 """

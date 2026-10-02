@@ -167,8 +167,8 @@ def preflight_check_dataset(
     return errors
 
 
-# Laterality intrinsic to the object rather than to the image plane: mirroring the
-# image makes such a caption false, so these never flip.
+# Laterality intrinsic to the object, not to the image plane: mirroring the
+# image makes such a caption false.
 _FLIP_UNSAFE_GLYPH = re.compile(
     r"(?<![A-Za-z])(?:letter|letters|word|words|text|writing|glyph|symbol)(?![A-Za-z])",
     re.IGNORECASE,
@@ -185,8 +185,9 @@ _FLIP_UNSAFE_EGOCENTRIC = re.compile(
 def is_flip_safe(query: str) -> bool:
     """Whether a query's left/right terms describe the image plane.
 
-    Flip augmentation stays label-preserving only for the viewer's left/right, not
-    for glyph order (mirrored text reverses) or a person's own body sides.
+    Left/right terms that order objects on the image plane stay label-preserving
+    under mirroring; glyph order (mirrored text reverses) and a person's own
+    body sides do not.
     """
     if not isinstance(query, str) or not query:
         return False

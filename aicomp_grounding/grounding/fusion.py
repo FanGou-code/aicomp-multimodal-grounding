@@ -3,14 +3,13 @@
 Design notes
 ------------
 - Input units are per-model ``predictions.json`` files (``{key: bbox|None}``),
-  i.e. exactly what the inference entrypoint emits, so contributors can
-  exchange prediction files without any new contract.
+  exactly what the inference entrypoint emits.
 - Weights are **model-level** (per input file), supplied on the command line.
 - Fusion per query: greedy IoU clustering of the valid boxes, cluster score
   = sum of member weights, winner = heaviest cluster, fused box = weighted
   average of the cluster's coordinates (greedy member-wise clustering).
-- Fusion only. This module never builds a submission package; packaging is the
-  separate, explicit ``aicomp_grounding.grounding.submission`` step.
+- Fusion builds no submission package; packaging is the separate
+  ``aicomp_grounding.grounding.submission`` step.
 """
 
 from __future__ import annotations

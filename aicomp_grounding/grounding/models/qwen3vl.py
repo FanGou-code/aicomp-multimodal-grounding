@@ -1,8 +1,7 @@
 """Qwen3-VL grounding adapter: the reference implementation.
 
-Historical constants (model id / revision / pixel budgets) moved here from
-``aicomp_grounding.config`` with unchanged values so every existing training
-and inference fingerprint stays byte-identical.
+Model id, revision and pixel budgets are the values every existing training
+and inference fingerprint was computed from.
 """
 
 from __future__ import annotations
@@ -34,8 +33,7 @@ from aicomp_grounding.config import (
 from aicomp_grounding.grounding.models.base import validated_prompt_length
 
 MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
-# Weight snapshot recorded at adoption; fetch this revision before execution
-# (repo and revision are listed in the README weight table).
+# Weight snapshot; also listed in the README weight table.
 MODEL_REVISION = "5d854aab08710c16b980ec6d603d863b3821b915"
 
 MAX_NEW_TOKENS = 32
@@ -154,15 +152,13 @@ class Qwen3VLAdapter:
         model_path: str | None = None,
     ):
         self.load(device=device, lora_path=lora_path, model_path=model_path)
-        # Training backward has no use for the KV cache and transformers would
-        # force it off at forward time with a warning.  Setting it here keeps
-        # the inference path (which does want the cache) untouched.
+        # Training backward needs no KV cache; transformers would force it off
+        # at forward time with a warning.  Setting it here leaves the inference
+        # path (which does want the cache) untouched.
         text_config = getattr(self._model.config, "text_config", None)
         if text_config is not None and hasattr(text_config, "use_cache"):
             # Nested multimodal models keep the language model under
-            # text_config; the outer config has no use_cache attribute, so
-            # setting it there is a no-op and generation still builds a KV
-            # cache during training forward passes.
+            # text_config; the outer config has no use_cache attribute.
             text_config.use_cache = False
         else:
             self._model.config.use_cache = False

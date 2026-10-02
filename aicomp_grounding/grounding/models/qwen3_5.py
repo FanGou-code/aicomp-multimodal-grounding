@@ -3,14 +3,14 @@
 Qwen3.5 is the Qwen3.5-series unified vision-language model (native VLM,
 model_type ``qwen3_5``). It reuses the Qwen-VL multimodal protocol (chat
 template, ``process_vision_info`` helper, ``<|box_start|>/<|box_end|>``
-tokens) so the training/inference batch builders mirror
+tokens), so the training/inference batch builders mirror
 :mod:`aicomp_grounding.grounding.models.qwen3vl`. Only the model id, revision, the
 loaded model class, and the thinking-disabled chat-template kwarg differ.
 
 Qwen3.5 mixes gated-delta-net (GDN) linear attention with full attention
 (3:1). LoRA targets cover the full-attention projections and the MLP; the
-recurrent GDN projections are intentionally left frozen, mirroring the
-Qwen3.8-27B smoke-validated configuration (same ``qwen3_5`` model class).
+recurrent GDN projections stay frozen, as in the Qwen3.8-27B configuration
+(same ``qwen3_5`` model class).
 """
 
 from __future__ import annotations
@@ -42,8 +42,7 @@ from aicomp_grounding.config import (
 from aicomp_grounding.grounding.models.base import validated_prompt_length
 
 MODEL_NAME = "Qwen/Qwen3.5-9B"
-# ModelScope snapshot recorded at adoption. Download this version before
-# execution; the adapter only reads the explicit local --model-path.
+# ModelScope snapshot; the adapter only reads the explicit local --model-path.
 MODEL_REVISION = "460979c3d11864dd16408d860ac930a360a2fac2"
 
 MAX_NEW_TOKENS = 32
@@ -185,15 +184,13 @@ class Qwen3_5Adapter:
         model_path: str | None = None,
     ):
         self.load(device=device, lora_path=lora_path, model_path=model_path)
-        # Training backward has no use for the KV cache and transformers would
-        # force it off at forward time with a warning.  Setting it here keeps
-        # the inference path (which does want the cache) untouched.
+        # Training backward needs no KV cache; transformers would force it off
+        # at forward time with a warning.  Setting it here leaves the inference
+        # path (which does want the cache) untouched.
         text_config = getattr(self._model.config, "text_config", None)
         if text_config is not None and hasattr(text_config, "use_cache"):
             # Nested multimodal models keep the language model under
-            # text_config; the outer config has no use_cache attribute, so
-            # setting it there is a no-op and generation still builds a KV
-            # cache during training forward passes.
+            # text_config; the outer config has no use_cache attribute.
             text_config.use_cache = False
         else:
             self._model.config.use_cache = False

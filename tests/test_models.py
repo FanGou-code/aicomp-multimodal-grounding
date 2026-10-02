@@ -79,9 +79,7 @@ class RegistryTests(unittest.TestCase):
 
 
 #: The snapshot each adapter's weights are downloaded from; the same values are
-#: listed in the README weight table, so the identity string and the bytes on
-#: disk name the same revision.  A branch name would leave the string unchanged
-#: while the weights underneath move.
+#: listed in the README weight table.
 EXPECTED_MODEL_REVISIONS = {
     "qwen3vl": "5d854aab08710c16b980ec6d603d863b3821b915",
     "qwen3_5": "460979c3d11864dd16408d860ac930a360a2fac2",
@@ -103,9 +101,9 @@ class ModelRevisionPinTests(unittest.TestCase):
 
 
 class QwenIdentityContinuityTests(unittest.TestCase):
-    """Pin the historical identity values so run fingerprints never drift."""
+    """Pin the identity values run fingerprints are computed from."""
 
-    def test_model_constants_match_historical_config(self):
+    def test_model_constants_match_pinned_config(self):
         self.assertEqual(MODEL_NAME, "Qwen/Qwen3-VL-8B-Instruct")
         self.assertEqual(MODEL_REVISION, "5d854aab08710c16b980ec6d603d863b3821b915")
         self.assertEqual(MIN_PIXELS, 256 * 28 * 28)
@@ -129,7 +127,7 @@ class QwenIdentityContinuityTests(unittest.TestCase):
 
 
 class Qwen3_5IdentityContinuityTests(unittest.TestCase):
-    """Pin the Qwen3.5-9B identity values so run fingerprints never drift."""
+    """Pin the Qwen3.5-9B identity values the run fingerprints use."""
 
     def test_model_constants_match_pinned_config(self):
         self.assertEqual(QWEN3_5_MODEL_NAME, "Qwen/Qwen3.5-9B")
@@ -212,11 +210,9 @@ class Glm46VContractTests(unittest.TestCase):
         self.assertIn(GLM46V_BOX_CLOSE, GLM46V_SYSTEM_PROMPT)
         self.assertIn("{query}", GLM46V_USER_TEMPLATE)
 
-    def test_default_generation_config_is_backward_compatible(self):
-        # GLM-4.6V's identity moved once, deliberately: the adapter now pins the
-        # shared per-frame pixel budget instead of inheriting the checkpoint's
-        # `longest_edge`, so `max_pixels` enters its run identity.  Any run of
-        # this adapter needs a new tag.  Every image in the dataset is
+    def test_default_generation_config_pins_the_shared_pixel_budget(self):
+        # The adapter pins the shared per-frame pixel budget, so `max_pixels`
+        # enters the GLM-4.6V run identity.  Every image in the dataset is
         # 1920x1080, where the grid is 78x138 under either budget.
         adapter = get_adapter("glm46v")
         self.assertEqual(
@@ -231,10 +227,9 @@ class Glm46VContractTests(unittest.TestCase):
 
     def test_processor_budget_converts_from_the_per_frame_unit(self):
         # Glm46VImageProcessor reads its budget from a `size` dict and compares
-        # `temporal_factor * h * w` against `longest_edge`, so the per-frame
-        # value the roster records is doubled exactly once, here.  Passing
-        # `min_pixels` / `max_pixels` instead is silently dropped by the
-        # processor and would leave the budget unpinned.
+        # `temporal_factor * h * w` against `longest_edge`; `min_pixels` /
+        # `max_pixels` passed to the processor are dropped.  The per-frame value
+        # is doubled exactly once, here.
         self.assertEqual(
             processor_pixel_kwargs(GLM46V_MAX_PIXELS),
             {
@@ -287,25 +282,19 @@ TRAINABLE_ADAPTERS = (
 )
 
 #: Language-model projection names each adapter must declare, spelled out
-#: literally.  Referring to the production constant here would move both sides
-#: of the assertion at once, so deleting a projection from the shared default
-#: would keep this test green -- the list is duplicated on purpose.
+#: literally so the assertion has an independent side.
 #: `glm46v` fuses the MLP gate and up projections into `gate_up_proj`, so the
-#: split pair does not apply to it and it trains no up path at all; widening
-#: that adapter is a recipe change, not a fix.
+#: split pair does not apply to it.
 EXPECTED_LORA_PROJECTIONS = {
     "qwen3vl": ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"),
     "qwen3_5": ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"),
     "glm46v": ("q_proj", "k_proj", "v_proj", "o_proj", "down_proj"),
 }
 
-# Vision towers that reuse language-model projection names are the trap: a bare
-# suffix list silently wraps them, which puts the vision encoder through
-# backward plus gradient-checkpoint recomputation.  These are the real module
-# paths of the GLM-4.6V vision tower (`glm46v`, in service): its blocks and its
-# merger both expose `gate_proj` / `up_proj` / `down_proj`, so a de-anchored
-# LoRA regex would wrap them.  The Qwen-family towers use other names
-# (`linear_fc1` / `linear_fc2`, packed `qkv`), which is why they were never hit.
+# Modules that a bare suffix list would also match: the GLM-4.6V vision tower
+# (`glm46v`) blocks and merger expose `gate_proj` / `up_proj` / `down_proj`.
+# The Qwen-family towers use other names (`linear_fc1` / `linear_fc2`, packed
+# `qkv`), so only `glm46v` can hit them.
 FROZEN_VISION_MODULES = (
     "model.visual.blocks.0.mlp.gate_proj",
     "model.visual.blocks.0.mlp.up_proj",
@@ -350,13 +339,7 @@ class TrainableAdapterContractTests(unittest.TestCase):
             )
 
     def test_lora_targets_reach_the_language_model(self):
-        """The anchor itself: every declared projection must match.
-
-        The negative assertions below pass whether or not the pattern is
-        anchored -- a bare alternation of projection names does not match a
-        fully qualified path either.  This positive case is what keeps
-        `model.language_model` in the pattern.
-        """
+        """The anchor itself: every declared projection must match."""
         for name, projections in EXPECTED_LORA_PROJECTIONS.items():
             pattern = get_adapter(name).lora_target_modules()
             for projection in projections:
@@ -372,8 +355,7 @@ class TrainableAdapterContractTests(unittest.TestCase):
     def test_lora_targets_never_reach_the_vision_tower(self):
         """The encoder stays frozen whichever projections an adapter declares.
 
-        PEFT matches a string ``target_modules`` with ``re.fullmatch``, so this is
-        the same test PEFT applies when injecting the adapter.
+        This is the match PEFT applies when injecting a string target regex.
         """
         for name in TRAINABLE_ADAPTERS:
             pattern = get_adapter(name).lora_target_modules()
@@ -383,12 +365,10 @@ class TrainableAdapterContractTests(unittest.TestCase):
 
 
 class TrainingBatchShapeTests(unittest.TestCase):
-    """``image_grid_thw`` must reach the vision tower as ``(num_images, 3)``.
+    """``image_grid_thw`` reaches the vision tower as ``(num_images, 3)``.
 
-    Regression: the per-sample batch used to squeeze every tensor, which turned
-    the processor's ``(1, 3)`` grid into ``(3,)``; collating then produced a 1-D
-    grid and the vision tower's interpolation helper indexed it with two
-    dimensions (``IndexError: too many indices for tensor of dimension 1``).
+    The per-sample batch keeps the processor's ``(1, 3)`` shape; the vision
+    tower's interpolation helper indexes ``grid_thw[:, 0]``.
     """
 
     @staticmethod
@@ -469,10 +449,8 @@ class TrainingBatchShapeTests(unittest.TestCase):
 class SupervisedShiftWindowTests(unittest.TestCase):
     """The loss window must cover exactly the supervised span of a padded batch.
 
-    Regression: the training forward used to hand the model the full sequence,
-    which materializes ``length x vocab`` logits and upcasts them to float32
-    (~3 GiB per 2.1k-token sequence at a 248k vocabulary) and OOMs a 24 GiB
-    card.  The window replaces that with the same loss over fewer positions.
+    The window replaces the full-sequence LM-head logits with the same loss
+    over fewer positions.
     """
 
     @staticmethod
@@ -493,8 +471,8 @@ class SupervisedShiftWindowTests(unittest.TestCase):
             [[-100, -100, -100, -100, 5, 6], [-100, -100, -100, -100, -100, -100]]
         )
         keep, shift = supervised_shift_window(labels)
-        # Row 0 becomes supervised at index 4, so the window starts at index 3
-        # (the position whose next token is the first supervised label).
+        # Row 0 is supervised from index 4; the window opens at index 3 (its
+        # next token is the first predicted label).
         self.assertEqual(keep, 3)
         self.assertEqual(shift.tolist(), [[5, 6, -100], [-100, -100, -100]])
 
@@ -512,8 +490,7 @@ class SupervisedShiftWindowTests(unittest.TestCase):
         )
         keep, shift = supervised_shift_window(labels)
         full_shift = torch.nn.functional.pad(labels, (0, 1), value=-100)[:, 1:]
-        # The window keeps every supervised term and drops the leading ignored
-        # ones, which the loss would ignore anyway.
+        # The window keeps every supervised term; leading ignored terms are cut.
         self.assertEqual(keep, 5)
         for row in range(2):
             self.assertEqual(

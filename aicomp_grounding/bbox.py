@@ -90,8 +90,7 @@ def quantize_bbox_1000(box: Sequence[float]) -> list[int]:
         raise ValueError(f"Invalid normalized bbox: {box!r}")
 
     x1, y1, x2, y2 = (round(value * 1000) for value in values)
-    # Keep degenerate (sub-milli) boxes at least one integer unit wide so a
-    # parsed box never collapses into an invalid empty/reversed box.
+    # Degenerate (sub-milli) boxes keep at least one integer unit of width.
     x1, y1 = min(x1, 999), min(y1, 999)
     x2, y2 = max(x2, x1 + 1), max(y2, y1 + 1)
     return [x1, y1, x2, y2]

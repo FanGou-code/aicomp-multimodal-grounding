@@ -2,9 +2,8 @@
 #
 # Usage: python tools/infer.py --config configs/infer_glm46v.yaml
 # Precedence: CLI flags > this YAML > defaults.
-# lora_path: the best-epoch adapter directory, e.g. .../best/epoch_02.
-# The epoch number is the best_metric winner; check `ls` after training
-# (or use last/ for the final-epoch adapter instead).
+# lora_path: the best-epoch adapter directory, e.g. .../best/epoch_02
+# (or last/ for the final-epoch adapter).
 run:
   model: glm46v
   model_path: models/GLM-4.6V-Flash

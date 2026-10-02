@@ -11,8 +11,7 @@ import urllib.request
 from pathlib import Path
 
 # The admin shell exports http_proxy without a 127.* no_proxy exemption;
-# route localhost test requests directly so the real review server (8788)
-# and the proxy are both out of the loop.
+# route localhost test requests directly.
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 
@@ -69,8 +68,8 @@ class AnnotationServerTest(unittest.TestCase):
             host="127.0.0.1",
             port=0,
         )
-        # The accept loop must actually run, or HTTP requests queue in the
-        # kernel backlog forever (the earlier suite-wide hang).
+        # The accept loop must run: without it HTTP requests queue in the
+        # kernel backlog.
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.server_thread.start()
         self.base_url = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -93,8 +92,8 @@ class AnnotationServerTest(unittest.TestCase):
         self.assertAlmostEqual(item["bbox"][0], 0.10)
 
     def test_restart_resyncs_teacher_but_preserves_human_boxes(self):
-        # Human-adjust #01 first; on restart the teacher resync must not
-        # clobber it, while #02 (still teacher-seeded) is re-seeded unchanged.
+        # Human-adjusted #01 keeps its box on restart; #02 (teacher-seeded) is
+        # re-seeded unchanged.
         item_id = "070_00000001#01"
         request = urllib.request.Request(
             f"{self.base_url}/api/item/{urllib.parse.quote(item_id)}/bbox",
@@ -301,8 +300,8 @@ class StoreReplayTest(unittest.TestCase):
             process_a = AnnotationStore(data_dir)
             process_b = AnnotationStore(data_dir)  # created before A's edit
             process_a.set_query("x#01", "the corrected description", annotator="fang0")
-            # B never replayed A's edit; a box-only write must not flush B's
-            # stale (query-less) state over annotations.queries.json.
+            # B never replayed A's edit; a box-only write leaves B's query-less
+            # state out of annotations.queries.json.
             process_b.set("y#01", [0.1, 0.2, 0.3, 0.4], annotator="fang0")
             snapshot = json.loads(
                 (data_dir / "annotations.queries.json").read_text(encoding="utf-8")
@@ -312,7 +311,7 @@ class StoreReplayTest(unittest.TestCase):
 
 
 class SeedBatchingTest(unittest.TestCase):
-    """Startup bulk seeding must not replay the journal per record."""
+    """Startup bulk seeding writes one journal pass, not one per record."""
 
     def test_seed_many_journal_snapshot_and_state(self):
         with tempfile.TemporaryDirectory() as tmp:

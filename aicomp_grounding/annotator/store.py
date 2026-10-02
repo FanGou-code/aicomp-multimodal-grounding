@@ -68,7 +68,7 @@ class AnnotationStore:
                 try:
                     record = json.loads(line)
                 except (json.JSONDecodeError, UnicodeDecodeError):
-                    continue  # torn tail from a crash; journal remains truth
+                    continue  # torn tail from a crash; the journal is truth
                 if not isinstance(record, dict):
                     continue
                 item_id = record.get("id")
@@ -79,7 +79,7 @@ class AnnotationStore:
                 if record.get("query"):
                     queries[item_id] = str(record["query"])
                 if "bbox" not in record:
-                    # Query-only edit (set_query shape): updates the text; box state is untouched.
+                    # Query-only edit (set_query shape): box state is untouched.
                     if item_id not in meta:
                         meta[item_id] = {"annotator": annotator, "ts": record.get("ts")}
                     continue
@@ -112,8 +112,8 @@ class AnnotationStore:
     def _replay(self) -> None:
         signature = self._journal_signature()
         self._state, self._queries, self._meta, self._absent, self._touched = self._read_journal_state()
-        # If another writer appended during this read, leave the earlier
-        # signature so the next read refreshes instead of hiding the new tail.
+        # If another writer appended during this read, keeping the pre-read
+        # signature makes the next read re-scan the journal.
         self._journal_sig = signature
 
     def _refresh_locked(self) -> None:
@@ -123,9 +123,8 @@ class AnnotationStore:
             if sig == self._journal_sig:
                 return
             state, queries, meta, absent, touched = self._read_journal_state()
-            # Concurrent writers may have appended while we replayed; only
-            # commit the replay if the file is unchanged since it started,
-            # otherwise the new tail would be swallowed by this signature.
+            # Commit the replay only if the file is unchanged since the read
+            # started (concurrent writers may have appended).
             if self._journal_signature() == sig:
                 self._state, self._queries, self._meta, self._absent = state, queries, meta, absent
                 self._touched = touched
@@ -195,14 +194,13 @@ class AnnotationStore:
         return bbox
 
     def seed_many(self, seeds: list[tuple[str, list[float], str]]) -> int:
-        """Bulk AI-seed: one journal append per box, one snapshot write total.
+        """Bulk seed: one journal append per box, one snapshot write total.
 
         The per-record set() path re-replays the whole journal on every write
-        for cross-process safety; across a full-corpus seed that is O(n²) and
-        stalled the review server for minutes before its port went up. Batch
-        appends keep the journal format identical (one record per box, same
-        replay semantics); excluding human-annotated items stays the caller's
-        job, decided against a single all_meta() snapshot.
+        for cross-process safety; across a full-corpus seed that is O(n²).
+        Batch appends keep the journal format identical (one record per box,
+        same replay semantics); excluding human-annotated items stays the
+        caller's job, decided against a single all_meta() snapshot.
         """
         if not seeds:
             return 0
@@ -252,8 +250,8 @@ class AnnotationStore:
         self._append_many([record])
 
     def _append_many(self, records: list[dict]) -> None:
-        # Preserve all original bytes. A damaged/non-newline-terminated tail
-        # gets its own line so it cannot swallow the next successful write.
+        # Preserve all original bytes; a damaged/non-newline-terminated tail
+        # gets its own line before the next write.
         with self.journal_path.open("a+b") as fh:
             fh.seek(0, os.SEEK_END)
             if fh.tell():
@@ -266,8 +264,8 @@ class AnnotationStore:
             os.fsync(fh.fileno())
 
     def _write_snapshots(self) -> None:
-        # Caller holds both thread and process locks, so all snapshots reflect
-        # the same journal. Readers recover from the journal after any crash.
+        # Caller holds both thread and process locks. Readers recover from the
+        # journal after any crash.
         self._replay()
         if self.active_dataset_path is None:
             atomic_write_json(self.snapshot_path, self._state)

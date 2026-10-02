@@ -8,7 +8,7 @@ run:
   model_path: models/GLM-4.6V-Flash
   data_dir: data
   seed: 42
-  num_workers: 0            # no forking after CUDA init; data prep is light
+  num_workers: 0            # no fork after CUDA init
   checkpoint_interval: 20
   run_tag: glm46v-a10
 hyperparameters:
@@ -16,7 +16,7 @@ hyperparameters:
   gradient_accumulation_steps: 16
   learning_rate: 1.0e-4
   epochs: 3
-  eval_batch_size: 1        # validation OOM aborts the run; keep it conservative
+  eval_batch_size: 1        # validation OOM aborts the run
   best_metric: acc_at_0_5
   lora_rank: 16
   lora_alpha: 32
@@ -25,5 +25,5 @@ hyperparameters:
   lr_scheduler_type: cosine
   max_grad_norm: 1.0
   weight_decay: 0.01
-  max_pixels: 2408448       # 3072 patches = lossless 1080p; raises VRAM
+  max_pixels: 2408448       # 3072 patches = lossless 1080p
   gradient_checkpointing: true

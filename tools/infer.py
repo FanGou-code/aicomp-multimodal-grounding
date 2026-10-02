@@ -3,9 +3,8 @@
 Model-agnostic: ``--model`` selects a grounding adapter (qwen3vl / qwen3_5 /
 glm46v / mock).
 
-This entrypoint produces predictions only. Building ``submission.zip`` is a
-separate, explicit step (``python tools/submission.py``); inference
-never packages one.
+This entrypoint produces predictions only; ``submission.zip`` is built by
+``python tools/submission.py``.
 """
 
 from __future__ import annotations
@@ -46,9 +45,7 @@ from aicomp_grounding.config import (
 from aicomp_grounding.paths import ProjectPaths, output_dir, resolve_from_root
 
 #: Adapters whose constructor takes the per-frame pixel budget (``max_pixels``).
-#: ``mock`` is not in this set: it has no such parameter, and passing it would
-#: raise TypeError.  This is a capability set, not the training roster — a future
-#: inference-only VLM belongs here without being trainable.
+#: ``mock`` has no such parameter; passing it would raise TypeError.
 PIXEL_BUDGET_MODELS = ("qwen3vl", "qwen3_5", "glm46v")
 
 
@@ -89,7 +86,7 @@ CONFIG_RUN_KEYS = (
 )
 
 #: Inference has no training hyperparameters; a ``hyperparameters`` section is
-#: rejected so a training config is never silently accepted here.
+#: rejected.
 CONFIG_HYPERPARAMETER_KEYS: tuple[str, ...] = ()
 
 #: Applied after CLI and YAML; ``None`` means "not specified yet".
@@ -385,9 +382,8 @@ def _run_dataloader_inference_loop(
     pending_items.sort(key=lambda x: (x.get("visible", x["key"]), x["key"]))
     print(f"Loading model '{adapter.model_name}' (revision {adapter.model_revision})...")
     adapter.load(device=device, lora_path=adapter_dir, model_path=model_path)
-    # The model is loaded BEFORE the DataLoader spawns workers, which relies on
-    # Linux fork semantics (workers never touch CUDA). Spawning DataLoader
-    # workers would try to pickle the adapter incl. the CUDA model and fail.
+    # The model is loaded before the DataLoader spawns workers: forked workers
+    # inherit it without pickling the CUDA model.
     use_prepared = getattr(adapter, "supports_prepared_inputs", False)
 
     class _Dataset(Dataset):
@@ -413,9 +409,8 @@ def _run_dataloader_inference_loop(
             for item in batch
         ]
         if use_prepared:
-            # collate_fn runs inside the DataLoader worker processes, so this
-            # moves CPU-side prompt building and image processing off the
-            # main loop, overlapping them with GPU generation.
+            # collate_fn runs inside the DataLoader worker processes: prompt
+            # building and image processing overlap with GPU generation.
             return [s.key for s in samples], adapter.prepare_inputs(samples)
         return [s.key for s in samples], samples
 
@@ -579,9 +574,9 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     adapter_fingerprint = fingerprint_lora(adapter_dir)
     dataset_for_fp = {item["key"]: item for item in items}
     input_fingerprint = fingerprint_inputs(dataset_for_fp, selected_keys)
-    # Bind run identity to the selected samples' image references (paths +
-    # recorded sizes when present) without hashing GB of pixels. Existing run
-    # dirs keep their recorded fingerprints; only new runs change identity.
+    # Bind run identity to the selected samples' image references (paths plus
+    # recorded sizes when present). Existing run dirs keep their recorded
+    # fingerprints; only new runs change identity.
     image_fingerprint = trusted_dataset_image_fingerprint(
         dataset_for_fp,
         selected_keys,
@@ -631,8 +626,8 @@ def run_cli(args, *, commit_hook: Callable[[], None] | None = None):
     )
     if any(key not in predictions for key in selected_keys) and adapter.name != "mock":
         args.model_path = require_local_model_path(args.model_path)
-    # Record identity before any prediction file is published. Existing files
-    # have already been checked above; no foreign metadata is silently replaced.
+    # Record identity before any prediction file is published; existing files
+    # were checked above.
     atomic_write_json(metadata_path, metadata)
     if args.num_shards > 1:
         shard_checkpoint_dir = run_dir / "shard_checkpoints"
